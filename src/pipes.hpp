@@ -72,9 +72,10 @@ public:
 private:
     struct Task {
         std::function<void()> fn;
-        std::shared_ptr<std::exception_ptr> err;   // 首个异常传播
     };
     void worker(std::stop_token st);
+    size_t workers_;                 // 目标线程数（惰性启动）
+    size_t started_ = 0;             // 已启动
     std::vector<std::jthread> threads_;
     std::mutex m_;
     std::condition_variable cv_;

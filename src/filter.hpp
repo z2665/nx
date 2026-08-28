@@ -11,15 +11,20 @@
 
 namespace nx {
 
-struct FilterStats {
-    std::atomic<uint64_t>* produced = nullptr;   // 产出计数（压缩比熔断用）
+// 压缩比熔断（D6）：produced/inputBytes > maxRatio → LimitError（泵内抛出经 err 传回）
+struct FilterLimiter {
+    std::atomic<uint64_t>* produced = nullptr;         // 过滤器累计产出（分子）
+    const std::atomic<uint64_t>* inputBytes = nullptr; // 根输入累计（分母，实时）
+    uint64_t inputFloor = 0;                           // 根尺寸提示（小输入炸弹也判）
+    uint64_t maxRatio = 0;                             // 0 = 不检查
+    std::atomic<bool>* limitTripped = nullptr;
 };
 
 // 解码泵主体：从 in 顺序读压缩流，解码后以块推入 out。
-// stop=true 时尽快退出（下游已放弃）。异常在泵线程内捕获后经 err 传出。
+// 异常在泵线程内捕获后经 err 传出。
 // 由 walker 在独立线程中调用（D4：每 FilterStage 一个线程）。
 void filter_decode(Format fmt, PushbackSource& in, BoundedQueue<std::vector<byte>>& out,
-                   std::exception_ptr& err);
+                   std::exception_ptr& err, const FilterLimiter& lim = FilterLimiter{});
 
 // .Z（compress）经由 libarchive raw+filter 解码（单成员）
 void decode_via_libarchive(PushbackSource& in,

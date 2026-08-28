@@ -699,6 +699,7 @@ bool SevenZipReader::next(ContainerEntry& out) {
         if (c == '\\') c = '/';   // 7z.dll(Windows) kpidPath 用反斜杠，统一为 '/'
     out.isDir = it.isDir;
     out.isSymlink = false;
+    out.independentData = true;   // 每条目独立 spool 支撑 → 可异步写出（D4）
     out.size = it.size;
     out.data = std::make_shared<EntrySource>(shared_from_this(), cursor_);
     ++cursor_;

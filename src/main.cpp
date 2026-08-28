@@ -18,7 +18,7 @@ namespace {
 
 void usage() {
     std::printf(
-        "nx - 流式嵌套压缩包解压工具 (M0)\n"
+        "nx - 流式嵌套压缩包解压工具 (M2)\n"
         "\n"
         "用法:\n"
         "  nx extract <输入...> -O <输出目录> [选项]\n"
@@ -36,8 +36,85 @@ void usage() {
         "  --spool-ram <n>      随机访问容器 RAM 驻留上限（默认 64M）\n"
         "  --buffer <n>         级间缓冲（默认 1M）\n"
         "  --temp-dir <目录>    溢出临时目录（默认系统临时目录）\n"
+        "  --verify sha256      输出文件 sha256 校验（计入 --report）\n"
+        "  --report <f.json>    机器可读报告（统计/耗时/校验；不含密码，D8）\n"
         "\n"
         "退出码: 0 成功 | 1 部分失败 | 2 密码缺失或耗尽 | 3 超限熔断 | 4 缺分片 | 64 用法错误\n");
+}
+
+// JSON 字符串转义
+std::string json_escape(const std::string& v) {
+    std::string r;
+    r.reserve(v.size() + 2);
+    r += '"';
+    for (unsigned char c : v) {
+        switch (c) {
+            case '"': r += "\\\""; break;
+            case '\\': r += "\\\\"; break;
+            case '\n': r += "\\n"; break;
+            case '\r': r += "\\r"; break;
+            case '\t': r += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    r += buf;
+                } else {
+                    r += static_cast<char>(c);
+                }
+        }
+    }
+    r += '"';
+    return r;
+}
+
+// --report 输出（D8）：统计/耗时/校验；不含任何密码信息
+void write_report(const std::wstring& path, Session& s, const std::vector<std::wstring>& inputs,
+                  ULONGLONG elapsedMs, const std::string& tool) {
+    std::string j;
+    j += "{\n  \"tool\": " + json_escape(tool) + ",\n";
+    j += "  \"inputs\": [";
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        if (i) j += ", ";
+        j += json_escape(wide_to_utf8(inputs[i]));
+    }
+    j += "],\n";
+    j += "  \"files\": " + std::to_string(s.stats.filesOut.load()) + ",\n";
+    j += "  \"bytes\": " + std::to_string(s.stats.bytesOut.load()) + ",\n";
+    j += "  \"inputBytes\": " + std::to_string(s.meter.bytes.load()) + ",\n";
+    double inB = static_cast<double>(s.meter.bytes.load());
+    j += "  \"expansionRatio\": " +
+         std::to_string(inB > 0 ? s.stats.bytesOut.load() / inB : 0.0) + ",\n";
+    j += "  \"containers\": " + std::to_string(s.stats.containers.load()) + ",\n";
+    j += "  \"filters\": " + std::to_string(s.stats.filters.load()) + ",\n";
+    j += "  \"durationMs\": " + std::to_string(elapsedMs) + ",\n";
+    j += "  \"corruptEntries\": " + std::to_string(s.stats.corrupt.load()) + ",\n";
+    j += "  \"failedBranches\": " + std::to_string(s.stats.branchesFailed.load()) + ",\n";
+    j += "  \"passwordPrompts\": " + std::to_string(s.pw.promptCount()) + ",\n";
+    j += "  \"verify\": ";
+    if (s.sink->verifyEnabled()) {
+        j += "[\n";
+        auto& files = s.sink->verified();
+        for (size_t i = 0; i < files.size(); ++i) {
+            j += "    {\"path\": " + json_escape(files[i].rel) +
+                 ", \"bytes\": " + std::to_string(files[i].bytes) +
+                 ", \"sha256\": \"" + files[i].sha256 + "\"}";
+            j += (i + 1 < files.size()) ? ",\n" : "\n";
+        }
+        j += "  ]\n";
+    } else {
+        j += "null\n";
+    }
+    j += "}\n";
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        std::fprintf(stderr, "[nx] 报告写入失败: %s\n", wide_to_utf8(path).c_str());
+        return;
+    }
+    DWORD w = 0;
+    WriteFile(h, j.data(), static_cast<DWORD>(j.size()), &w, nullptr);
+    CloseHandle(h);
 }
 
 std::vector<std::string> get_args(int& argc) {
@@ -70,7 +147,9 @@ int main() {
     Session s;
     std::vector<std::wstring> inputs;
     std::wstring outDir;
+    std::wstring reportPath;
     bool haveOut = false;
+    ULONGLONG t0 = GetTickCount64();
 
     try {
         for (int i = 2; i < argc; ++i) {
@@ -93,6 +172,15 @@ int main() {
             else if (a == "--spool-ram") s.opt.spoolRam = static_cast<size_t>(parse_size(need("--spool-ram")));
             else if (a == "--buffer") s.opt.pipeBytes = static_cast<size_t>(parse_size(need("--buffer")));
             else if (a == "--temp-dir") s.tempDir = utf8_to_wide(need("--temp-dir"));
+            else if (a == "--verify") {
+                std::string algo = need("--verify");
+                if (algo != "sha256") {
+                    std::fprintf(stderr, "[nx] --verify 仅支持 sha256\n");
+                    return 64;
+                }
+                s.opt.verify = algo;
+            }
+            else if (a == "--report") reportPath = utf8_to_wide(need("--report"));
             else if (!a.empty() && a[0] == '-') {
                 std::fprintf(stderr, "[nx] 未知选项: %s\n", a.c_str());
                 return 64;
@@ -115,7 +203,7 @@ int main() {
     }
     if (dryRun) { s.opt.dryRun = true; outDir = L""; }
 
-    // 输出目录预创建 + 磁盘水位预检
+    // 输出目录预创建
     if (!dryRun) {
         if (!ensure_dir_recursive(outDir)) {
             std::fprintf(stderr, "[nx] 创建输出目录失败: %s\n", wide_to_utf8(outDir).c_str());
@@ -146,7 +234,15 @@ int main() {
         }
     }
 
-    // 汇总（设计 D8：不含任何密码信息）
+    // M2：等待异步写完成（池内硬错误经 stats.abortFlag 生效）
+    s.sink->waitAll();
+    ULONGLONG elapsedMs = GetTickCount64() - t0;
+
+    // --report（D8：机器可读；不含任何密码信息）
+    if (!reportPath.empty())
+        write_report(reportPath, s, inputs, elapsedMs, argc ? args[0] : "nx");
+
+    // 汇总
     uint64_t inB = s.meter.bytes.load();
     std::printf(
         "✓ %llu 个文件 · %s 输出 · %llu 层容器 · %llu 层过滤器",
@@ -156,15 +252,15 @@ int main() {
         static_cast<unsigned long long>(s.stats.filters.load()));
     if (!dryRun) {
         std::printf(" · 输入 %s", format_size(inB).c_str());
-        if (inB > 0) {
+        if (inB > 0)
             std::printf("（膨胀 %.1f×）", s.stats.bytesOut.load() / static_cast<double>(inB));
-        }
     }
     std::printf("\n");
     if (s.stats.corrupt.load() || s.stats.branchesFailed.load()) {
         std::printf("  失败分支 %d · 损坏条目 %d\n", s.stats.branchesFailed.load(),
                     s.stats.corrupt.load());
     }
+    std::printf("  耗时 %.2fs\n", elapsedMs / 1000.0);
 
     // 退出码优先级：超限(3) > 密码(2) > 缺分片(4) > 部分失败(1) > 成功(0)
     if (s.stats.limitTripped.load()) return 3;

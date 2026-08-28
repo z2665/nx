@@ -15,6 +15,7 @@ struct Options {
     size_t histCap = 4 << 20;           // 回看窗口
     bool keepGoing = false;             // 数据损坏时继续其余条目
     bool dryRun = false;                // tree 模式
+    std::string verify;                 // "sha256"（D8：--verify sha256）
 };
 
 struct Stats {

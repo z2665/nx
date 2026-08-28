@@ -81,7 +81,7 @@ public:
         ctx_.src = reader_ ? static_cast<ByteSource*>(reader_.get())
                            : static_cast<ByteSource*>(borrowed_);
         ctx_.reader = reader_.get();
-        ctx_.buf.assign(64 << 10, 0);
+        ctx_.buf.assign(256 << 10, 0);
     }
 
     ~LaSeqReader() override {
@@ -89,10 +89,12 @@ public:
     }
 
     // 流式模式成功确认后过继所有权（失败路径 caller 保留 src 以便 rewind/spool 回退）
+    // 采纳后该流不再需要回看（probe/D2 回退已完成）→ 关历史，启用 D5 直通
     void adoptStream(std::unique_ptr<PushbackSource> s) {
         borrowed_ = nullptr;
         streamingSrc_ = std::move(s);
         ctx_.src = streamingSrc_.get();
+        streamingSrc_->setHistoryEnabled(false);
     }
 
     CbCtx& ctx() { return ctx_; }
@@ -105,6 +107,7 @@ private:
 public:
 
     size_t readEntryData(int idx, std::span<byte> buf);
+    std::span<const byte> readEntryDirect(int idx, size_t maxN);
     std::optional<uint64_t> entrySize(int idx) const {
         if (idx < 0 || idx >= static_cast<int>(sizes_.size())) return {};
         if (sizes_[idx] == UINT64_MAX) return {};
@@ -146,8 +149,8 @@ private:
     std::deque<ContainerEntry> replayQ_;   // probe 预取条目重放队列
     std::vector<byte> probeFront_;         // probe 预读待重放字节
     int curIdx_ = -1;
-    std::vector<byte> leftover_;
-    size_t leftoverOff_ = 0;
+    std::span<const byte> laBlock_;   // 当前 libarchive 块视图（有效至下一次 data_block 调用）
+    size_t blockOff_ = 0;
     uint64_t entryPos_ = 0;      // 已拉入 leftover 的条目内偏移
     std::vector<uint64_t> sizes_;
 };
@@ -156,6 +159,10 @@ class LaEntrySource : public ByteSource {
 public:
     LaEntrySource(std::shared_ptr<LaSeqReader> r, int idx) : r_(std::move(r)), idx_(idx) {}
     size_t read(std::span<byte> buf) override { return r_->readEntryData(idx_, buf); }
+    // D5：libarchive 块视图直借，省一次 memcpy
+    std::span<const byte> read_direct(size_t maxN) override {
+        return r_->readEntryDirect(idx_, maxN);
+    }
     std::optional<uint64_t> sizeHint() const override { return r_->entrySize(idx_); }
 private:
     std::shared_ptr<LaSeqReader> r_;
@@ -181,8 +188,8 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
         throw CorruptError("读取归档头失败: " + m);
     }
     ++curIdx_;
-    leftover_.clear();
-    leftoverOff_ = 0;
+    laBlock_ = {};
+    blockOff_ = 0;
     entryPos_ = 0;
     probeFront_.clear();
     const char* nm = archive_entry_pathname(e_.get());
@@ -201,6 +208,43 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
     return true;
 }
 
+// 零拷贝：优先当前块残留视图；否则拉新块返回其视图（全程无 memcpy）。
+// probeFront_ 非空时退回空视图（重放字节须先经 read() 交付）。
+std::span<const byte> LaSeqReader::readEntryDirect(int idx, size_t maxN) {
+    if (idx != curIdx_ || maxN == 0) return {};
+    if (!probeFront_.empty()) return {};
+    if (blockOff_ >= laBlock_.size()) {
+        const void* p = nullptr;
+        size_t sz = 0;
+        la_int64_t off = 0;
+        int r = archive_read_data_block(a_, &p, &sz, &off);
+        if (r == ARCHIVE_EOF) return {};
+        const char* emsg = archive_error_string(a_);
+        if (r == ARCHIVE_WARN) {
+            std::string low = emsg ? emsg : "";
+            for (auto& c : low)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (low.find("crc") != std::string::npos)
+                throw CorruptError(std::string("条目数据损坏(CRC): ") + (emsg ? emsg : ""));
+        } else if (r != ARCHIVE_OK) {
+            FailKind fk = classify_msg(emsg);
+            if (fk == FailKind::Password)
+                throw PasswordExhausted("", std::string("条目密码错误: ") + (emsg ? emsg : ""));
+            throw CorruptError(std::string("条目数据损坏: ") + (emsg ? emsg : ""));
+        }
+        if (off != static_cast<la_int64_t>(entryPos_))
+            throw CorruptError("条目数据偏移不连续");
+        laBlock_ = std::span<const byte>(static_cast<const byte*>(p), sz);
+        blockOff_ = 0;
+        entryPos_ += sz;
+    }
+    if (blockOff_ >= laBlock_.size()) return {};
+    size_t n = std::min(maxN, laBlock_.size() - blockOff_);
+    auto v = laBlock_.subspan(blockOff_, n);
+    blockOff_ += n;
+    return v;
+}
+
 size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
     if (idx != curIdx_) throw Error("条目流已失效（迭代已前进）");
     if (buf.empty()) return 0;
@@ -210,10 +254,10 @@ size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
         probeFront_.erase(probeFront_.begin(), probeFront_.begin() + n);
         return n;
     }
-    if (leftoverOff_ < leftover_.size()) {
-        size_t n = std::min(buf.size(), leftover_.size() - leftoverOff_);
-        std::memcpy(buf.data(), leftover_.data() + leftoverOff_, n);
-        leftoverOff_ += n;
+    if (blockOff_ < laBlock_.size()) {
+        size_t n = std::min(buf.size(), laBlock_.size() - blockOff_);
+        std::memcpy(buf.data(), laBlock_.data() + blockOff_, n);
+        blockOff_ += n;
         return n;
     }
     const void* p = nullptr;
@@ -235,12 +279,12 @@ size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
     }
     if (off != static_cast<la_int64_t>(entryPos_))
         throw CorruptError("条目数据偏移不连续");
-    leftover_.assign(static_cast<const byte*>(p), static_cast<const byte*>(p) + sz);
-    leftoverOff_ = 0;
+    laBlock_ = std::span<const byte>(static_cast<const byte*>(p), sz);
+    blockOff_ = 0;
     entryPos_ += sz;
-    size_t n = std::min(buf.size(), leftover_.size());
-    std::memcpy(buf.data(), leftover_.data(), n);
-    leftoverOff_ = n;
+    size_t n = std::min(buf.size(), laBlock_.size());
+    std::memcpy(buf.data(), laBlock_.data(), n);
+    blockOff_ = n;
     return n;
 }
 

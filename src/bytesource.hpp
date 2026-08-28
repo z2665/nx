@@ -17,6 +17,9 @@ public:
     virtual ~ByteSource() = default;
     // 顺序读：返回读取字节数，0 = EOF。阻塞。
     virtual size_t read(std::span<byte> buf) = 0;
+    // 可选零拷贝读（D5）：返回内部缓冲视图，有效至下一次 read/read_direct；
+    // 不支持或 EOF 返回空 span（调用方退回 read() 判 EOF）。
+    virtual std::span<const byte> read_direct(size_t maxN) { (void)maxN; return {}; }
     virtual std::optional<uint64_t> sizeHint() const { return {}; }
 };
 
@@ -64,6 +67,7 @@ class SharedView : public ByteSource {
 public:
     explicit SharedView(std::shared_ptr<ByteSource> inner) : inner_(std::move(inner)) {}
     size_t read(std::span<byte> buf) override { return inner_->read(buf); }
+    std::span<const byte> read_direct(size_t maxN) override { return inner_->read_direct(maxN); }
     std::optional<uint64_t> sizeHint() const override { return inner_->sizeHint(); }
 private:
     std::shared_ptr<ByteSource> inner_;
@@ -95,6 +99,10 @@ public:
 
     // 不消费地查看最多 n 字节（可能不足 n = EOF）；返回视图在下次调用前有效
     std::span<const byte> peek(size_t n);
+    // D5 零拷贝直通：检测/打开完成后调用——关闭历史记录，pend 空时 read 直接穿透
+    // 到上游（省 hist/pend 两级 memcpy）。此后 rewind 将失败（不再需要）。
+    void setHistoryEnabled(bool on) { historyEnabled_ = on; }
+    std::span<const byte> read_direct(size_t maxN) override;
     // 回退 pos 到绝对位置（须 >= histStart()）
     void rewindTo(uint64_t absPos);
     uint64_t pos() const { return base_; }
@@ -104,10 +112,12 @@ private:
     void pull(size_t n);   // 从上游补充 pend 至少 n 字节（或 EOF）
     SourcePtr src_;
     std::vector<byte> pend_;      // 已从上游拉出、未交付给消费者
+    size_t pendOff_ = 0;          // pend_ 已消费前缀（读满即重置，避免逐次 memmove）
     std::deque<byte> hist_;       // 已交付字节（回看窗口）
     size_t histCap_;
     uint64_t base_ = 0;           // pend_[0] 的绝对位置
     bool srcEof_ = false;
+    bool historyEnabled_ = true;  // 检测/回退阶段后关闭（D5 直通）
 };
 
 } // namespace nx

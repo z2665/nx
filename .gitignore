@@ -17,3 +17,6 @@ tests/tools/
 _vcpkg_run.cmd
 __pycache__/
 *.pyc
+tests/bench_corpus/
+tests/bench_work/
+tests/bench_report.json

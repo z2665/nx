@@ -1,6 +1,6 @@
 # nx — 流式嵌套压缩包解压工具
 
-设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2）。当前实现状态：**M1 完成**（zip / 7z / rar 三主流格式完整支持）。
+设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2）。当前实现状态：**M2 完成**（M0 流水线 + M1 zip/7z/rar 全格式 + M2 并发调优/安全完备/基准）。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -38,11 +38,27 @@ WinRAR 7.x 已移除 RAR4 创建（`-ma4`/`-vn`），故 rar4 读取路径由 7z
   字节拼接分卷(.7z.001)、zip SFX（魔数扫描 + D2 回退）、
   **zip→7z(密码A)→rar(密码B) 三格式异密码嵌套链**
 
+## M2：并发/背压调优、安全完备、--tree/--report、基准
+
+- **性能（D5）**：PushbackSource 游标化 + 检测后关闭历史（直通模式）+ `read_direct` 零拷贝链
+  （libarchive 块视图 → WriteFile 直写，全程无中间 memcpy）；FS 级 7z/rar 根文件免 spool 直读；
+  7z.dll 惰性加载；Sink 写出线程池（独立 spool 源异步写，D4）
+- **安全（D6）**：压缩比熔断（产出/输入 > max-ratio → exit 3；分母含根尺寸提示，
+  小输入炸弹也能判定）；每文件磁盘水位复查
+- **可观测（D8）**：`--verify sha256`（BCrypt，输出哈希入报告）、`--report r.json`
+  （统计/耗时/校验，不含任何密码信息）
+- **基准（§9.5，`python tests/bench.py`）**：256MB 语料 × 3 方案。
+  链式用例（tar.gz→zip、tar.bz2→zip）nx 快于手工两遍 33-34%，峰值中间磁盘 0 MiB
+  （手工两遍 +18 MiB），输出内容与基准一致。
+  附带发现：**bsdtar 管道在 Windows 原生管道下解流式 zip 会静默丢条目**（可复现，
+  python/cmd 管道均然）——其墙钟不能作为有效对照，正是设计 §2 描述的现成工具缺陷。
+
 ## 用法
 
 ```
 nx extract data.zip.001 -O out/ -p pw1 -p pw2 --no-prompt
 nx extract mv.part1.rar -O out/            # RAR 原生多卷自动聚合
+nx extract x.zip -O out/ --verify sha256 --report r.json
 nx tree  outer.tar.gz
 ```
 

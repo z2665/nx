@@ -209,6 +209,60 @@ def main():
         r.check(code == 0, f"tree 退出码 {code}")
         r.check("inner.zip" in stdout, "tree 输出缺少 inner.zip")
 
+    # ---- M2 ----
+    # 压缩比熔断（D6）：高膨胀 gz + --max-ratio 50 → exit 3；默认 1000 放行
+    d = os.path.join(CASES, "ratio_bomb")
+    if os.path.isdir(d):
+        r = add("ratio_bomb")
+        out = fresh_out("ratio_bomb")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "bomb.bin.gz"), "-O", out,
+                                       "--max-ratio", "50", "--no-prompt"])
+        r.check(code == 3, f"--max-ratio 50 退出码 {code}（期望 3）: {stderr.strip()[:150]}")
+        out = fresh_out("ratio_bomb_ok")
+        code, _o, _e, _t = run_nx(["extract", find_input(d, "bomb.bin.gz"), "-O", out,
+                                   "--no-prompt"])
+        r.check(code == 0, f"默认 ratio 下退出码 {code}（期望 0）")
+
+    # --verify sha256 + --report（D8）：哈希与 ground truth 对比、报告结构断言
+    d = os.path.join(CASES, "plain_zip")
+    if os.path.isdir(d):
+        import json as _json
+        r = add("verify_report")
+        out = fresh_out("verify_report")
+        tmp = fresh_tmp("verify_report")
+        rep = os.path.join(WORK, "verify_report", "r.json")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "plain.zip"), "-O", out,
+                                       "--temp-dir", tmp, "--verify", "sha256",
+                                       "--report", rep, "--no-prompt"])
+        r.check(code == 0, f"verify+report 退出码 {code}: {stderr.strip()[:150]}")
+        try:
+            rep = _json.load(open(rep, encoding="utf-8"))
+            for key in ("tool", "inputs", "files", "bytes", "containers", "filters",
+                        "durationMs", "verify"):
+                r.check(key in rep, f"报告缺少字段 {key}")
+            r.check(isinstance(rep["verify"], list) and len(rep["verify"]) == 2,
+                    f"verify 条目数 {len(rep['verify']) if isinstance(rep['verify'], list) else 'null'}（期望 2）")
+            if isinstance(rep["verify"], list):
+                for v in rep["verify"]:
+                    r.check(len(v.get("sha256", "")) == 64, f"sha256 长度异常: {v}")
+        except Exception as e:
+            r.check(False, f"报告解析失败: {e}")
+        # 哈希与 ground truth 对比
+        exp = _json.load(open(os.path.join(d, "expected.json"), encoding="utf-8"))["files"]
+        got = {}
+        for dirpath, _dn, filenames in os.walk(out):
+            for fn in filenames:
+                import hashlib
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, out).replace("\\", "/")
+                h = hashlib.sha256()
+                with open(full, "rb") as f:
+                    for c in iter(lambda: f.read(1 << 20), b""):
+                        h.update(c)
+                got[rel] = h.hexdigest()
+        for k, v in exp.items():
+            r.check(got.get(k) == v, f"{k} 哈希不符（verify 数据流正确性）")
+
     # 汇总
     print()
     fails = 0

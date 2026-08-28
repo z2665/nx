@@ -8,10 +8,8 @@ size_t ThreadPool::defaultWorkers() {
     return std::max<size_t>(2, std::min<size_t>(8, cores / 2));
 }
 
-ThreadPool::ThreadPool(size_t n) {
-    for (size_t i = 0; i < n; ++i)
-        threads_.emplace_back([this](std::stop_token st) { worker(st); });
-}
+ThreadPool::ThreadPool(size_t n)
+    : workers_(n) {}   // 惰性：首个 submit 才起线程（降低无异步任务的启动成本）
 
 ThreadPool::~ThreadPool() {
     {
@@ -25,9 +23,13 @@ ThreadPool::~ThreadPool() {
 void ThreadPool::submit(std::function<void()> f) {
     {
         std::lock_guard<std::mutex> lk(m_);
-        q_.push_back(Task{std::move(f), nullptr});
+        q_.push_back(Task{std::move(f)});
     }
-    cv_.notify_one();
+    while (started_ < workers_) {   // 惰性启动
+        threads_.emplace_back([this](std::stop_token st) { worker(st); });
+        ++started_;
+    }
+    cv_.notify_all();
 }
 
 void ThreadPool::worker(std::stop_token st) {

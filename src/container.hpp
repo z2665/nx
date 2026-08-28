@@ -13,8 +13,9 @@ struct ContainerEntry {
     uint64_t size = UINT64_MAX;      // 解压后大小；未知 = UINT64_MAX
     bool isDir = false;
     bool isSymlink = false;
+    bool independentData = false;   // 数据源独立于迭代位置（spool/文件支撑）→ 可异步写出
     std::string symlinkTarget;
-    std::shared_ptr<ByteSource> data;   // 顺序条目流：调用下一次 next() 前有效
+    std::shared_ptr<ByteSource> data;   // 顺序条目流：independent=false 时 next() 前有效
 };
 
 class ContainerReader {

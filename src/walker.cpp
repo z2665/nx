@@ -95,9 +95,11 @@ void process_entry(Session& s, ContainerEntry& e, const std::string& sub,
         fc == FormatClass::TailContainer || fc == FormatClass::RandContainer) {
         walk(s, std::move(pb), sub, e.name, entryChain, depth, false);
     } else {
-        // 普通文件
+        // 普通文件（独立源 → 线程池异步写，D4）
+        pb->setHistoryEnabled(false);   // D5：落盘路径无需回看
         std::string rel = sub.empty() ? e.name : sub + "/" + e.name;
-        s.sink->emitFile(rel, *pb, e.size, depth + 1);
+        s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), e.size, depth + 1,
+                         e.independentData);
     }
 }
 
@@ -260,6 +262,31 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
 
 } // namespace
 
+// M2：根文件 7z/rar 免 spool——检测格式后直接以文件为 IInStream 打开（7z.dll）
+bool fs_direct_open(Session& s, const std::wstring& path, const std::string& rootName) {
+    auto fsSrc = std::make_shared<FileSource>(path, &s.meter);
+    auto pb = std::make_unique<PushbackSource>(std::make_unique<SharedView>(fsSrc), 64 << 10);
+    Detection d = detect(*pb, rootName);
+    if (d.fmt != Format::SevenZip && d.fmt != Format::Rar) return false;
+    if (!sz::dll_available()) return false;   // 惰性：zip/tar 输入不触发 7z.dll 加载
+    if (s.opt.maxDepth < 1) {
+        s.stats.limitTripped = true;
+        throw LimitError("递归深度上限为 0");
+    }
+    std::string layerId = "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")";
+    layer_note(s, 0, rootName + " → " + format_name(d.fmt) +
+                          (d.detail.empty() ? "" : " " + d.detail) + " [直读]");
+    std::map<std::wstring, sz::VolumeSource> vols;
+    sz::VolumeSource v;
+    v.fsPath = path;
+    vols[utf8_to_wide(rootName)] = std::move(v);
+    auto reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layerId, s.pw,
+                                   s.engineOpt());
+    s.stats.containers.fetch_add(1);
+    iterate_container(s, std::move(reader), rootName, format_name(d.fmt), 1);
+    return true;
+}
+
 // ---- walk：策略核心 ----
 void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
           const std::string& origin, const std::string& chain, int depth, bool throughFilter) {
@@ -268,6 +295,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
     FormatClass fc = classify(d.fmt);
 
     if (fc == FormatClass::Filter) {
+        pb->setHistoryEnabled(false);   // D5：多成员窥探用解码器自有缓冲，不需回看
         s.stats.filters.fetch_add(1);
         std::string ch2 = chain.empty() ? format_name(d.fmt) : chain + " → " + format_name(d.fmt);
         layer_note(s, depth, origin + " → " + format_name(d.fmt));
@@ -275,8 +303,15 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         auto q = std::make_unique<BoundedQueue<std::vector<byte>>>(blocks);
         std::exception_ptr pumpErr = nullptr;
         // D4：每条链每个 FilterStage 一个线程，级间有界缓冲背压
+        // D6：压缩比熔断（产出/输入 > maxRatio → LimitError）
+        FilterLimiter lim;
+        lim.produced = &s.stats.produced;
+        lim.inputBytes = &s.meter.bytes;
+        if (auto h = pb->sizeHint()) lim.inputFloor = *h;
+        lim.maxRatio = s.opt.maxRatio;
+        lim.limitTripped = &s.stats.limitTripped;
         std::jthread pump([&](std::stop_token) {
-            filter_decode(d.fmt, *pb, *q, pumpErr);
+            filter_decode(d.fmt, *pb, *q, pumpErr, lim);
         });
         {
             auto qs = std::make_unique<QueueSource>(*q);
@@ -312,9 +347,10 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         throw Error("无法识别输入格式: " + origin + "（内容嗅探与结构校验均未命中）");
     }
     // 裸过滤器载荷（如 xxx.gz 直接包一个文件）：以剥离过滤后缀的名字落盘
+    pb->setHistoryEnabled(false);   // D5
     std::string name = throughFilter ? strip_filter_suffixes(origin) : origin;
     std::string rel = sub.empty() ? name : sub + "/" + name;
-    s.sink->emitFile(rel, *pb, UINT64_MAX, depth);
+    s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), UINT64_MAX, depth, false);
 }
 
 // ---- 根输入 ----
@@ -357,8 +393,11 @@ void run_input(Session& s, const std::wstring& inputPath) {
         walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "分片", 0, false);
     } else {
         if (!volErr.empty()) throw MissingVolumes(volErr);
-        parts.push_back(std::make_shared<FileSource>(inputPath, &s.meter));
         rootName = wide_to_utf8(p.filename().wstring());
+        // M2 快路径：根文件是 7z/rar 且 7z.dll 可用 → 免 spool 直读（IInStream over 文件）
+        if (fs_direct_open(s, inputPath, rootName))
+            return;
+        parts.push_back(std::make_shared<FileSource>(inputPath, &s.meter));
         walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "", 0, false);
     }
 }

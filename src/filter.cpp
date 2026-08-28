@@ -8,6 +8,7 @@
 #include <lz4frame.h>
 #include <algorithm>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace nx {
@@ -77,11 +78,26 @@ bool trailing_all_zero(CompressedIn& in) {
 } // namespace
 
 void filter_decode(Format fmt, PushbackSource& in, BoundedQueue<std::vector<byte>>& out,
-                   std::exception_ptr& err) {
+                   std::exception_ptr& err, const FilterLimiter& lim) {
     try {
         CompressedIn ci(in);
         std::vector<byte> obuf(kOutBlock);
         auto emit = [&](const byte* p, size_t n) -> bool {
+            if (n == 0) return true;
+            if (lim.produced) {
+                uint64_t total = lim.produced->fetch_add(n, std::memory_order_relaxed) + n;
+                if (lim.maxRatio && lim.inputBytes && lim.limitTripped) {
+                    // 分母 = max(实时输入, 根尺寸提示)：小输入炸弹（如 10KB gz→10MB）也能判定
+                    uint64_t inB = std::max(lim.inputBytes->load(std::memory_order_relaxed),
+                                            lim.inputFloor);
+                    if (inB >= (16 << 10) && total > inB * lim.maxRatio) {
+                        lim.limitTripped->store(true);
+                        throw LimitError("压缩比超过熔断上限 " + std::to_string(lim.maxRatio) +
+                                         "（已产出 " + std::to_string(total) + " / 输入 " +
+                                         std::to_string(inB) + "）");
+                    }
+                }
+            }
             std::vector<byte> blk(p, p + n);
             return out.push(std::move(blk));
         };
