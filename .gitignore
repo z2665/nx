@@ -1,0 +1,19 @@
+# 构建产物与依赖
+build/
+*.obj
+*.exe
+*.pdb
+*.lib
+*.dll
+*.ilk
+*.exp
+
+# 生成的测试语料与工作目录（由 gen_corpus*.py 重建）
+tests/cases/
+tests/work/
+tests/tools/
+
+# 本地工具脚本 / Python 缓存
+_vcpkg_run.cmd
+__pycache__/
+*.pyc

@@ -1,0 +1,87 @@
+#include "password.hpp"
+#include <windows.h>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <filesystem>
+
+namespace nx {
+
+void PasswordProvider::loadPasswordFile(const std::wstring& path) {
+    std::ifstream f(std::filesystem::path(path), std::ios::binary);
+    if (!f) throw Error("打不开密码文件: " + wide_to_utf8(path));
+    std::string line;
+    while (std::getline(f, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
+            line.pop_back();
+        size_t b = 0;
+        while (b < line.size() && (line[b] == ' ' || line[b] == '\t')) ++b;
+        if (b >= line.size()) continue;
+        addCandidate(std::string_view(line).substr(b));
+        SecureZeroMemory(line.data(), line.size());
+        line.clear();
+    }
+}
+
+bool PasswordProvider::promptAvailable() {
+    if (noPrompt_) return false;
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    return h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) != 0;
+}
+
+std::optional<SecureStr> PasswordProvider::promptInteractive(const std::string& layerId) {
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD oldMode = 0;
+    if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &oldMode)) return std::nullopt;
+    // 回显关闭（§6.2 第 4 步）
+    SetConsoleMode(h, oldMode & ~static_cast<DWORD>(ENABLE_ECHO_INPUT));
+    std::printf("%s 的密码：", layerId.c_str());
+    std::fflush(stdout);
+    wchar_t wbuf[1024];
+    DWORD n = 0;
+    BOOL ok = ReadConsoleW(h, wbuf, 1024, &n, nullptr);
+    SetConsoleMode(h, oldMode);
+    std::printf("\n");
+    if (!ok || n == 0) return std::nullopt;
+    while (n > 0 && (wbuf[n - 1] == L'\r' || wbuf[n - 1] == L'\n')) --n;
+    if (n == 0) return std::nullopt;
+    SecureStr pw(wide_to_utf8(std::wstring(wbuf, n)));
+    SecureZeroMemory(wbuf, sizeof(wchar_t) * n);
+    ++prompts_;
+    return pw;
+}
+
+// 解析链（§6.2）：缓存 → 上次成功 → 候选列表 → 交互
+// 游标 = 该层已尝试次数；reportSuccess 会清零重新命中缓存
+std::optional<SecureStr> PasswordProvider::nextAttempt(const std::string& layerId) {
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        std::vector<SecureStr> prefix;
+        auto lc = layerCache_.find(layerId);
+        if (lc != layerCache_.end())
+            prefix.emplace_back(lc->second.view());
+        if (lastSuccess_ &&
+            !(lc != layerCache_.end() && lc->second.view() == lastSuccess_->view()))
+            prefix.emplace_back(lastSuccess_->view());
+        for (auto& c : candidates_)
+            prefix.emplace_back(c.view());
+        size_t idx = cursor_[layerId]++;
+        if (idx < prefix.size()) return std::move(prefix[idx]);
+    }
+    // 不持锁进入交互（阻塞在控制台）
+    if (promptAvailable()) {
+        if (auto pw = promptInteractive(layerId); pw && !pw->empty())
+            return pw;
+    }
+    return std::nullopt;   // 耗尽（非交互场景自动跳过询问，§6.2 第 5 步）
+}
+
+void PasswordProvider::reportSuccess(const std::string& layerId, const SecureStr& pw) {
+    std::lock_guard<std::mutex> lk(m_);
+    layerCache_[layerId] = SecureStr(pw.view());
+    lastSuccess_ = SecureStr(pw.view());
+    cursor_[layerId] = 0;
+}
+
+} // namespace nx

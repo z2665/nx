@@ -1,0 +1,14 @@
+{
+  "name": "nx",
+  "version": "0.1.0-m0",
+  "description": "nx - streaming nested archive extractor (M0)",
+  "builtin-baseline": "e03dc9b29710050cd1018bc5674688108658d327",
+  "dependencies": [
+    "libarchive",
+    "zlib",
+    "bzip2",
+    "liblzma",
+    "zstd",
+    "lz4"
+  ]
+}

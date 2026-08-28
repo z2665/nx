@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""nx M0 属性测试运行器（设计 §9.2/§9.3/§9.4）。
+
+对每个用例：运行 nx → 对比输出树 sha256 与 expected.json → 断言退出码。
+退出码契约：0 成功 | 1 部分失败 | 2 密码 | 3 超限 | 4 缺分片。
+"""
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+CASES = os.path.join(HERE, "cases")
+NX_EXE = os.environ.get("NX_EXE", os.path.join(HERE, "..", "build", "nx.exe"))
+WORK = os.path.join(HERE, "work")
+
+
+def run_nx(args, timeout=300):
+    t0 = time.time()
+    p = subprocess.run([NX_EXE] + args, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=timeout,
+                       env={**os.environ, "NX_PROMPT_TEST": "1"})
+    return p.returncode, p.stdout, p.stderr, time.time() - t0
+
+
+def hash_tree(root: str) -> dict:
+    out = {}
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root).replace("\\", "/")
+            h = hashlib.sha256()
+            with open(full, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            out[rel] = h.hexdigest()
+    return out
+
+
+def case_inputs(case_dir):
+    return sorted(f for f in os.listdir(case_dir)
+                  if f != "expected.json" and not f.startswith("_"))
+
+
+class Result:
+    def __init__(self, name):
+        self.name = name
+        self.ok = True
+        self.notes = []
+
+    def check(self, cond, msg):
+        if not cond:
+            self.ok = False
+            self.notes.append(msg)
+        return cond
+
+
+def fresh_out(name):
+    out = os.path.join(WORK, name, "out")
+    if os.path.exists(os.path.join(WORK, name)):
+        shutil.rmtree(os.path.join(WORK, name))
+    os.makedirs(out)
+    return out
+
+
+def fresh_tmp(name):
+    t = os.path.join(WORK, name, "tmp")
+    os.makedirs(t, exist_ok=True)
+    for f in os.listdir(t):
+        os.remove(os.path.join(t, f))
+    return t
+
+
+def find_input(case_dir, want):
+    for f in case_inputs(case_dir):
+        if f == want:
+            return os.path.join(case_dir, f)
+    raise AssertionError(f"输入 {want} 不存在")
+
+
+def run_extract_and_compare(r, case, input_file, extra_args, expect_code):
+    case_dir = os.path.join(CASES, case)
+    out = fresh_out(case)
+    tmp = fresh_tmp(case)
+    code, stdout, stderr, dt = run_nx(
+        ["extract", input_file, "-O", out, "--temp-dir", tmp] + extra_args)
+    r.check(code == expect_code,
+            f"退出码 {code}（期望 {expect_code}）stderr={stderr.strip()[:400]}")
+    expected = json.load(open(os.path.join(case_dir, "expected.json"), encoding="utf-8"))["files"]
+    if expected:
+        got = hash_tree(out)
+        missing = {k: v for k, v in expected.items() if got.get(k) != v}
+        extra = [k for k in got if k not in expected]
+        r.check(not missing, f"内容不符/缺失: {list(missing)[:5]}")
+        r.check(not extra, f"多余文件（可能中间层落盘!）: {extra[:5]}")
+    # 零中间文件：临时目录不残留 + 输出无 .nxpart
+    leftover = os.listdir(tmp)
+    r.check(not leftover, f"临时目录残留: {leftover[:5]}")
+    for dirpath, _d, filenames in os.walk(out):
+        for fn in filenames:
+            r.check(not fn.startswith(".nxpart"), f".part 残留: {fn}")
+    r.dt = dt
+    r.stdout = stdout
+    r.stderr = stderr
+    return r
+
+
+# ---------------------------------------------------------------- 用例配置
+
+def main():
+    if not os.path.exists(NX_EXE):
+        print(f"[run] 找不到 {NX_EXE}，先构建")
+        return 2
+    os.makedirs(WORK, exist_ok=True)
+    results = []
+
+    def add(name):
+        r = Result(name)
+        results.append(r)
+        return r
+
+    # M1：zip/7z/rar 三主流格式（带密码参数）
+    for case, entry, args, want in [
+        ("rar5_plain", "data.rar", [], 0),
+        ("rar_solid", "solid.rar", [], 0),
+        ("rar_encrypted", "vault.rar", ["-p", "RarPw@2024", "--no-prompt"], 0),
+        ("rar_multivol", "mv.part1.rar", [], 0),
+        ("rar_entry_level_volumes", "outer.zip", [], 0),
+        ("7z_encrypted", "sealed.7z", ["-p", "7zPw@2024", "--no-prompt"], 0),
+        ("7z_mhe", "blind.7z", ["-p", "7zPw@2024", "--no-prompt"], 0),
+        ("7z_split", "sp.7z.001", [], 0),
+        ("zip_sfx", "installer.exe", [], 0),
+        ("triple_chain", "chain.zip", ["-p", "RarChain@2024", "-p", "7zChain@2024", "--no-prompt"], 0),
+    ]:
+        d = os.path.join(CASES, case)
+        if not os.path.isdir(d):
+            print(f"[run] 跳过缺失用例 {case}")
+            continue
+        r = add(case)
+        run_extract_and_compare(r, case, find_input(d, entry), args, want)
+
+    # M0 常规：正确解出 + 零中间
+    for case, entry in [
+        ("plain_zip", "plain.zip"),
+        ("three_layer", "data.tar.gz"),
+        ("split_zip", "data.zip.001"),
+        ("split_entry_level", "outer.tar.gz"),
+        ("multimember_gz", "data.tar.gz"),
+        ("7z_nested", "outer.tar.gz"),
+        ("zip_slip", "slip.zip"),
+        ("bare_gz", "plain.txt.gz"),
+        ("zspan", "data.zip"),
+        ("mixed_filters", "mixed.tar.bz2"),
+    ]:
+        d = os.path.join(CASES, case)
+        if not os.path.isdir(d):
+            print(f"[run] 跳过缺失用例 {case}")
+            continue
+        r = add(case)
+        run_extract_and_compare(r, case, find_input(d, entry), [], 0)
+
+    # 两层异密码：候选顺序故意与层级相反（外层密码在后）→ 均应通过候选迭代解开
+    d = os.path.join(CASES, "two_passwords")
+    if os.path.isdir(d):
+        r = add("two_passwords")
+        run_extract_and_compare(r, "two_passwords", find_input(d, "outer.zip"),
+                                ["-p", "InnerPw@2024", "-p", "OuterPw@2024", "--no-prompt"], 0)
+        # 无候选 + 非交互 → 密码耗尽 → 退出码 2
+        out = fresh_out("two_passwords_nopw")
+        tmp = fresh_tmp("two_passwords_nopw")
+        code, _o, _e, _t = run_nx(["extract", find_input(d, "outer.zip"), "-O", out,
+                                   "--temp-dir", tmp, "--no-prompt"])
+        r.check(code == 2, f"无密码场景退出码 {code}（期望 2）")
+    else:
+        print("[run] 跳过 two_passwords")
+
+    # 坏 CRC：--keep-going → 隔离 bad.txt，good.txt 存活，退出码 1
+    d = os.path.join(CASES, "bad_crc")
+    if os.path.isdir(d):
+        r = add("bad_crc")
+        run_extract_and_compare(r, "bad_crc", find_input(d, "badcrc.zip"), ["--keep-going"], 1)
+
+    # 深度炸弹：退出码 3
+    d = os.path.join(CASES, "depth_bomb")
+    if os.path.isdir(d):
+        r = add("depth_bomb")
+        out = fresh_out("depth_bomb")
+        tmp = fresh_tmp("depth_bomb")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "bomb.zip"), "-O", out,
+                                       "--temp-dir", tmp])
+        r.check(code == 3, f"深度炸弹退出码 {code}（期望 3）: {stderr.strip()[:200]}")
+
+    # 缺分片：退出码 4
+    d = os.path.join(CASES, "missing_volume")
+    if os.path.isdir(d):
+        r = add("missing_volume")
+        out = fresh_out("missing_volume")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "data.zip.001"), "-O", out])
+        r.check(code == 4, f"缺分片退出码 {code}（期望 4）: {stderr.strip()[:200]}")
+
+    # tree 干跑：结构打印、不落盘
+    d = os.path.join(CASES, "three_layer")
+    if os.path.isdir(d):
+        r = add("tree_dryrun")
+        code, stdout, _e, _t = run_nx(["tree", find_input(d, "data.tar.gz")])
+        r.check(code == 0, f"tree 退出码 {code}")
+        r.check("inner.zip" in stdout, "tree 输出缺少 inner.zip")
+
+    # 汇总
+    print()
+    fails = 0
+    for r in results:
+        status = "PASS" if r.ok else "FAIL"
+        dt = f" {getattr(r, 'dt', 0):.2f}s" if hasattr(r, "dt") else ""
+        print(f"  [{status}] {r.name}{dt}")
+        for n in r.notes:
+            print(f"         - {n}")
+        fails += 0 if r.ok else 1
+    total = len(results)
+    print(f"\n{total - fails}/{total} 通过")
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
