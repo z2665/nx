@@ -89,6 +89,12 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 8 个属性用例（mp4+zip / jpg+zip / mdat0+zip / mp4+rar / mp4+7z 加密 / 干净 MP4 未命中 /
   伪装样本明文+加密 / zip64 影子 EOCD）+ GUI 冒烟用例 8（动词端到端、默认前缀 `<名>_stego`）。
 
+### 性能（v1 后续四项）
+- **zlib-ng[compat]**（自建 overlay feature）：inflate/CRC SIMD 化
+- **spool RAM 自适应**：默认空闲物理内存 50%（64MiB–8GiB，`--spool-ram` 覆盖）；溢出临时目录默认=输出目录（同盘零跨盘 I/O，`FILE_ATTRIBUTE_TEMPORARY` 驻留系统缓存）
+- **WinZip AES 批量 CTR**（libarchive overlay 补丁）：单块 EVP→64KiB 批量，AES 路径 ~12×；已按上游风格提交 PR libarchive/libarchive#3443
+- bench（256MB 语料）：A 0.67→0.44s（-34%，反超 bsdtar）· B 1.27→0.67s（-47%，恢复快于手工两遍）· C 3.26→2.97s（-9%）
+
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
   码表候选名须 iconv 格式
