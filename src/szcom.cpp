@@ -150,7 +150,9 @@ public:
 
 class FileSeekInput : public SeekInput {
 public:
-    explicit FileSeekInput(const std::wstring& path) {
+    // meter：根输入计量（仅 FS 卷挂；spool 卷字节来自外层已计量流，再计即重复）
+    explicit FileSeekInput(const std::wstring& path, InputMeter* meter = nullptr)
+        : meter_(meter) {
         h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                          OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (h_ == INVALID_HANDLE_VALUE)
@@ -175,12 +177,14 @@ public:
                 break;
             got += r;
         }
+        if (meter_) meter_->bytes += got;
         return got;
     }
     uint64_t size() const override { return size_; }
 private:
     HANDLE h_ = INVALID_HANDLE_VALUE;
     uint64_t size_ = 0;
+    InputMeter* meter_ = nullptr;
     std::mutex m_;
 };
 
@@ -200,8 +204,8 @@ private:
     uint64_t start_, len_;
 };
 
-std::shared_ptr<SeekInput> volume_input(const VolumeSource& v) {
-    if (!v.fsPath.empty()) return std::make_shared<FileSeekInput>(v.fsPath);
+std::shared_ptr<SeekInput> volume_input(const VolumeSource& v, InputMeter* meter) {
+    if (!v.fsPath.empty()) return std::make_shared<FileSeekInput>(v.fsPath, meter);
     return std::make_shared<SpoolSeekInput>(v.spool, v.winStart, v.winLen);
 }
 
@@ -272,6 +276,7 @@ struct SharedOpenState {
     std::wstring firstVolName;
     std::optional<SecureStr> password;
     bool passwordAsked = false;
+    InputMeter* meter = nullptr;   // FS 卷计量（EngineOptions 透传；spool 卷不挂）
 };
 
 class OpenCb : public Z7_IArchiveOpenCallback,
@@ -337,7 +342,7 @@ public:
             if (it == st_->volumes.end()) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         }
         try {
-            *inStream = new InStreamImpl(volume_input(it->second));
+            *inStream = new InStreamImpl(volume_input(it->second, st_->meter));
             return S_OK;
         } catch (...) {
             return E_FAIL;
@@ -587,6 +592,7 @@ bool SevenZipReader::tryOpen(const SecureStr* pw) {
     openState_ = std::make_shared<SharedOpenState>();
     openState_->volumes = volumes_;
     openState_->firstVolName = firstVol_;
+    openState_->meter = opt_.meter;
     if (pw) openState_->password = SecureStr(pw->view());
 
     // rar：两代处理器都试（探测已知代次则顺序优先）
@@ -604,7 +610,7 @@ bool SevenZipReader::tryOpen(const SecureStr* pw) {
     }
     std::shared_ptr<SeekInput> mainInput;
     try {
-        mainInput = volume_input(mainIt->second);
+        mainInput = volume_input(mainIt->second, opt_.meter);
     } catch (Error& e) {
         failMsg_ = e.what();
         return false;

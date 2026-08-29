@@ -23,6 +23,7 @@ struct Options {
 struct Stats {
     std::atomic<uint64_t> filesOut{0};
     std::atomic<uint64_t> bytesOut{0};
+    std::atomic<uint64_t> inputTotal{0};     // 根输入总大小（进度窗分母；run_input 累计）
     std::atomic<uint64_t> tempBytes{0};
     std::atomic<uint64_t> produced{0};          // 过滤器累计产出（压缩比分子）
     std::atomic<uint64_t> containers{0};

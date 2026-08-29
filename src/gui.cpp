@@ -204,6 +204,7 @@ struct ProgressState {
     std::atomic<bool> cancelled{false}; // 用户取消/X
     std::atomic<bool> active{false};
     Stats* stats = nullptr;             // show 后不变：GUI 线程读原子量/取消时写 abortFlag
+    const InputMeter* meter = nullptr;  // show 后不变：根输入消耗（百分比分子）
     ULONGLONG t0 = 0;
     std::wstring caption;               // 顶部标题行（输入文件名）
     std::wstring curLine;               // 当前活动行
@@ -256,9 +257,18 @@ void progress_refresh(HWND h) {
              utf8_to_wide(format_size(bytes)).c_str(),
              static_cast<unsigned long long>(files), sec);
     SetDlgItemTextW(h, IDC_PSTATS, buf);
-    // 动画条（三角波）：总输出量在嵌套/直读路径不可先验，不做假百分比
-    int phase = static_cast<int>((GetTickCount64() / 120) % 50);
-    int pos = phase < 25 ? phase * 4 : (50 - phase) * 4;
+    // 真百分比：根输入消耗比（FileSeekView/FileSeekInput 已挂计量）；
+    // 重读造成的超出由 99% 封顶吸收，分母未知（0）回退三角波动画
+    int pos;
+    uint64_t total = st ? st->inputTotal.load(std::memory_order_relaxed) : 0;
+    uint64_t done = g_prog.meter ? g_prog.meter->bytes.load(std::memory_order_relaxed) : 0;
+    if (total > 0 && g_prog.meter) {
+        uint64_t pct = done * 100 / total;   // 文件尺寸量级下无溢出
+        pos = static_cast<int>(pct > 99 ? 99 : pct);
+    } else {
+        int phase = static_cast<int>((GetTickCount64() / 120) % 50);
+        pos = phase < 25 ? phase * 4 : (50 - phase) * 4;
+    }
     SendDlgItemMessageW(h, IDC_PBAR, PBM_SETPOS, pos, 0);
 }
 
@@ -347,10 +357,11 @@ void notify_done(bool ok, const std::string& detailUtf8) {
 
 // ---- 进度窗公开 API ----
 
-void progress_show(const std::wstring& caption, Stats* stats) {
+void progress_show(const std::wstring& caption, Stats* stats, const InputMeter* meter) {
     progress_hide();   // 幂等：清掉上一次（若未 hide）
     // 全部状态先于线程启动写入（happens-before），GUI 线程只读
     g_prog.stats = stats;
+    g_prog.meter = meter;
     g_prog.t0 = GetTickCount64();
     g_prog.cancelled.store(false);
     g_prog.active.store(true);

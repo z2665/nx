@@ -28,6 +28,7 @@ public:
 struct EngineOptions {
     size_t spoolRam = 64 << 20;
     std::wstring tempDir;
+    InputMeter* meter = nullptr;   // 根输入计量（进度窗分母/分子；根层直读视图挂，spool 卷不挂）
 };
 
 } // namespace nx

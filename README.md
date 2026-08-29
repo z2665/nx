@@ -51,15 +51,20 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 默认日志 `nx.log`：运行头+全部输出+report JSON；append，超 5 MiB 截断
 - Win11 新版右键菜单：`menupkg/` 留有 IExplorerCommand+稀疏 MSIX 方案雏形（nxshell.dll/清单/脚本），未启用
 
-### GUI 进度窗（原待办 #1）
+### GUI 进度窗（原待办 #1）+ 真百分比（原待办 #2）
 - 独立 GUI 线程上的无模式进度对话框：输入文件名 + 当前活动（容器展开/过滤器解码/当前写出文件）
-  + 动画条 + 已输出字节/文件数/耗时（200ms 定时轮询 `Stats` 原子量，免锁）
+  + 进度条 + 已输出字节/文件数/耗时（200ms 定时轮询 `Stats` 原子量，免锁）
+- **真百分比**：`meter.bytes / stats.inputTotal`（根输入消耗比）。
+  `InputMeter*` 经 `EngineOptions` 透传：根 zip 的 `FileSeekView` 与 7z.dll 直读的
+  `FileSeekInput`（FS 卷，含 RAR 多卷回调卷）已挂计量；码表探测视图与 spool 卷不挂
+  （前者多候选重读中央目录会虚增，后者字节来自外层已计量流）。
+  `inputTotal` 由 `run_input` 按单文件/分片组各卷大小累计。重读超出由 99% 封顶吸收，
+  分母未知回退动画条。tar/gzip 流式根顺带升级为真百分比
 - 显示条件与完成弹窗一致：Explorer/右键启动（无标准句柄）或 `--gui`，且非 `tree`
 - 取消（按钮/X）→ `abortFlag` → Walker/Sink 抛 `Cancelled` → exit 2 静默退出；
   大文件写出循环内逐块响应，`.part` 半成品照常清理
-- v1 用动画条而非百分比：根 zip（FileSeekView）/7z.dll 直读路径绕过 `InputMeter`，
-  真百分比需给两引擎计量（留作后续）
-- `gui_smoke.py` 扩至 6 用例（进度窗出现/自动关闭 + 取消中止）
+- `gui_smoke.py` 扩至 7 用例（进度窗出现/自动关闭/取消中止/半成品清理/
+  zip 直读与 7z 直读的百分比爬升——`PBM_GETPOS` 采样断言）
 
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
@@ -85,10 +90,9 @@ python tests/gui_smoke.py       # GUI 冒烟（窗口消息自动化）
 | # | 问题 | 说明 | 优先级 |
 |---|---|---|---|
 | 1 | **MP4 隐写压缩包识别** | 部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 模式可打开）。当前 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB，需要扩展 MP4 原子解析或全文件扫描 | 中 |
-| 2 | 进度条真百分比 | 根 zip（FileSeekView）与 7z.dll 直读路径绕过 `InputMeter`，需给两引擎接计量后才能由根输入消耗算百分比（当前为动画条） | 低 |
-| 3 | 条目级分片连续到达 | M0 限制：分片组成员须连续到达，非成员条目到达即封组 | 低 |
-| 4 | RAR4/旧命名卷 | WinRAR 7.x 无法生成 rar4 语料（读取由 7z.dll 覆盖，无测试验证） | 低 |
-| 5 | tar 内符号链接 | v1 降级策略——跳过并告警，不落盘 | 低 |
-| 6 | unRAR 插件 | 经评估略过（7z.dll 已覆盖 RAR 主线） | — |
+| 2 | 条目级分片连续到达 | M0 限制：分片组成员须连续到达，非成员条目到达即封组 | 低 |
+| 3 | RAR4/旧命名卷 | WinRAR 7.x 无法生成 rar4 语料（读取由 7z.dll 覆盖，无测试验证） | 低 |
+| 4 | tar 内符号链接 | v1 降级策略——跳过并告警，不落盘 | 低 |
+| 5 | unRAR 插件 | 经评估略过（7z.dll 已覆盖 RAR 主线） | — |
 
-（原待办 #1「GUI 无进度指示」已完成，见上「GUI 进度窗」小节。）
+（原待办 #1「GUI 无进度指示」与 #2「进度条真百分比」均已完成，见上「GUI 进度窗」小节。）

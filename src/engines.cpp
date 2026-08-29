@@ -144,7 +144,9 @@ private:
 
 class FileSeekView : public SeekView {
 public:
-    explicit FileSeekView(const std::wstring& path) {
+    // meter：根输入计量（进度窗分子；null = 码表探测等不计量的临时视图）
+    explicit FileSeekView(const std::wstring& path, InputMeter* meter = nullptr)
+        : meter_(meter) {
         h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                          OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (h_ == INVALID_HANDLE_VALUE)
@@ -171,12 +173,14 @@ public:
                 break;
             got += r;
         }
+        if (meter_) meter_->bytes += got;   // 根消耗（重读会被 99% 封顶吸收）
         return got;
     }
     uint64_t size() const override { return size_; }
 private:
     HANDLE h_ = INVALID_HANDLE_VALUE;
     uint64_t size_ = 0;
+    InputMeter* meter_ = nullptr;
     std::mutex m_;
 };
 
@@ -665,8 +669,9 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
                                                const std::string& layerId,
                                                PasswordProvider& pw,
                                                const EngineOptions& opt) {
+    // 码表探测视图不挂 meter：多候选各重读一遍中央目录，会虚增根消耗计数
     std::string cs = detect_zip_charset([&] { return std::make_shared<FileSeekView>(path); });
-    auto view = std::make_shared<FileSeekView>(path);
+    auto view = std::make_shared<FileSeekView>(path, opt.meter);
     std::unique_ptr<PushbackSource> nullSrc{};
     auto oc = try_open(Format::Zip, nullSrc, nullptr, nullptr, view, cs.c_str());
     if (oc.reader) return std::move(oc.reader);
@@ -676,7 +681,7 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
             auto cand = pw.nextAttempt(layerId);
             if (!cand)
                 throw PasswordExhausted(layerId, "密码缺失或已耗尽: " + layerId);
-            auto v2 = std::make_shared<FileSeekView>(path);
+            auto v2 = std::make_shared<FileSeekView>(path, opt.meter);
             auto oc2 = try_open(Format::Zip, nullSrc, nullptr, &*cand, v2, cs.c_str());
             if (oc2.reader) {
                 pw.reportSuccess(layerId, *cand);

@@ -385,6 +385,20 @@ void run_input(Session& s, const std::wstring& inputPath) {
     fs::path dir = p.parent_path();
     if (dir.empty()) dir = L".";
 
+    // 进度分母（待办 #2）：根输入总大小（分片组=各卷之和；多输入在 Stats 上累计）。
+    // 取不到大小则累计 0 → 进度窗回退动画条。
+    {
+        std::error_code ec;
+        auto add_size = [&](const fs::path& p) {
+            uintmax_t sz = fs::file_size(p, ec);
+            if (!ec) s.stats.inputTotal.fetch_add(static_cast<uint64_t>(sz));
+        };
+        if (set)
+            for (auto& m : set->ordered) add_size(dir / fs::path(utf8_to_wide(m.name)));
+        else
+            add_size(p);
+    }
+
     if (set) {
         for (auto& m : set->ordered)
             parts.push_back(std::make_shared<FileSource>(

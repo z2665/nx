@@ -309,7 +309,7 @@ int main() {
         std::wstring cap = inputs.size() == 1
                                ? inputs[0].substr(inputs[0].find_last_of(L"\\/") + 1)
                                : std::to_wstring(inputs.size()) + L" 个输入";
-        gui::progress_show(cap, &s.stats);
+        gui::progress_show(cap, &s.stats, &s.meter);
         progressGuard.emplace();
     }
 

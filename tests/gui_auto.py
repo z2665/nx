@@ -136,5 +136,13 @@ class NxDialog:
         return any(_class_name(h).lower() == "msctls_progress32"
                    for h in self._children())
 
+    PBM_GETPOS = 0x0408   # WM_USER+8
+
+    def progress_pos(self):
+        for h in self._children():
+            if _class_name(h).lower() == "msctls_progress32":
+                return user32.SendMessageW(h, self.PBM_GETPOS, 0, 0)
+        raise RuntimeError("未找到进度条")
+
     def is_alive(self):
         return bool(user32.IsWindow(self.hwnd))

@@ -314,6 +314,17 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   v1 用动画条而非百分比——根 zip（FileSeekView）与 7z.dll 直读路径绕过 `InputMeter`，
   真百分比需给两引擎接计量（已列入 README 待办）。
   `gui_smoke.py` 扩至 6 用例（出现/自动关闭/取消中止/半成品清理）。
+- **【实施记录】进度条真百分比（原待办 #2，已随待办 #1 完成后补齐）**：
+  语义 = 根输入消耗比 `meter.bytes / stats.inputTotal`。`InputMeter*` 经 `EngineOptions`
+  透传（`Session::engineOpt()` 一处接线），三个挂点：zip 根 `FileSeekView`（正式/密码重试
+  视图；码表探测视图不挂——多候选各重读一遍中央目录会虚增计数）、7z.dll 直读
+  `FileSeekInput`（FS 卷；经 `SharedOpenState` 覆盖 RAR 多卷回调的后续卷）、流式根
+  `FileSource`（原有）。spool 卷明确不挂（字节来自外层已计量流，再计即重复）。
+  `inputTotal` 由 `run_input` 累计（单文件/分片组各卷之和，多输入累加）。
+  重读造成的超出由显示端 99% 封顶吸收；分母未知回退动画条。
+  附带修正：此前 zip 根下嵌套过滤器的压缩比熔断分母虚小（≈64 KiB 检测读），
+  补计量后才是 D6 语义的真实根输入（ratio_bomb 回归通过）。
+  冒烟断言 `PBM_GETPOS` 随解压爬升（zip 直读 0→77%、7z 直读 0→99% 实测）。
 - **【待办】MP4 隐写压缩包识别**：部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 虚拟路径
   模式可打开）。当前 D1 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB。
   两种思路：(a) 解析 MP4 atom 结构（ftyp→moov→mdat…），定位 MP4 数据结束偏移后从该处扫描；

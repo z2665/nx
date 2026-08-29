@@ -16,10 +16,11 @@ public:
     std::unique_ptr<Sink> sink;
     std::wstring tempDir;
 
-    EngineOptions engineOpt() const {
+    EngineOptions engineOpt() {   // 非 const：meter 需以可写指针透传给引擎（计数）
         EngineOptions e;
         e.spoolRam = opt.spoolRam;
         e.tempDir = tempDir;
+        e.meter = &meter;
         return e;
     }
 };

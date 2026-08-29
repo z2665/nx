@@ -98,7 +98,7 @@ def main():
         okAll &= ok
         shutil.rmtree(tmp, ignore_errors=True)
 
-    # ---- 用例 5：进度窗出现（含动画条/统计行）→ 正常完成后自动关闭 ----
+    # ---- 用例 5：进度窗出现 + 真百分比（根 zip 直读计量）→ 完成后自动关闭 ----
     tmp = fresh("t5")
     zp = os.path.join(tmp, "big.zip")
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:
@@ -109,18 +109,24 @@ def main():
     d = NxDialog.wait_for(p.pid, "正在解压", timeout=8, interval=0.03)
     has_bar = d.has_progress_bar()
     stats_seen = False   # 统计行由 200ms 定时器刷新，轮询等待
+    positions = []       # PBM_GETPOS 采样（FileSeekView 计量 → 随根消耗爬升）
     t0 = time.time()
-    while time.time() - t0 < 3.0 and d.is_alive() and not stats_seen:
-        stats_seen = any("已输出" in t for t in d.static_texts())
+    while time.time() - t0 < 3.0 and d.is_alive():
+        if not stats_seen:
+            stats_seen = any("已输出" in t for t in d.static_texts())
+        if has_bar:
+            positions.append(d.progress_pos())
         time.sleep(0.05)
     while d.is_alive() and time.time() - t0 < 20:
         time.sleep(0.05)
     p.communicate(timeout=30)
     found = rel_files(out) if os.path.isdir(out) else []
+    pct_ok = positions and max(positions) >= 20 and max(positions) > min(positions)
     ok = has_bar and stats_seen and not d.is_alive() and p.returncode == 0 \
-        and found == ["big.zip/zeros.bin"]
-    print(f"[5] 进度窗 bar={has_bar} 统计行={stats_seen} exit={p.returncode} "
-          f"found={found} → {'PASS' if ok else 'FAIL'}")
+        and found == ["big.zip/zeros.bin"] and bool(pct_ok)
+    print(f"[5] 进度窗 bar={has_bar} 统计行={stats_seen} 百分比={pct_ok}（pos "
+          f"{min(positions) if positions else '-'}→{max(positions) if positions else '-'}）"
+          f" exit={p.returncode} found={found} → {'PASS' if ok else 'FAIL'}")
     okAll &= ok
     shutil.rmtree(tmp, ignore_errors=True)
 
@@ -146,6 +152,39 @@ def main():
     print(f"[6] 进度取消 exit={p.returncode} 残留={leftover} → {'PASS' if ok else 'FAIL'}")
     okAll &= ok
     shutil.rmtree(tmp, ignore_errors=True)
+
+    # ---- 用例 7：7z 根直读（7z.dll 路径）的真百分比（FileSeekInput 计量）----
+    sz7 = r"C:\Program Files\7-Zip\7z.exe"
+    if os.path.exists(sz7) and os.path.exists(r"C:\Program Files\7-Zip\7z.dll"):
+        tmp = fresh("t7")
+        src = os.path.join(tmp, "zeros.bin")
+        with open(src, "wb") as f:
+            f.truncate(384 << 20)   # 稀疏 384M 零
+        zp = os.path.join(tmp, "big.7z")
+        subprocess.run([sz7, "a", "-mx=1", zp, src], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        out = os.path.join(tmp, "out")
+        p = subprocess.Popen([NX, "extract", "--gui", zp, "-O", out],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        d = NxDialog.wait_for(p.pid, "正在解压", timeout=8, interval=0.05)
+        positions = []
+        t0 = time.time()
+        while time.time() - t0 < 3.0 and d.is_alive():
+            positions.append(d.progress_pos())
+            time.sleep(0.05)
+        while d.is_alive() and time.time() - t0 < 30:
+            time.sleep(0.05)
+        p.communicate(timeout=60)
+        found = rel_files(out) if os.path.isdir(out) else []
+        pct_ok = positions and max(positions) >= 20 and max(positions) > min(positions)
+        ok = p.returncode == 0 and any("zeros.bin" in f for f in found) and bool(pct_ok)
+        print(f"[7] 7z 直读百分比={pct_ok}（pos "
+              f"{min(positions) if positions else '-'}→{max(positions) if positions else '-'}）"
+              f" exit={p.returncode} → {'PASS' if ok else 'FAIL'}")
+        okAll &= ok
+        shutil.rmtree(tmp, ignore_errors=True)
+    else:
+        print("[7] 7z 直读：跳过（未安装 7-Zip）")
 
     print("GUI 冒烟:", "PASS" if okAll else "FAIL")
     return 0 if okAll else 1
