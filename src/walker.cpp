@@ -263,13 +263,14 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
 
 } // namespace
 
-// M2：根文件 7z/rar 免 spool——检测格式后直接以文件为 IInStream 打开（7z.dll）
+// M2/M3：根文件免 spool 直读——7z/rar 走 7z.dll；zip 走中央目录 + 码表探测
 bool fs_direct_open(Session& s, const std::wstring& path, const std::string& rootName) {
     auto fsSrc = std::make_shared<FileSource>(path, &s.meter);
     auto pb = std::make_unique<PushbackSource>(std::make_unique<SharedView>(fsSrc), 64 << 10);
     Detection d = detect(*pb, rootName);
-    if (d.fmt != Format::SevenZip && d.fmt != Format::Rar) return false;
-    if (!sz::dll_available()) return false;   // 惰性：zip/tar 输入不触发 7z.dll 加载
+    if (d.fmt != Format::SevenZip && d.fmt != Format::Rar && d.fmt != Format::Zip) return false;
+    if (d.fmt != Format::Zip && !sz::dll_available())
+        return false;   // 惰性：tar 等输入不触发 7z.dll 加载
     if (s.opt.maxDepth < 1) {
         s.stats.limitTripped = true;
         throw LimitError("递归深度上限为 0");
@@ -277,12 +278,17 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
     std::string layerId = "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")";
     layer_note(s, 0, rootName + " → " + format_name(d.fmt) +
                           (d.detail.empty() ? "" : " " + d.detail) + " [直读]");
-    std::map<std::wstring, sz::VolumeSource> vols;
-    sz::VolumeSource v;
-    v.fsPath = path;
-    vols[utf8_to_wide(rootName)] = std::move(v);
-    auto reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layerId, s.pw,
-                                   s.engineOpt());
+    std::shared_ptr<ContainerReader> reader;
+    if (d.fmt == Format::Zip) {
+        // Zip 根：中央目录模式 + 码表探测（§3.2 文件名修复），文件可 seek 免 spool
+        reader = open_zip_file(path, layerId, s.pw, s.engineOpt());
+    } else {
+        std::map<std::wstring, sz::VolumeSource> vols;
+        sz::VolumeSource v;
+        v.fsPath = path;
+        vols[utf8_to_wide(rootName)] = std::move(v);
+        reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layerId, s.pw, s.engineOpt());
+    }
     s.stats.containers.fetch_add(1);
     iterate_container(s, std::move(reader), s.opt.noRoot ? "" : rootName,
                       format_name(d.fmt), 1);

@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <locale.h>
 #include <string>
 #include <vector>
 
@@ -155,6 +156,9 @@ bool console_attached() {
 
 int main() {
     SetConsoleOutputCP(CP_UTF8);
+    // §3.2 关键：UTF-8 locale —— 否则 libarchive 的文件名转换整体失效
+    //（C locale 下非 ASCII 名直接得到 NULL pathname → 下游消毒成 "_"）
+    setlocale(LC_ALL, ".UTF8");
     int argc = 0;
     auto args = get_args(argc);
     log_open(argc, nullptr);   // 默认日志（M3 需求 6）：始终开启

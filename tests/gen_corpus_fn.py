@@ -39,46 +39,41 @@ def mk_zip(path, entries):
     out.close()
 
 
-def case_cp_names():
-    jp1 = "うさダンス.ogg".encode("cp932")
-    jp2 = "プレッサー_エロシーン1.rpgmvo".encode("cp932")
-    cn1 = "攻略手册.txt".encode("gbk")
-    cn2 = "新建文件夹/说明.txt".encode("gbk")
-    entries = [
-        (b"www/bgm/" + jp1, b"japanese-audio-data"),
-        (b"www/bgm/" + jp2, b"japanese-presser-data"),
-        (b"www/txt/" + cn1, b"chinese-gbk-data"),
-        (b"docs/" + cn2, b"chinese-nested"),
-        (b"www/plain.dat", b"ascii-ok"),
-    ]
-
+def _case(name, entries, rels):
+    import hashlib
     def build(d):
         mk_zip(os.path.join(d, "cpnames.zip"), entries)
-
-    expected = {
-        "cpnames.zip/www/bgm/うさダンス.ogg": None,
-        "cpnames.zip/www/bgm/プレッサー_エロシーン1.rpgmvo": None,
-        "cpnames.zip/www/txt/攻略手册.txt": None,
-        "cpnames.zip/docs/新建文件夹/说明.txt": None,
-        "cpnames.zip/www/plain.dat": None,
-    }
-    # 哈希需写入 expected.json → 用 gen_corpus 的 write_record 约定（files: {rel: sha}）
-    import hashlib
     exp = {}
-    for (name, data), rel in zip(entries, [
-        "cpnames.zip/www/bgm/うさダンス.ogg",
-        "cpnames.zip/www/bgm/プレッサー_エロシーン1.rpgmvo",
-        "cpnames.zip/www/txt/攻略手册.txt",
-        "cpnames.zip/docs/新建文件夹/说明.txt",
-        "cpnames.zip/www/plain.dat",
-    ]):
+    for (n, data), rel in zip(entries, rels):
         exp[rel] = hashlib.sha256(data).hexdigest()
-    write_case("cp_names", build, exp)
+    write_case(name, build, exp)
+
+
+def case_cp_names_jp():
+    """单语言归档（真实形态）：CP932 日文名"""
+    _case("cp_names_jp", [
+        (b"www/bgm/" + "うさダンス.ogg".encode("cp932"), b"japanese-audio-data"),
+        (b"www/bgm/" + "プレッサー_エロシーン1.rpgmvo".encode("cp932"), b"japanese-presser"),
+        (b"www/plain.dat", b"ascii-ok"),
+    ], ["cpnames.zip/www/bgm/うさダンス.ogg",
+       "cpnames.zip/www/bgm/プレッサー_エロシーン1.rpgmvo",
+       "cpnames.zip/www/plain.dat"])
+
+
+def case_cp_names_cn():
+    """单语言归档：GBK 中文名"""
+    _case("cp_names_cn", [
+        (b"www/txt/" + "攻略手册.txt".encode("gbk"), b"chinese-gbk-data"),
+        ("docs/新建文件夹/说明.txt".encode("gbk"), b"chinese-nested"),
+        (b"www/plain.dat", b"ascii-ok"),
+    ], ["cpnames.zip/www/txt/攻略手册.txt",
+       "cpnames.zip/docs/新建文件夹/说明.txt",
+       "cpnames.zip/www/plain.dat"])
 
 
 if __name__ == "__main__":
-    case_cp_names()
-    # 校验 zipfile 可读（结构合法性）
-    zi = zipfile.ZipFile(os.path.join(CASES_DIR, "cp_names", "cpnames.zip"))
-    assert len(zi.infolist()) == 5
+    case_cp_names_jp()
+    case_cp_names_cn()
+    zi = zipfile.ZipFile(os.path.join(CASES_DIR, "cp_names_jp", "cpnames.zip"))
+    assert len(zi.infolist()) == 3
     print("[gen-fn] 完成")

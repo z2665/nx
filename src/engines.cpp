@@ -1,11 +1,14 @@
 #include "engines.hpp"
+#include "log.hpp"
 // ContainerReader/EngineOptions 契约见 container.hpp
+#include <windows.h>
 #include <archive.h>
 #include <archive_entry.h>
 #include <algorithm>
 #include <cctype>
 #include <deque>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 namespace nx {
@@ -122,16 +125,78 @@ FailKind classify_msg(const char* m) {
     return FailKind::Other;
 }
 
+// ---- 随机访问视图（zip 中央目录模式：spool 或根文件，M3 文件名修复）----
+class SeekView {
+public:
+    virtual ~SeekView() = default;
+    virtual size_t read_at(uint64_t pos, std::span<byte> buf) = 0;
+    virtual uint64_t size() const = 0;
+};
+
+class SpoolSeekView : public SeekView {
+public:
+    explicit SpoolSeekView(std::shared_ptr<SpoolBuffer> s) : s_(std::move(s)) {}
+    size_t read_at(uint64_t pos, std::span<byte> buf) override { return s_->read_at(pos, buf); }
+    uint64_t size() const override { return s_->size(); }
+private:
+    std::shared_ptr<SpoolBuffer> s_;
+};
+
+class FileSeekView : public SeekView {
+public:
+    explicit FileSeekView(const std::wstring& path) {
+        h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                         OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (h_ == INVALID_HANDLE_VALUE)
+            throw Error("打开文件失败: " + wide_to_utf8(path));
+        LARGE_INTEGER sz{};
+        GetFileSizeEx(h_, &sz);
+        size_ = static_cast<uint64_t>(sz.QuadPart);
+    }
+    ~FileSeekView() override {
+        if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
+    }
+    FileSeekView(const FileSeekView&) = delete;
+    FileSeekView& operator=(const FileSeekView&) = delete;
+    size_t read_at(uint64_t pos, std::span<byte> buf) override {
+        std::lock_guard<std::mutex> lk(m_);
+        LARGE_INTEGER li{};
+        li.QuadPart = static_cast<LONGLONG>(pos);
+        if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN)) throw Error("定位失败");
+        size_t got = 0;
+        while (got < buf.size()) {
+            DWORD r = 0;
+            if (!ReadFile(h_, buf.data() + got, static_cast<DWORD>(buf.size() - got), &r,
+                          nullptr) || r == 0)
+                break;
+            got += r;
+        }
+        return got;
+    }
+    uint64_t size() const override { return size_; }
+private:
+    HANDLE h_ = INVALID_HANDLE_VALUE;
+    uint64_t size_ = 0;
+    std::mutex m_;
+};
+
 struct CbCtx {
-    ByteSource* src = nullptr;               // 流式 = PushbackSource；spool = Reader
-    SpoolBuffer::Reader* reader = nullptr;   // spool 模式提供随机访问
+    ByteSource* src = nullptr;      // 流式 = PushbackSource
+    SeekView* view = nullptr;       // seekable 模式（spool/文件）
+    uint64_t viewPos = 0;           // seekable 模式当前位置
     std::vector<byte> buf;
 };
 
 la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
     auto* ctx = static_cast<CbCtx*>(c);
     try {
-        size_t n = ctx->src->read(ctx->buf);
+        size_t n;
+        if (ctx->view) {
+            n = ctx->view->read_at(ctx->viewPos, ctx->buf);
+            ctx->viewPos += n;
+        } else {
+            n = ctx->src->read(ctx->buf);
+        }
         *buf = ctx->buf.data();
         return static_cast<la_ssize_t>(n);
     } catch (...) {
@@ -141,10 +206,10 @@ la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
 
 la_int64_t la_seek_cb(archive*, void* c, la_int64_t off, int whence) {
     auto* ctx = static_cast<CbCtx*>(c);
-    if (!ctx->reader) return -1;
+    if (!ctx->view) return -1;
     try {
-        uint64_t size = ctx->reader->sizeHint().value_or(0);
-        uint64_t pos = ctx->reader->pos();
+        uint64_t size = ctx->view->size();
+        uint64_t pos = ctx->viewPos;
         uint64_t abs = 0;
         switch (whence) {
             case SEEK_SET: abs = static_cast<uint64_t>(off); break;
@@ -152,28 +217,97 @@ la_int64_t la_seek_cb(archive*, void* c, la_int64_t off, int whence) {
             case SEEK_END: abs = size + static_cast<uint64_t>(off); break;
             default: return -1;
         }
-        ctx->reader->seek(abs);
+        ctx->viewPos = abs;
         return static_cast<la_int64_t>(abs);
     } catch (...) {
         return -1;
     }
 }
 
+// zip 文件名码表探测（§3.2）：无 EFS 标志 + 无 hdrcharset 时 libarchive 对
+// 无法按 UTF-8 校验的名字返回 NULL → 下游消毒成 "_"。对候选码表逐一试开
+// （seekable 模式遍历中央目录，不读数据），按"零空名 + 假名加分"择优。
+template <class ViewFactory>
+std::string detect_zip_charset(ViewFactory makeView) {
+    int acp = GetACP();
+    std::vector<std::string> cands;
+    cands.push_back("");                       // EFS/纯 ASCII：无需选项
+    if (acp != 932 && acp != 936 && acp != 949 && acp != 950 && acp != 1252)
+        cands.push_back("CP" + std::to_string(acp));  // 系统码表（非 CJK 默认集时）
+    cands.push_back("CP936");                  // GBK
+    cands.push_back("CP932");                  // Shift-JIS
+    cands.push_back("CP950");                  // Big5
+    cands.push_back("CP949");                  // EUC-KR
+
+    std::string best;
+    long bestScore = LONG_MIN;
+    for (auto& cp : cands) {
+        archive* a = archive_read_new();
+        archive_read_support_format_zip(a);
+        if (!cp.empty()) {
+            std::string opt = "zip:hdrcharset=" + cp;
+            archive_read_set_options(a, opt.c_str());
+        }
+        auto view = makeView();
+        CbCtx ctx;
+        ctx.view = view.get();
+        ctx.buf.assign(256 << 10, 0);
+        archive_read_set_read_callback(a, la_read_cb);
+        archive_read_set_close_callback(a, [](archive*, void*) { return ARCHIVE_OK; });
+        archive_read_set_seek_callback(a, la_seek_cb);
+        archive_read_set_callback_data(a, &ctx);
+        bool ok = archive_read_open1(a) == ARCHIVE_OK;
+        long score = 0;
+        int highSeen = 0;
+        archive_entry* e = nullptr;
+        int nullNames = 0;
+        while (ok && archive_read_next_header(a, &e) == ARCHIVE_OK) {
+            const char* nm = archive_entry_pathname(e);
+            if (!nm) {
+                ++nullNames;
+                break;   // 该码表下仍有空名 → 拒绝
+            }
+            bool hi = false;
+            for (const char* p = nm; *p; ++p)
+                if ((unsigned char)*p >= 0x80) { hi = true; break; }
+            if (hi) {
+                std::wstring w = utf8_to_wide(nm);
+                score += score_w(w);
+                if (++highSeen >= 128) break;
+            }
+        }
+        archive_read_free(a);
+        if (nullNames > 0) continue;
+        if (score > bestScore) {
+            bestScore = score;
+            best = cp;
+        }
+    }
+    return best;
+}
+
 // ---- LaSeqReader：libarchive 顺序条目读取器 ----
 
 class LaSeqReader : public ContainerReader, public std::enable_shared_from_this<LaSeqReader> {
 public:
-    // borrowed（流式源借用探测）与 spool/reader（spool 模式）二选一；
+    // 三种打开形态：borrowed（流式借用探测）/ view（seekable：spool 或根文件）
     // 流式模式成功后由 caller 调 adoptStream() 过继所有权
     LaSeqReader(archive* a, archive_entry* e,
                 PushbackSource* borrowed,
                 std::shared_ptr<SpoolBuffer> spool,
-                std::shared_ptr<SpoolBuffer::Reader> reader)
+                std::shared_ptr<SpoolBuffer::Reader> reader,
+                std::shared_ptr<SeekView> view = nullptr)
         : a_(a), e_(e, &archive_entry_free), borrowed_(borrowed),
-          spool_(std::move(spool)), reader_(std::move(reader)) {
-        ctx_.src = reader_ ? static_cast<ByteSource*>(reader_.get())
-                           : static_cast<ByteSource*>(borrowed_);
-        ctx_.reader = reader_.get();
+          spool_(std::move(spool)), view_(std::move(view)) {
+        if (view_) {
+            ctx_.view = view_.get();
+            ctx_.viewPos = 0;
+            ctx_.src = nullptr;
+        } else {
+            ctx_.src = reader ? static_cast<ByteSource*>(reader.get())
+                              : static_cast<ByteSource*>(borrowed_);
+        }
+        (void)spool_;
         ctx_.buf.assign(256 << 10, 0);
     }
 
@@ -237,7 +371,7 @@ private:
     PushbackSource* borrowed_ = nullptr;      // 探测阶段借用
     std::unique_ptr<PushbackSource> streamingSrc_;   // 过继后所有
     std::shared_ptr<SpoolBuffer> spool_;
-    std::shared_ptr<SpoolBuffer::Reader> reader_;
+    std::shared_ptr<SeekView> view_;          // seekable 模式（spool/文件）
     CbCtx ctx_;
     std::deque<ContainerEntry> replayQ_;   // probe 预取条目重放队列
     std::vector<byte> probeFront_;         // probe 预读待重放字节
@@ -286,7 +420,13 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
     entryPos_ = 0;
     probeFront_.clear();
     const char* nm = archive_entry_pathname(e_.get());
-    out.name = fix_archive_name(nm);   // §3.2 文件名编码：无 EFS 标志的 CP437 乱码修复
+    if (!nm) {
+        // 防御（§3.2）：码表探测后仍可能出现空名（未知编码）——合成可辨识名而非 "_"
+        log_err("[nx] ! 条目 %d 名字无法解码（未知码表），已合成占位名\n", curIdx_);
+        out.name = "__noname_" + std::to_string(curIdx_);
+    } else {
+        out.name = fix_archive_name(nm);   // §3.2 文件名编码：无 EFS 标志的 CP437 乱码修复
+    }
     auto ft = archive_entry_filetype(e_.get());   // la_mode_t（MSVC 无 mode_t）
     out.isDir = (ft & AE_IFMT) == AE_IFDIR;
     out.isSymlink = (ft & AE_IFMT) == AE_IFLNK;
@@ -419,20 +559,27 @@ struct OpenOutcome {
 OpenOutcome try_open(Format fmt,
                      std::unique_ptr<PushbackSource>& streamingSrc,
                      const std::shared_ptr<SpoolBuffer>& spool,
-                     const SecureStr* pw) {
+                     const SecureStr* pw,
+                     const std::shared_ptr<SeekView>& view = nullptr,
+                     const char* zipCharset = nullptr) {
     OpenOutcome oc;
     archive* a = nullptr;
     try {
         a = make_arch(fmt);
         if (pw && !pw->empty()) archive_read_add_passphrase(a, pw->c_str());
-        std::shared_ptr<SpoolBuffer::Reader> reader;
-        if (spool) reader = spool->reader();
+        if (zipCharset && *zipCharset) {
+            std::string opt = "zip:hdrcharset=";
+            opt += zipCharset;
+            archive_read_set_options(a, opt.c_str());
+        }
+        std::shared_ptr<SeekView> v = view;
+        if (!v && spool) v = std::make_shared<SpoolSeekView>(spool);
         auto r = std::make_shared<LaSeqReader>(a, archive_entry_new(),
-                                               spool ? nullptr : streamingSrc.get(),
-                                               spool, std::move(reader));
+                                               (!spool && !v) ? streamingSrc.get() : nullptr,
+                                               spool, nullptr, v);
         archive_read_set_read_callback(a, la_read_cb);
         archive_read_set_close_callback(a, [](archive*, void*) { return ARCHIVE_OK; });
-        if (r->ctx().reader) archive_read_set_seek_callback(a, la_seek_cb);
+        if (r->ctx().view) archive_read_set_seek_callback(a, la_seek_cb);
         archive_read_set_callback_data(a, &r->ctx());
         int res = archive_read_open1(a);
         if (res != ARCHIVE_OK) {
@@ -456,7 +603,7 @@ OpenOutcome try_open(Format fmt,
             oc.failMsg = e.what();
             return oc;
         }
-        if (!spool) r->adoptStream(std::move(streamingSrc));   // 成功：过继
+        if (!spool && !v) r->adoptStream(std::move(streamingSrc));   // 成功：过继
         oc.reader = std::move(r);
         return oc;
     } catch (std::exception& e) {
@@ -484,13 +631,14 @@ std::shared_ptr<SpoolBuffer> spool_all(PushbackSource& src, const EngineOptions&
 std::shared_ptr<LaSeqReader> password_loop(Format fmt,
                                            const std::shared_ptr<SpoolBuffer>& spool,
                                            const std::string& layerId,
-                                           PasswordProvider& pw) {
+                                           PasswordProvider& pw,
+                                           const char* zipCharset = nullptr) {
     for (;;) {
         auto cand = pw.nextAttempt(layerId);
         if (!cand)
             throw PasswordExhausted(layerId, "密码缺失或已耗尽: " + layerId);
         std::unique_ptr<PushbackSource> nullSrc{};
-        auto oc = try_open(fmt, nullSrc, spool, &*cand);
+        auto oc = try_open(fmt, nullSrc, spool, &*cand, nullptr, zipCharset);
         if (oc.reader) {
             pw.reportSuccess(layerId, *cand);
             return std::move(oc.reader);
@@ -512,11 +660,56 @@ std::shared_ptr<ContainerReader> open_container_volumes(
     return sz::open_archive(fmt, volumes, firstVol, layerId, pw, opt);
 }
 
+// Zip 根文件直读（中央目录模式 + 码表探测；文件本身可 seek，免 spool）
+std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
+                                               const std::string& layerId,
+                                               PasswordProvider& pw,
+                                               const EngineOptions& opt) {
+    std::string cs = detect_zip_charset([&] { return std::make_shared<FileSeekView>(path); });
+    auto view = std::make_shared<FileSeekView>(path);
+    std::unique_ptr<PushbackSource> nullSrc{};
+    auto oc = try_open(Format::Zip, nullSrc, nullptr, nullptr, view, cs.c_str());
+    if (oc.reader) return std::move(oc.reader);
+    if (oc.fail == FailKind::Password) {
+        // 密码迭代需要重开：在文件视图上直接重试（无需 spool）
+        for (;;) {
+            auto cand = pw.nextAttempt(layerId);
+            if (!cand)
+                throw PasswordExhausted(layerId, "密码缺失或已耗尽: " + layerId);
+            auto v2 = std::make_shared<FileSeekView>(path);
+            auto oc2 = try_open(Format::Zip, nullSrc, nullptr, &*cand, v2, cs.c_str());
+            if (oc2.reader) {
+                pw.reportSuccess(layerId, *cand);
+                return std::move(oc2.reader);
+            }
+            if (oc2.fail != FailKind::Password)
+                throw CorruptError(oc2.failMsg);
+        }
+    }
+    throw CorruptError(oc.failMsg);
+}
+
 std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> src,
                                                 Format fmt,
                                                 const std::string& layerId,
                                                 PasswordProvider& pw,
                                                 const EngineOptions& opt) {
+    // ---- Zip：中央目录模式（seekable）+ 码表探测（§3.2 文件名修复）----
+    // 不走本地头流式：无 EFS 标志的本地码表名（CP932/GBK…）在流式下会得到
+    // NULL pathname（实测 D:\...\2.zip 案例），中央目录 + hdrcharset 才可靠。
+    if (fmt == Format::Zip) {
+        auto spool = spool_all(*src, opt);
+        src.reset();
+        std::string cs = detect_zip_charset(
+            [&] { return std::make_shared<SpoolSeekView>(spool); });
+        std::unique_ptr<PushbackSource> nullSrc{};
+        auto oc = try_open(fmt, nullSrc, spool, nullptr, nullptr, cs.c_str());
+        if (oc.reader) return std::move(oc.reader);
+        if (oc.fail == FailKind::Password)
+            return password_loop(fmt, spool, layerId, pw, cs.c_str());
+        throw CorruptError(oc.failMsg);
+    }
+
     if (classify(fmt) == FormatClass::RandContainer) {
         // R 类：先 spool 全量再随机访问
         auto spool = spool_all(*src, opt);

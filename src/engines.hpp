@@ -28,4 +28,11 @@ std::shared_ptr<ContainerReader> open_container_volumes(
     const std::wstring& firstVol, const std::string& layerId, PasswordProvider& pw,
     const EngineOptions& opt);
 
+
+// Zip 根文件直读（中央目录 + 码表探测，免 spool）
+std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
+                                               const std::string& layerId,
+                                               PasswordProvider& pw,
+                                               const EngineOptions& opt);
+
 } // namespace nx
