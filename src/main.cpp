@@ -175,7 +175,7 @@ int main() {
         std::string err;
         if (action == "install") {
             if (menu_install(&err)) {
-                log_out("[nx] 右键菜单已安装（当前用户）：nx 解压 → 解压到当前目录 / 解压到指定目录…\n");
+                log_out("[nx] 右键菜单已安装（当前用户）：nx 解压 → 解压到当前目录 / 解压到指定目录… / 解压隐写压缩包…\n");
                 return 0;
             }
             log_err("[nx] 安装失败: %s\n", err.c_str());

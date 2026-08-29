@@ -330,28 +330,43 @@ def main():
         finally:
             shutil.rmtree(eh, ignore_errors=True)
 
-    # 右键菜单 install/remove（CommandStore 级联断言）
+    # 右键菜单 install/remove（ExtendedSubCommandsKey 级联断言）
+    # 副作用纪律：测试真实装卸 HKCU 菜单——先保存现场，结束还原用户原安装（含原 exe 路径），
+    # 否则每次跑测试都会吃掉用户已装的右键菜单
     r = add("context_menu")
-    code, _o, _e, _t = run_nx(["menu", "install"])
-    r.check(code == 0, "menu install 退出码")
     PARENT = "Software\\Classes\\*\\shell\\nxExtract"
     CASCADE = "Software\\Classes\\nx.ContextMenu"
+    had_menu = False
+    saved_cmd = None
     try:
         import winreg
-        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, PARENT)
-        verb = winreg.QueryValueEx(k, "MUIVerb")[0]
-        ext = winreg.QueryValueEx(k, "ExtendedSubCommandsKey")[0]
+
+        def _reg_read(sub, value=""):
+            try:
+                k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub)
+                v = winreg.QueryValueEx(k, value)[0]
+                winreg.CloseKey(k)
+                return v
+            except OSError:
+                return None
+
+        saved_cmd = _reg_read(CASCADE + "\\shell\\nx.here\\command")
+        had_menu = saved_cmd is not None
+        code, _o, _e, _t = run_nx(["menu", "install"])
+        r.check(code == 0, "menu install 退出码")
+        verb = _reg_read(PARENT, "MUIVerb")
+        ext = _reg_read(PARENT, "ExtendedSubCommandsKey")
         r.check(verb == "nx 解压", f"MUIVerb={verb}")
         r.check(ext == "nx.ContextMenu", f"ExtendedSubCommandsKey={ext}")
         for leaf, want, arg in (("nx.here", "解压到当前目录", "extract-here"),
-                                ("nx.into", "解压到指定目录…", "extract-into")):
+                                ("nx.into", "解压到指定目录…", "extract-into"),
+                                ("nx.stego", "解压隐写压缩包…", "extract-stego")):
             sub = CASCADE + "\\shell\\" + leaf
-            ks = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub)
-            title = winreg.QueryValueEx(ks, "")[0]
-            kc = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub + r"\command")
-            cmdLine = winreg.QueryValueEx(kc, "")[0]
+            title = _reg_read(sub)
+            cmdLine = _reg_read(sub + "\\command")
             r.check(title == want, f"{leaf} 标题={title}")
-            r.check(arg in cmdLine and "%1" in cmdLine, f"{leaf} 命令行={cmdLine[:80]}")
+            r.check(cmdLine and arg in cmdLine and "%1" in cmdLine,
+                    f"{leaf} 命令行={str(cmdLine)[:80]}")
     except ImportError:
         r.check(False, "winreg 不可用")
     finally:
@@ -359,11 +374,18 @@ def main():
         r.check(code == 0, "menu remove 退出码")
     try:
         import winreg
-        for key in (PARENT, CASCADE + "\\shell\\nx.here", CASCADE + "\\shell\\nx.into"):
+        for key in (PARENT, CASCADE + "\\shell\\nx.here"):
             winreg.OpenKey(winreg.HKEY_CURRENT_USER, key)
             r.check(False, f"menu remove 后键仍存在: {key}")
     except FileNotFoundError:
         pass
+    if had_menu and saved_cmd:
+        orig = saved_cmd.split('"')[1] if saved_cmd.startswith('"') else saved_cmd.split()[0]
+        if os.path.exists(orig):
+            subprocess.run([orig, "menu", "install"], capture_output=True)
+            print(f"[run] 已还原用户右键菜单（原 exe: {orig}）")
+        else:
+            print(f"[run] 注意：原菜单 exe 不存在，未还原: {orig}")
 
     # 日志：文件存在 + 内容含运行头与汇总；5MiB 截断
     r = add("logging")
