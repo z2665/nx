@@ -348,6 +348,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   且对窗口尾部残余数据有容忍（实测 [魔数, EOF) 与 [魔数, EOCD末尾) 均可解）。
   另踩一坑：EOCD 的 cdSize/cdOffset 是小端字段，与 MP4 atom 大端相反——已分设 be32/le32。
   样本病理已固化为语料（stego_disguise / stego_disguise_pw / stego_zip64_shadow）。
+- **【实施记录】性能四项（v1 后续）**：①zlib→zlib-ng[compat]（自建 overlay feature；inflate/CRC SIMD）；②spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（同盘零跨盘 I/O）；③libarchive nx-batch-ctr.patch：WinZip AES 每 16B单块 EVP（实测 ~60MB/s；OpenSSL 本体 AES-NI 10.8GB/s——瓶颈在调用粒度）→ 64KiB 批量 CTR，AES 2GiB 33.6s→2.8s 内容校验一致（首版两教训：批量 EVP 前须 EncryptInit_ex 重置、批后预生成状态跨批跳块——终版无预生成）；④bench：A -34%（反超 bsdtar）/ B -47%（恢复快于手工两遍）/ C -9%。补丁已按上游风格提交 PR libarchive/libarchive#3443（overlay 与 PR 文本完全一致；3.8.7 与 master 该区域一字不差）。
 - **【实施记录】文件名编码三层根因**（D:\…\2.zip 真实案例，已修复）：
   ① libarchive 字符转换依赖进程 locale——C locale 下非 ASCII 名直接返回 NULL pathname，
   `setlocale(LC_ALL, ".UTF8")` 为主修复；② 本地头与中央目录文件名可不一致（本例本地头 EUC-JP、
