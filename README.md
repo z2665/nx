@@ -51,6 +51,16 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 默认日志 `nx.log`：运行头+全部输出+report JSON；append，超 5 MiB 截断
 - Win11 新版右键菜单：`menupkg/` 留有 IExplorerCommand+稀疏 MSIX 方案雏形（nxshell.dll/清单/脚本），未启用
 
+### GUI 进度窗（原待办 #1）
+- 独立 GUI 线程上的无模式进度对话框：输入文件名 + 当前活动（容器展开/过滤器解码/当前写出文件）
+  + 动画条 + 已输出字节/文件数/耗时（200ms 定时轮询 `Stats` 原子量，免锁）
+- 显示条件与完成弹窗一致：Explorer/右键启动（无标准句柄）或 `--gui`，且非 `tree`
+- 取消（按钮/X）→ `abortFlag` → Walker/Sink 抛 `Cancelled` → exit 2 静默退出；
+  大文件写出循环内逐块响应，`.part` 半成品照常清理
+- v1 用动画条而非百分比：根 zip（FileSeekView）/7z.dll 直读路径绕过 `InputMeter`，
+  真百分比需给两引擎计量（留作后续）
+- `gui_smoke.py` 扩至 6 用例（进度窗出现/自动关闭 + 取消中止）
+
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
   码表候选名须 iconv 格式
@@ -74,9 +84,11 @@ python tests/gui_smoke.py       # GUI 冒烟（窗口消息自动化）
 
 | # | 问题 | 说明 | 优先级 |
 |---|---|---|---|
-| 1 | **GUI 无进度指示** | 右键解压大文件时 GUI 模式下无进度反馈（无控制台输出），仅完成/失败弹窗。需添加进度条或百分比显示 | 高 |
-| 2 | **MP4 隐写压缩包识别** | 部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 模式可打开）。当前 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB，需要扩展 MP4 原子解析或全文件扫描 | 中 |
+| 1 | **MP4 隐写压缩包识别** | 部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 模式可打开）。当前 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB，需要扩展 MP4 原子解析或全文件扫描 | 中 |
+| 2 | 进度条真百分比 | 根 zip（FileSeekView）与 7z.dll 直读路径绕过 `InputMeter`，需给两引擎接计量后才能由根输入消耗算百分比（当前为动画条） | 低 |
 | 3 | 条目级分片连续到达 | M0 限制：分片组成员须连续到达，非成员条目到达即封组 | 低 |
 | 4 | RAR4/旧命名卷 | WinRAR 7.x 无法生成 rar4 语料（读取由 7z.dll 覆盖，无测试验证） | 低 |
 | 5 | tar 内符号链接 | v1 降级策略——跳过并告警，不落盘 | 低 |
 | 6 | unRAR 插件 | 经评估略过（7z.dll 已覆盖 RAR 主线） | — |
+
+（原待办 #1「GUI 无进度指示」已完成，见上「GUI 进度窗」小节。）

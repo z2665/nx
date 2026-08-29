@@ -1,5 +1,6 @@
 #include "log.hpp"
 #include "sink.hpp"
+#include "gui.hpp"
 #include <windows.h>
 #include <bcrypt.h>
 #pragma comment(lib, "Bcrypt.lib")
@@ -170,8 +171,10 @@ void Sink::emitDir(const std::string& rel, int displayDepth) {
 
 std::string Sink::emitFile(const std::string& rel, std::shared_ptr<ByteSource> src,
                            uint64_t expectedSize, int displayDepth, bool independent) {
-    if (stats_.abortFlag.load())
+    if (stats_.abortFlag.load()) {
+        if (gui::progress_cancelled()) throw Cancelled("用户取消");
         throw Error(stats_.firstHardError.empty() ? "已中止" : stats_.firstHardError);
+    }
     std::string r = dedupe(rel);
     if (dryRun_) {
         uint64_t sz = expectedSize != UINT64_MAX ? expectedSize : 0;
@@ -202,6 +205,7 @@ std::string Sink::emitFile(const std::string& rel, std::shared_ptr<ByteSource> s
 
 void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_t expectedSize,
                     ByteSource& src, int displayDepth) {
+    gui::progress_file(r);   // 进度窗：当前写出文件（未显示时为廉价 no-op）
     size_t slash = finalPath.find_last_of(L'\\');
     if (slash != std::wstring::npos && slash > 6) {
         if (!ensure_dir_recursive(finalPath.substr(0, slash)))
@@ -254,6 +258,12 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
             if (total > opt_.maxBytes) {
                 stats_.limitTripped = true;
                 throw LimitError("累计输出超过上限 " + format_size(opt_.maxBytes));
+            }
+            // 大文件写出中途响应中止/取消（GUI 取消 → Cancelled → 静默退出）
+            if (stats_.abortFlag.load()) {
+                if (gui::progress_cancelled())
+                    throw Cancelled("用户取消");
+                throw Error("已中止（写出被全局终止）: " + r);
             }
         }
     } catch (...) {

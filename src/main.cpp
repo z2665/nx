@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <locale.h>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,7 +38,7 @@ void usage() {
         "  -p <密码>            候选密码（可重复，按序试探）\n"
         "  --password-file <f>  密码文件（每行一个）\n"
         "  --no-prompt          非交互：不询问，仅候选列表\n"
-        "  --gui                密码经 GUI 弹窗（无控制台时自动启用）\n"
+        "  --gui                GUI 弹窗（密码 + 进度；无控制台时自动启用）\n"
         "  --no-root            不建根目录层（条目直接落在输出目录）\n"
         "  --depth <n>          递归深度上限（默认 8）\n"
         "  --max-bytes <n>      累计输出上限（默认 512G；支持 K/M/G/T）\n"
@@ -296,6 +297,22 @@ int main() {
 
     s.sink = std::make_unique<Sink>(outDir, s.opt, s.stats, dryRun);
 
+    // ---- 进度窗（待办 #1）：GUI 模式（--gui 或 Explorer/右键启动）且非 tree 时显示 ----
+    // 判据与完成弹窗一致：无标准输入句柄 = 资源管理器/右键启动（脚本与 CLI 不弹）。
+    bool explorerLaunched = GetStdHandle(STD_INPUT_HANDLE) == nullptr ||
+                            GetStdHandle(STD_INPUT_HANDLE) == INVALID_HANDLE_VALUE;
+    struct ProgressGuard {
+        ~ProgressGuard() { gui::progress_hide(); }   // 异常路径兜底（幂等）
+    };
+    std::optional<ProgressGuard> progressGuard;
+    if (!dryRun && (s.opt.guiPrompt || explorerLaunched)) {
+        std::wstring cap = inputs.size() == 1
+                               ? inputs[0].substr(inputs[0].find_last_of(L"\\/") + 1)
+                               : std::to_wstring(inputs.size()) + L" 个输入";
+        gui::progress_show(cap, &s.stats);
+        progressGuard.emplace();
+    }
+
     bool cancelled = false;
     for (auto& in : inputs) {
         try {
@@ -322,6 +339,11 @@ int main() {
     }
 
     s.sink->waitAll();
+    // 进度窗先收（避免与完成弹窗同屏）；取消经 GUI 线程→abortFlag，此处兜底判定
+    // （池线程写出的 Cancelled 会被 waitAll 转成硬错误，不看这里会误报失败）
+    gui::progress_hide();
+    if (gui::progress_cancelled())
+        cancelled = true;
     ULONGLONG elapsedMs = GetTickCount64() - t0;
 
     // 报告：始终入日志；--report 时另存文件（M3 需求 6 + D8）
@@ -365,8 +387,6 @@ int main() {
 
     // 仅资源管理器/右键启动（无标准句柄）→ GUI 完成反馈；取消则不弹（用户已决定）。
     // 管道/重定向（脚本、CLI）不弹框——有输出通道。
-    bool explorerLaunched = GetStdHandle(STD_INPUT_HANDLE) == nullptr ||
-                            GetStdHandle(STD_INPUT_HANDLE) == INVALID_HANDLE_VALUE;
     if (!dryRun && explorerLaunched && !cancelled) {
         std::string detail = exitCode == 0
             ? "已解出 " + std::to_string(s.stats.filesOut.load()) + " 个文件（" +

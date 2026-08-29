@@ -72,4 +72,5 @@ target_link_libraries(nx PRIVATE
   LibLZMA::LibLZMA
   ${NX_ZSTD}
   ${NX_LZ4}
+  comctl32
 )

@@ -306,9 +306,14 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 - **Windows 文件名合规**（大小写不敏感碰撞、尾部点/空格）需专门消毒器。
 - **是否做写入方向**（顺手把嵌套包重打包为单层 tar.zst）v2 评估。
 - **多成员 gzip/xz 串联**与"分片切在成员边界附近"的组合易错，语料生成器显式覆盖。
-- **【待办】GUI 无进度指示**：右键解压大文件（如 2.5 GB 语料）时 GUI 模式无中间进度反馈，
-  仅最终完成/失败弹窗。需在 `gui.cpp` 增加进度对话框（当前文件名 + 百分比/已输出字节），
-  由 `Sink::writeOne` 经回调驱动更新。优先级：高。
+- **【已完成】GUI 进度指示（原待办 #1）**：独立 GUI 线程上的无模式进度对话框
+  （输入文件名 + 当前活动行 + 动画条 + 已输出字节/文件数/耗时，200ms 定时轮询 `Stats`
+  原子量），显示条件与完成弹窗一致（Explorer 启动或 `--gui`，非 tree）。
+  取消按钮/X → `abortFlag` → Walker/Sink 抛 `Cancelled`（exit 2 静默退出，与密码弹窗取消同语义）；
+  `Sink::writeOne` 大文件写出循环内逐块响应，`.part` 半成品照常清理。
+  v1 用动画条而非百分比——根 zip（FileSeekView）与 7z.dll 直读路径绕过 `InputMeter`，
+  真百分比需给两引擎接计量（已列入 README 待办）。
+  `gui_smoke.py` 扩至 6 用例（出现/自动关闭/取消中止/半成品清理）。
 - **【待办】MP4 隐写压缩包识别**：部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 虚拟路径
   模式可打开）。当前 D1 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB。
   两种思路：(a) 解析 MP4 atom 结构（ftyp→moov→mdat…），定位 MP4 数据结束偏移后从该处扫描；
@@ -330,7 +335,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 | M1（+2 周） | zip 双模式回退、7z.dll（分卷+AES+头加密）、SpoolStore、全部分片类型（含 `.z01+.zip`、条目级分片组）、密码缓存/LRU | 对抗用例全绿（含密码专项） | ✅ 完成（unRAR 略过，7z.dll 已覆盖） |
 | M2（+2 周） | 并发/背压调优、安全完备、`--tree/--report`、基准报告 | 基准不劣于 bsdtar 管道，峰值磁盘 0 中间 | ✅ 完成（链式快于手工 33-34%；附带发现 bsdtar 管道在 Windows 原生管道下解流式 zip 静默丢条目） |
 | M3（正式发布） | unRAR 可选插件、`nxcore.dll` C ABI 导出、安装器/右键菜单、可选 WPF 壳 | 分发物 + 全量测试矩阵 | ✅ 完成（便携打包/右键级联/GUI 密码/默认日志；nxcore.dll 与 WPF 未做，非必需） |
-| 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | 📋 待办（见 §10） |
+| 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | 🔄 GUI 进度指示已完成（见 §10 实施记录）；MP4 隐写识别待办 |
 
 ---
 

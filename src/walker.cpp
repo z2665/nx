@@ -2,6 +2,7 @@
 #include "walker.hpp"
 #include "detect.hpp"
 #include "filter.hpp"
+#include "gui.hpp"
 #include "volumeset.hpp"
 #include <algorithm>
 #include <cctype>
@@ -132,7 +133,10 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
     };
     ContainerEntry e;
     while (reader->next(e)) {
-        if (s.stats.abortFlag.load()) throw Error(s.stats.firstHardError);
+        if (s.stats.abortFlag.load()) {
+            if (gui::progress_cancelled()) throw Cancelled("用户取消");
+            throw Error(s.stats.firstHardError);
+        }
         if (e.isDir) {
             std::string rel = sub.empty() ? e.name : sub + "/" + e.name;
             s.sink->emitDir(rel, depth + 1);
@@ -278,6 +282,7 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
     std::string layerId = "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")";
     layer_note(s, 0, rootName + " → " + format_name(d.fmt) +
                           (d.detail.empty() ? "" : " " + d.detail) + " [直读]");
+    gui::progress_stage("展开 " + rootName + "（" + format_name(d.fmt) + "）");
     std::shared_ptr<ContainerReader> reader;
     if (d.fmt == Format::Zip) {
         // Zip 根：中央目录模式 + 码表探测（§3.2 文件名修复），文件可 seek 免 spool
@@ -307,6 +312,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         s.stats.filters.fetch_add(1);
         std::string ch2 = chain.empty() ? format_name(d.fmt) : chain + " → " + format_name(d.fmt);
         layer_note(s, depth, origin + " → " + format_name(d.fmt));
+        gui::progress_stage("解码 " + origin + "（" + format_name(d.fmt) + "）");
         size_t blocks = std::max<size_t>(2, s.opt.pipeBytes / (256 << 10));
         auto q = std::make_unique<BoundedQueue<std::vector<byte>>>(blocks);
         std::exception_ptr pumpErr = nullptr;
@@ -342,6 +348,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
                               " (" + format_name(d.fmt) + ")";
         layer_note(s, depth, origin + " → " + format_name(d.fmt) +
                                  (d.detail.empty() ? "" : " " + d.detail));
+        gui::progress_stage("展开 " + origin + "（" + format_name(d.fmt) + "）");
         auto reader = open_container(std::move(pb), d.fmt, layerId, s.pw, s.engineOpt());
         s.stats.containers.fetch_add(1);
         // 仅根容器（depth==0）的目录层受 --no-root 抑制；嵌套层照常镜像

@@ -24,9 +24,12 @@ WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
 
 
 def _win_text(h):
-    n = user32.GetWindowTextLengthW(h)
+    # GetWindowText 对其他进程的子控件不可靠（仅保证顶层标题）——改发 WM_GETTEXT
+    n = user32.SendMessageW(h, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
+    if n == 0:
+        return ""
     buf = ctypes.create_unicode_buffer(n + 1)
-    user32.GetWindowTextW(h, buf, n + 1)
+    user32.SendMessageW(h, 0x000D, n + 1, buf)  # WM_GETTEXT
     return buf.value
 
 
@@ -104,7 +107,13 @@ class NxDialog:
 
     def get_text(self):
         h = self.find_edit()
-        n = user32.SendMessageW(h, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
+        for _ in range(6):   # 罕见竞态：窗口刚建好尚未完成初始化 → 短暂重试
+            n = user32.SendMessageW(h, 0x000E, 0, 0)  # WM_GETTEXTLENGTH
+            if n:
+                break
+            time.sleep(0.1)
+        else:
+            return ""
         buf = ctypes.create_unicode_buffer(n + 1)
         user32.SendMessageW(h, 0x000D, n + 1, buf)  # WM_GETTEXT
         return buf.value
@@ -117,3 +126,15 @@ class NxDialog:
 
     def close(self):   # 模拟点 X
         user32.PostMessageW(self.hwnd, WM_CLOSE, 0, 0)
+
+    # ---- 进度窗辅助（待办 #1 冒烟）----
+    def static_texts(self):
+        return [_win_text(h) for h in self._children()
+                if _class_name(h).lower() == "static"]
+
+    def has_progress_bar(self):
+        return any(_class_name(h).lower() == "msctls_progress32"
+                   for h in self._children())
+
+    def is_alive(self):
+        return bool(user32.IsWindow(self.hwnd))

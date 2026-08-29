@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""M3 GUI 冒烟：前缀弹窗（输入/默认值/取消）+ 密码弹窗（多层异密码 + 取消）。"""
+"""M3 GUI 冒烟：前缀弹窗（输入/默认值/取消）+ 密码弹窗（多层异密码 + 取消）
++ 进度窗（出现/自动关闭 + 取消中止，待办 #1）。"""
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gui_auto import NxDialog
@@ -94,6 +97,55 @@ def main():
         print(f"[4] 密码取消 exit={p.returncode} → {'PASS' if ok else 'FAIL'}")
         okAll &= ok
         shutil.rmtree(tmp, ignore_errors=True)
+
+    # ---- 用例 5：进度窗出现（含动画条/统计行）→ 正常完成后自动关闭 ----
+    tmp = fresh("t5")
+    zp = os.path.join(tmp, "big.zip")
+    with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("zeros.bin", b"\0" * (512 << 20))   # 存储式 512M：确保跨过首个 200ms 定时刷新
+    out = os.path.join(tmp, "out")
+    p = subprocess.Popen([NX, "extract", "--gui", zp, "-O", out],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    d = NxDialog.wait_for(p.pid, "正在解压", timeout=8, interval=0.03)
+    has_bar = d.has_progress_bar()
+    stats_seen = False   # 统计行由 200ms 定时器刷新，轮询等待
+    t0 = time.time()
+    while time.time() - t0 < 3.0 and d.is_alive() and not stats_seen:
+        stats_seen = any("已输出" in t for t in d.static_texts())
+        time.sleep(0.05)
+    while d.is_alive() and time.time() - t0 < 20:
+        time.sleep(0.05)
+    p.communicate(timeout=30)
+    found = rel_files(out) if os.path.isdir(out) else []
+    ok = has_bar and stats_seen and not d.is_alive() and p.returncode == 0 \
+        and found == ["big.zip/zeros.bin"]
+    print(f"[5] 进度窗 bar={has_bar} 统计行={stats_seen} exit={p.returncode} "
+          f"found={found} → {'PASS' if ok else 'FAIL'}")
+    okAll &= ok
+    shutil.rmtree(tmp, ignore_errors=True)
+
+    # ---- 用例 6：进度窗取消 → 中止（exit 2，半成品清理，先前完成的小文件保留）----
+    tmp = fresh("t6")
+    zp = os.path.join(tmp, "bigcancel.zip")
+    with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("small.txt", "head")
+        with z.open("huge.bin", "w") as f:   # 768M 零：解压写盘期间点取消
+            chunk = b"\0" * (1 << 20)
+            for _ in range(768):
+                f.write(chunk)
+    out = os.path.join(tmp, "out")
+    p = subprocess.Popen([NX, "extract", "--gui", zp, "-O", out],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    d = NxDialog.wait_for(p.pid, "正在解压", timeout=8, interval=0.05)
+    d.cancel()
+    p.communicate(timeout=30)
+    inner = os.path.join(out, "bigcancel.zip")   # 默认根目录层
+    leftover = os.listdir(inner) if os.path.isdir(inner) else []
+    ok = p.returncode == 2 and "small.txt" in leftover and "huge.bin" not in leftover \
+        and not any(".nxpart-" in f for f in leftover)
+    print(f"[6] 进度取消 exit={p.returncode} 残留={leftover} → {'PASS' if ok else 'FAIL'}")
+    okAll &= ok
+    shutil.rmtree(tmp, ignore_errors=True)
 
     print("GUI 冒烟:", "PASS" if okAll else "FAIL")
     return 0 if okAll else 1
