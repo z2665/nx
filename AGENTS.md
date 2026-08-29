@@ -11,7 +11,8 @@ build.cmd         # CMake+Ninja+VS 2026（vcvars64）+vcpkg → build\nx.exe
 package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 7z.dll）
 ```
 
-- vcpkg manifest 固定依赖：libarchive 3.8.7 + zlib/bzip2/liblzma/zstd/lz4，triplet `x64-windows-static`。
+- vcpkg manifest 固定依赖：libarchive 3.8.7 + zlib-ng[compat]/bzip2/liblzma/zstd/lz4，triplet `x64-windows-static`。
+- `ports-overlay/zlib-ng`（自建 compat feature）与 `ports-overlay/libarchive`（crypto 修复 + `nx-batch-ctr.patch` WinZip AES 批量化）都是必须的 overlay。
 - `ports-overlay/libarchive` 是必须的 overlay（上游 CMake 漏链 crypto 探测导致 WinZip AES stub）。
 - `build.cmd` 硬编码了本机代理 `127.0.0.1:10808` 与 `VSROOT=C:\Program Files\Microsoft Visual Studio\18\Community`——换机器需改。
 - 7z.dll 运行时按需加载（exe 目录 → Program Files → PATH），负责 7z 全特性与 RAR；缺失回退 libarchive。

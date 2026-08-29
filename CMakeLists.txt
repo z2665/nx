@@ -11,7 +11,7 @@ if(MSVC)
 endif()
 
 find_package(LibArchive REQUIRED)
-find_package(ZLIB REQUIRED)
+find_package(ZLIB REQUIRED)   # zlib-ng[compat]（overlay 端口）：compat 模式导出标准 ZLIB 配置
 find_package(BZip2 REQUIRED)
 find_package(LibLZMA REQUIRED)
 find_package(zstd CONFIG REQUIRED)

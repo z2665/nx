@@ -378,6 +378,9 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
 // 检测仅限根 FS 层（stego::scan 需 seek 跳过 GB 级 mdat；嵌套流不查）。
 static void run_stego(Session& s, const std::wstring& inputPath) {
     namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::exists(inputPath, ec) || ec)
+        throw Error("输入文件不存在: " + wide_to_utf8(inputPath));
     std::string rootName = wide_to_utf8(fs::path(inputPath).filename().wstring());
     auto hit = stego::scan(inputPath);
     if (!hit) {

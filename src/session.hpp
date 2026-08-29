@@ -10,7 +10,7 @@ struct Options {
     int maxDepth = 8;
     uint64_t maxBytes = 512ull << 30;   // 累计输出上限
     uint64_t maxRatio = 1000;           // 压缩比熔断（产出/输入）
-    size_t spoolRam = 64 << 20;
+    size_t spoolRam = 0;             // 0 = 自动（main 探测空闲物理内存 50%，64MiB–8GiB）
     size_t pipeBytes = 1 << 20;         // 级间有界队列容量
     size_t histCap = 4 << 20;           // 回看窗口
     bool keepGoing = false;             // 数据损坏时继续其余条目

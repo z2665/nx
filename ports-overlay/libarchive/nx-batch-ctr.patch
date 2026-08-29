@@ -1,0 +1,86 @@
+--- a/libarchive/archive_cryptor.c	2026-08-29 21:12:06.307042500 +0800
++++ b/libarchive/archive_cryptor.c	2026-08-29 21:12:06.514651000 +0800
+@@ -486,7 +486,7 @@
+ }
+ 
+ static int
+-aes_ctr_update(archive_crypto_ctx *ctx, const uint8_t * const in,
++aes_ctr_update_one_by_one(archive_crypto_ctx *ctx, const uint8_t * const in,
+     size_t in_len, uint8_t * const out, size_t *out_len)
+ {
+ 	uint8_t *const ebuf = ctx->encr_buf;
+@@ -519,6 +519,62 @@
+ 
+ 	return 0;
+ }
++
++/* nx 补丁：WinZip AES 解密提速。上游对每 16 字节做一次单块 EVP 调用（实测 ~60MB/s）；
++ * 批量化为每 64KiB 一次 EVP（AES-NI 下 ECB 多块即标准 CTR keystream）。
++ * 计数块序列与逐块版严格一致（先 increase 再入块）；无预生成——批后 pos=16、
++ * ebuf 视为陈旧，任何消费方都经 pos<16 守卫，陈旧块永不误用。 */
++#if defined(ARCHIVE_CRYPTOR_USE_OPENSSL)
++static int
++aes_ctr_update(archive_crypto_ctx *ctx, const uint8_t * const in,
++    size_t in_len, uint8_t * const out, size_t *out_len)
++{
++	enum { CTR_BATCH = 64 * 1024 };
++	size_t max = (in_len < *out_len)? in_len : *out_len;
++	size_t i = 0, pos = ctx->encr_pos;
++
++	while (i < max && pos < AES_BLOCK_SIZE)
++		out[i++] = in[i] ^ ctx->encr_buf[pos++];
++
++	while (max - i >= AES_BLOCK_SIZE) {
++		size_t blocks = (max - i) / AES_BLOCK_SIZE;
++		size_t b, k;
++		int outl = 0;
++		if (blocks > (size_t)(CTR_BATCH / AES_BLOCK_SIZE))
++			blocks = CTR_BATCH / AES_BLOCK_SIZE;
++		for (b = 0; b < blocks; b++) {
++			aes_ctr_increase_counter(ctx);
++			memcpy(ctx->ctr_blk + b * AES_BLOCK_SIZE,
++			    ctx->nonce, AES_BLOCK_SIZE);
++		}
++		if (EVP_EncryptInit_ex(ctx->ctx, ctx->type, NULL, ctx->key, NULL) != 1 ||
++		    EVP_EncryptUpdate(ctx->ctx, ctx->ctr_ks, &outl, ctx->ctr_blk,
++		        (int)(blocks * AES_BLOCK_SIZE)) != 1 ||
++		    (size_t)outl != blocks * AES_BLOCK_SIZE)
++			return -1;
++		for (k = 0; k < blocks * AES_BLOCK_SIZE; k++)
++			out[i + k] = in[i + k] ^ ctx->ctr_ks[k];
++		i += blocks * AES_BLOCK_SIZE;
++		pos = AES_BLOCK_SIZE;
++	}
++
++	if (i < max) {
++		aes_ctr_increase_counter(ctx);
++		if (aes_ctr_encrypt_counter(ctx) != 0)
++			return -1;
++		pos = 0;
++		while (i < max)
++			out[i++] = in[i] ^ ctx->encr_buf[pos++];
++	}
++
++	ctx->encr_pos = pos;
++	*out_len = i;
++
++	return 0;
++}
++#else
++#define aes_ctr_update aes_ctr_update_one_by_one
++#endif
+ #endif /* ARCHIVE_CRYPTOR_STUB */
+ 
+ 
+--- a/libarchive/archive_cryptor_private.h	2026-08-29 21:12:06.308041400 +0800
++++ b/libarchive/archive_cryptor_private.h	2026-08-29 21:12:06.514651000 +0800
+@@ -144,6 +144,9 @@
+ 	uint8_t		nonce[AES_BLOCK_SIZE];
+ 	uint8_t		encr_buf[AES_BLOCK_SIZE];
+ 	unsigned	encr_pos;
++	/* nx 补丁：批量 CTR keystream 缓冲（每 64KiB 一次 EVP 调用） */
++	uint8_t		ctr_blk[64 * 1024];
++	uint8_t		ctr_ks[64 * 1024];
+ } archive_crypto_ctx;
+ 
+ #else

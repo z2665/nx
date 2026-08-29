@@ -103,7 +103,7 @@ def main():
     tmp = fresh("t5")
     zp = os.path.join(tmp, "big.zip")
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:
-        z.writestr("zeros.bin", b"\0" * (512 << 20))   # 存储式 512M：确保跨过首个 200ms 定时刷新
+        z.writestr("zeros.bin", b"\0" * (1536 << 20))   # 存储式 1.5G：解压提速后仍需跨过多个定时刷新周期
     out = os.path.join(tmp, "out")
     p = subprocess.Popen([NX, "extract", "--gui", zp, "-O", out],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)

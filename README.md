@@ -10,8 +10,9 @@ build.cmd       # 编译 → build\nx.exe（约 5.5 MB 单文件，仅系统 DLL
 package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + menupkg + 文档）
 ```
 
-依赖（vcpkg manifest 固定）：libarchive 3.8.7（容器）、zlib/bzip2/liblzma/zstd/lz4（过滤器直连）。
-`ports-overlay/libarchive`：上游 CMake 未链 crypto 探测 `PKCS5_PBKDF2_HMAC_SHA1` 导致 WinZip AES stub——overlay 强制定义修复。
+依赖（vcpkg manifest 固定）：libarchive 3.8.7（容器）、**zlib-ng[compat]**/bzip2/liblzma/zstd/lz4（zlib-ng=SSE4/AVX2 inflate + PCLMUL CRC，compat 供三方经 <zlib.h> 链接）。
+`ports-overlay/libarchive`：①上游 CMake 未链 crypto 探测 `PKCS5_PBKDF2_HMAC_SHA1` 导致 WinZip AES stub——强制定义修复；②`nx-batch-ctr.patch`——上游 WinZip AES 每 16 字节一次单块 EVP（实测 ~60MB/s），批量化为每 64KiB 一次（AES 2GiB 实测 33.6s→2.7s，内容校验一致）。
+`ports-overlay/zlib-ng`：基线端口无 feature，自建 `compat` feature（ZLIB_COMPAT 构建导出标准 ZLIB 配置）。
 
 **7z.dll**（运行时按需加载）：exe 目录 → `C:\Program Files\7-Zip\` → PATH。
 负责 7z 全特性（AES+头加密+分卷）与 RAR 解码；缺失时回退 libarchive（RAR 多卷除外）。
