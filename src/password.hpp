@@ -54,6 +54,7 @@ public:
     }
     void loadPasswordFile(const std::wstring& path);
     void setNoPrompt(bool v) { noPrompt_ = v; }
+    void setGuiPrompt(bool v) { guiPrompt_ = v; }
 
     // 引擎逐次取候选（每次调用推进游标；耗尽后进入交互；再耗尽返回空）
     // layerId：层身份（逻辑路径 + 格式），用于提示与缓存
@@ -73,6 +74,7 @@ private:
     std::mutex m_;
     std::vector<SecureStr> candidates_;
     bool noPrompt_ = false;
+    bool guiPrompt_ = false;
     std::map<std::string, SecureStr> layerCache_;        // 层缓存
     std::optional<SecureStr> lastSuccess_;               // 全局上次成功（LRU 简化）
     std::map<std::string, size_t> cursor_;               // 每层候选游标

@@ -1,6 +1,6 @@
 # nx — 流式嵌套压缩包解压工具
 
-设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2）。当前实现状态：**M2 完成**（M0 流水线 + M1 zip/7z/rar 全格式 + M2 并发调优/安全完备/基准）。
+设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2）。当前实现状态：**M3 完成**（M0 流水线 + M1 zip/7z/rar 全格式 + M2 调优/基准 + M3 便携分发/右键菜单/GUI/日志）。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -53,9 +53,26 @@ WinRAR 7.x 已移除 RAR4 创建（`-ma4`/`-vn`），故 rar4 读取路径由 7z
   附带发现：**bsdtar 管道在 Windows 原生管道下解流式 zip 会静默丢条目**（可复现，
   python/cmd 管道均然）——其墙钟不能作为有效对照，正是设计 §2 描述的现成工具缺陷。
 
+## M3：便携分发、右键菜单、GUI、默认日志
+
+- **便携打包**：`package.cmd` → `dist
+x\`（nx.exe + 7z.dll + README + LICENSE），
+  免安装绿色版；右键菜单命令指向该目录的绝对路径（移动目录后需重新 install）
+- **右键菜单**（HKCU，免管理员）：`nx menu install | remove`，级联菜单「nx 解压」：
+  - *解压到当前目录*：`extract-here`——条目直接落在压缩文件所在目录（--no-root）
+  - *解压到指定目录…*：`extract-into`——GUI 询问前缀（默认=压缩文件名），
+    输出 `<所在目录>\<前缀>`；X/取消即中止退出（exit 2）
+- **GUI 密码弹窗**：无控制台（右键/资源管理器启动）或 `--gui` 时，遇到加密层自动弹窗，
+  每层一窗、标题带层身份；取消/关闭 = 中止整个任务
+- **默认日志**：每次运行写 `nx.exe` 所在目录 `nx.log`——运行头（时间/pid/命令行）、
+  全部输出、report JSON；始终 append，超 5 MiB 截断从 0 开始
+- **双模式 exe**（`/SUBSYSTEM:WINDOWS`）：资源管理器右键启动不闪控制台黑框；
+  终端/管道启动时行为与普通 CLI 完全一致
+
 ## 用法
 
 ```
+nx menu install                          # 注册右键菜单（当前用户）
 nx extract data.zip.001 -O out/ -p pw1 -p pw2 --no-prompt
 nx extract mv.part1.rar -O out/            # RAR 原生多卷自动聚合
 nx extract x.zip -O out/ --verify sha256 --report r.json

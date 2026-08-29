@@ -1,0 +1,22 @@
+nx — 流式嵌套压缩包解压工具（便携发行说明）
+
+本目录为免安装绿色版，全部资源在此文件夹内。
+
+组件与许可
+----------
+nx.exe     本项目代码，静态链接以下库（经 vcpkg）：
+             libarchive (BSD) · zlib (Zlib) · bzip2 (BSD) · liblzma (公有领域)
+             zstd (BSD/GPLv2 双许可) · lz4 (BSD/GPLv2 双许可)
+7z.dll     7-Zip（作者 Igor Pavlov），LGPL。
+           以独立 DLL 形态随包分发（动态链接隔离，满足 LGPL 要求）。
+           缺失时 nx 自动回退 libarchive 引擎（RAR 原生多卷除外）。
+           libarchive 的 WinZip AES 修复见仓库 ports-overlay/libarchive。
+
+使用
+----
+命令行：  nx.exe --help
+右键菜单：在本目录运行  nx.exe menu install   （当前用户注册，免管理员）
+          移动目录后需重新 install；卸载用  nx.exe menu remove
+日志：    本目录 nx.log（每次运行追加，超 5 MiB 自动截断）
+
+密码弹窗：遇到加密层自动弹出（每层一窗）；点 X / 取消即中止整个任务。

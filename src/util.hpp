@@ -28,6 +28,9 @@ struct MissingVolumes : Error {        // 缺分片 → 退出码 4
 struct CorruptError : Error {          // 数据损坏（keep-going 可隔离）→ 记入退出码 1
     explicit CorruptError(std::string m) : Error(std::move(m)) {}
 };
+struct Cancelled : Error {             // 用户取消（GUI X/取消）→ 直接退出（M3 需求 5）
+    explicit Cancelled(std::string m) : Error(std::move(m)) {}
+};
 
 // ---- 编码转换 ----
 std::wstring utf8_to_wide(std::string_view s);

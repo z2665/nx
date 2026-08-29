@@ -52,7 +52,13 @@ add_executable(nx
   src/szcom.cpp
   src/sink.cpp
   src/walker.cpp
+  src/gui.cpp
+  src/log.cpp
+  src/menu.cpp
 )
+
+# 双模式：资源管理器启动不闪黑框；终端/管道行为不变（继承句柄）
+target_link_options(nx PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
 
 target_include_directories(nx PRIVATE src)
 target_link_libraries(nx PRIVATE

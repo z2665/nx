@@ -1,4 +1,5 @@
 #include "password.hpp"
+#include "gui.hpp"
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
@@ -23,15 +24,28 @@ void PasswordProvider::loadPasswordFile(const std::wstring& path) {
     }
 }
 
+// 询问可用性：--no-prompt 关闭；否则总有路径——控制台可用走控制台，否则 GUI 弹窗
+// （M3：右键/资源管理器启动无控制台 → GUI；--gui 强制 GUI）
 bool PasswordProvider::promptAvailable() {
-    if (noPrompt_) return false;
-    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-    DWORD mode = 0;
-    return h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) != 0;
+    return !noPrompt_;
 }
 
 std::optional<SecureStr> PasswordProvider::promptInteractive(const std::string& layerId) {
+    // GUI 优先（M3 需求 4）：--gui 或无控制台（资源管理器右键启动）→ 弹窗；
+    // 每个需要密码的层各弹一窗（§6.2 顺序链的 GUI 形态）；X/取消 → Cancelled 整体退出
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    bool consoleOk = h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) != 0;
+    if (guiPrompt_ || !consoleOk) {
+        auto pw = gui::ask_password(layerId + " 的密码：");
+        if (!pw)
+            throw Cancelled("用户取消了密码输入（" + layerId + "）");
+        std::wstring wiped = *pw;   // 尽力擦除
+        SecureStr out(wide_to_utf8(*pw));
+        SecureZeroMemory(wiped.data(), wiped.size() * sizeof(wchar_t));
+        ++prompts_;
+        return out;
+    }
     DWORD oldMode = 0;
     if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &oldMode)) return std::nullopt;
     // 回显关闭（§6.2 第 4 步）

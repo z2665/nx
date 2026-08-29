@@ -1,3 +1,4 @@
+#include "log.hpp"
 #include "sink.hpp"
 #include <windows.h>
 #include <bcrypt.h>

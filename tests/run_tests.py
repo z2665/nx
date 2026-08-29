@@ -263,6 +263,87 @@ def main():
         for k, v in exp.items():
             r.check(got.get(k) == v, f"{k} 哈希不符（verify 数据流正确性）")
 
+    # ---- M3 ----
+    # --no-root：条目直接落在输出目录（无根目录层）
+    d = os.path.join(CASES, "three_layer")
+    if os.path.isdir(d):
+        r = add("no_root")
+        out = fresh_out("no_root")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "data.tar.gz"), "-O", out,
+                                       "--no-root", "--no-prompt"])
+        r.check(code == 0, f"--no-root 退出码 {code}")
+        got = hash_tree(out)
+        r.check("inner.zip/a.txt" in got and "loose.txt" in got and
+                not any(k.startswith("data.tar.gz/") for k in got),
+                f"--no-root 目录结构异常: {sorted(got)[:4]}")
+
+    # extract-here：解压到压缩文件所在目录（无根目录层）
+    import tempfile as _tf
+    d = os.path.join(CASES, "plain_zip")
+    if os.path.isdir(d):
+        r = add("extract_here")
+        eh = _tf.mkdtemp(prefix="nx_eh_")
+        try:
+            shutil.copy(find_input(d, "plain.zip"), os.path.join(eh, "plain.zip"))
+            code, _o, stderr, _t = run_nx(["extract-here", os.path.join(eh, "plain.zip")])
+            r.check(code == 0, f"extract-here 退出码 {code}: {stderr.strip()[:150]}")
+            got = hash_tree(eh)
+            r.check("readme.txt" in got and "dir/a.bin" in got and
+                    not any(k.startswith("plain.zip/") for k in got),
+                    f"extract-here 输出结构异常: {sorted(got)[:4]}")
+        finally:
+            shutil.rmtree(eh, ignore_errors=True)
+
+    # 右键菜单 install/remove（HKCU 注册表断言）
+    r = add("context_menu")
+    code, _o, _e, _t = run_nx(["menu", "install"])
+    r.check(code == 0, "menu install 退出码")
+    MENU_KEY = "Software\\Classes\\*\\shell\\nxExtract"
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, MENU_KEY)
+        verb = winreg.QueryValueEx(k, "MUIVerb")[0]
+        sub = winreg.QueryValueEx(k, "SubCommands")[0]
+        c = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                           MENU_KEY + "\\shell\\nx.here\\command")
+        cmdLine = winreg.QueryValueEx(c, "")[0]
+        r.check(verb == "nx 解压", f"MUIVerb={verb}")
+        r.check(sub == "nx.here;nx.into", f"SubCommands={sub}")
+        r.check("extract-here" in cmdLine and "%1" in cmdLine, f"here 命令行={cmdLine[:80]}")
+    except ImportError:
+        r.check(False, "winreg 不可用")
+    finally:
+        code, _o, _e, _t = run_nx(["menu", "remove"])
+        r.check(code == 0, "menu remove 退出码")
+    try:
+        import winreg
+        winreg.OpenKey(winreg.HKEY_CURRENT_USER, MENU_KEY)
+        r.check(False, "menu remove 后键仍存在")
+    except FileNotFoundError:
+        pass
+
+    # 日志：文件存在 + 内容含运行头与汇总；5MiB 截断
+    r = add("logging")
+    exeDir = os.path.dirname(os.path.abspath(NX_EXE))
+    logf = os.path.join(exeDir, "nx.log")
+    r.check(os.path.exists(logf), "nx.log 未生成")
+    if os.path.exists(logf):
+        content = open(logf, encoding="utf-8", errors="replace").read()
+        r.check("==== nx" in content, "日志缺少运行头")
+        r.check('"tool"' in content, "日志缺少 report JSON（默认 reporter）")
+        with open(logf, "wb") as f:
+            f.write(b"x" * (6 * 1024 * 1024))
+        run_nx(["--help"])
+        r.check(os.path.getsize(logf) < 5 * 1024 * 1024 + 200000,
+                f"超 5MiB 未截断: {os.path.getsize(logf)}")
+
+    # GUI 冒烟（独立进程跑，窗口消息自动化）
+    r = add("gui_smoke")
+    g = subprocess.run([sys.executable, os.path.join(HERE, "gui_smoke.py")],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=180)
+    r.check(g.returncode == 0, "GUI 冒烟失败: " + (g.stdout or "")[-500:])
+
     # 汇总
     print()
     fails = 0

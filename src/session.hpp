@@ -16,6 +16,8 @@ struct Options {
     bool keepGoing = false;             // 数据损坏时继续其余条目
     bool dryRun = false;                // tree 模式
     std::string verify;                 // "sha256"（D8：--verify sha256）
+    bool noRoot = false;                // 不建根目录层（右键"解压到当前目录/前缀"语义）
+    bool guiPrompt = false;             // 密码经 GUI 弹窗（--gui；无控制台时自动）
 };
 
 struct Stats {

@@ -1,3 +1,4 @@
+#include "log.hpp"
 #include "walker.hpp"
 #include "detect.hpp"
 #include "filter.hpp"
@@ -45,19 +46,19 @@ void handle_branch_error(Session& s, const std::string& where) {
     } catch (PasswordExhausted& e) {
         s.stats.sawPasswordFail = true;
         s.stats.branchesFailed.fetch_add(1);
-        std::fprintf(stderr, "[nx] ✗ %s：%s\n", where.c_str(), e.what());
+        log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
     } catch (MissingVolumes& e) {
         s.stats.sawMissingVol = true;
         s.stats.branchesFailed.fetch_add(1);
-        std::fprintf(stderr, "[nx] ✗ %s：%s\n", where.c_str(), e.what());
+        log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
     } catch (CorruptError& e) {
         s.stats.sawCorrupt = true;
         s.stats.corrupt.fetch_add(1);
-        std::fprintf(stderr, "[nx] ✗ %s：%s\n", where.c_str(), e.what());
+        log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
         if (!s.opt.keepGoing) throw;
     } catch (Error& e) {
         s.stats.branchesFailed.fetch_add(1);
-        std::fprintf(stderr, "[nx] ✗ %s：%s\n", where.c_str(), e.what());
+        log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
         throw;   // 硬错误（I/O 等）一律中止
     }
 }
@@ -138,7 +139,7 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
             continue;
         }
         if (e.isSymlink) {
-            std::fprintf(stderr, "[nx] ! 跳过符号链接 %s（v1 降级策略，M0 不落地）\n", e.name.c_str());
+            log_err("[nx] ! 跳过符号链接 %s（v1 降级策略，M0 不落地）\n", e.name.c_str());
             continue;
         }
         auto m = match_split_name(e.name);
@@ -214,7 +215,7 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
     std::string err;
     std::vector<std::string> warns;
     validate_set(vs, &err, &warns);
-    for (auto& w : warns) std::fprintf(stderr, "[nx] ! %s\n", w.c_str());
+    for (auto& w : warns) log_err("[nx] ! %s\n", w.c_str());
     if (!err.empty()) throw MissingVolumes(err);
 
     // ---- RAR 原生卷：7z.dll 卷回调（不拼接，§3.3/D3）----
@@ -283,7 +284,8 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
     auto reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layerId, s.pw,
                                    s.engineOpt());
     s.stats.containers.fetch_add(1);
-    iterate_container(s, std::move(reader), rootName, format_name(d.fmt), 1);
+    iterate_container(s, std::move(reader), s.opt.noRoot ? "" : rootName,
+                      format_name(d.fmt), 1);
     return true;
 }
 
@@ -336,7 +338,12 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
                                  (d.detail.empty() ? "" : " " + d.detail));
         auto reader = open_container(std::move(pb), d.fmt, layerId, s.pw, s.engineOpt());
         s.stats.containers.fetch_add(1);
-        std::string newSub = sub.empty() ? origin : sub + "/" + origin;
+        // 仅根容器（depth==0）的目录层受 --no-root 抑制；嵌套层照常镜像
+        std::string newSub;
+        if (depth == 0 && sub.empty() && s.opt.noRoot)
+            newSub = "";
+        else
+            newSub = sub.empty() ? origin : sub + "/" + origin;
         iterate_container(s, std::move(reader), newSub, chain.empty() ? format_name(d.fmt) : chain,
                           newDepth);
         return;
