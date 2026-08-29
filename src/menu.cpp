@@ -11,8 +11,13 @@ namespace nx {
 
 namespace {
 
-// HKCU\Software\Classes\*\shell\nxExtract（级联：SubCommands）
-const wchar_t* kRoot = L"Software\\Classes\\*\\shell\\nxExtract";
+// 平级两项（M3：级联 SubCommands 在部分 Windows 版本不展开子菜单，平级 100% 可靠）
+const wchar_t* kKeys[2] = {
+    L"Software\\Classes\\*\\shell\\nxExtractHere",
+    L"Software\\Classes\\*\\shell\\nxExtractInto",
+};
+// 旧版级联键（升级清理）
+const wchar_t* kLegacy = L"Software\\Classes\\*\\shell\\nxExtract";
 
 std::wstring exe_path() {
     wchar_t buf[MAX_PATH * 4];
@@ -33,6 +38,15 @@ bool set_reg(HKEY parent, const wchar_t* sub, const wchar_t* value, const wchar_
     return ok;
 }
 
+bool del_tree(const wchar_t* shellParent, const wchar_t* sub) {
+    HKEY k = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, shellParent, 0, DELETE, &k) != ERROR_SUCCESS)
+        return true;   // 不存在即成功
+    LSTATUS r = SHDeleteKeyW(k, sub);
+    RegCloseKey(k);
+    return r == ERROR_SUCCESS || r == ERROR_FILE_NOT_FOUND;
+}
+
 } // namespace
 
 bool menu_install(std::string* errOut) {
@@ -41,47 +55,41 @@ bool menu_install(std::string* errOut) {
         if (errOut) *errOut = "无法定位 nx.exe 路径";
         return false;
     }
+    del_tree(L"Software\\Classes\\*\\shell", L"nxExtract");   // 清理旧级联键
     bool ok = true;
-    ok &= set_reg(HKEY_CURRENT_USER, kRoot, L"MUIVerb", L"nx 解压");
+    struct Item {
+        const wchar_t* key;
+        const wchar_t* title;
+        const wchar_t* verbArg;
+    } items[2] = {
+        {kKeys[0], L"nx 解压到当前目录", L"extract-here"},
+        {kKeys[1], L"nx 解压到指定目录…", L"extract-into"},
+    };
     std::wstring icon = exe + L",0";
-    ok &= set_reg(HKEY_CURRENT_USER, kRoot, L"Icon", icon.c_str());
-    ok &= set_reg(HKEY_CURRENT_USER, kRoot, L"SubCommands", L"nx.here;nx.into");
-    ok &= set_reg(HKEY_CURRENT_USER, (std::wstring(kRoot) + L"\\shell\\nx.here").c_str(),
-                  nullptr, L"解压到当前目录");
-    std::wstring cmdHere = L"\"" + exe + L"\" extract-here \"%1\"";
-    ok &= set_reg(HKEY_CURRENT_USER,
-                  (std::wstring(kRoot) + L"\\shell\\nx.here\\command").c_str(), nullptr,
-                  cmdHere.c_str());
-    ok &= set_reg(HKEY_CURRENT_USER, (std::wstring(kRoot) + L"\\shell\\nx.into").c_str(),
-                  nullptr, L"解压到指定目录…");
-    std::wstring cmdInto = L"\"" + exe + L"\" extract-into \"%1\"";
-    ok &= set_reg(HKEY_CURRENT_USER,
-                  (std::wstring(kRoot) + L"\\shell\\nx.into\\command").c_str(), nullptr,
-                  cmdInto.c_str());
+    for (auto& it : items) {
+        ok &= set_reg(HKEY_CURRENT_USER, it.key, nullptr, it.title);
+        ok &= set_reg(HKEY_CURRENT_USER, it.key, L"Icon", icon.c_str());
+        std::wstring cmd = L"\"" + exe + L"\" " + it.verbArg + L" \"%1\"";
+        ok &= set_reg(HKEY_CURRENT_USER, (std::wstring(it.key) + L"\\command").c_str(), nullptr,
+                      cmd.c_str());
+    }
     if (!ok && errOut)
         *errOut = "注册表写入失败";
     return ok;
 }
 
 bool menu_remove(std::string* errOut) {
-    HKEY classes = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell", 0, DELETE,
-                      &classes) != ERROR_SUCCESS) {
-        if (errOut) *errOut = "打开注册表失败";
-        return false;
-    }
-    LSTATUS r = SHDeleteKeyW(classes, L"nxExtract");
-    RegCloseKey(classes);
-    if (r != ERROR_SUCCESS && r != ERROR_FILE_NOT_FOUND) {
-        if (errOut) *errOut = "删除失败 (code " + std::to_string(static_cast<long>(r)) + ")";
-        return false;
-    }
-    return true;
+    bool ok = del_tree(L"Software\\Classes\\*\\shell", L"nxExtractHere");
+    ok &= del_tree(L"Software\\Classes\\*\\shell", L"nxExtractInto");
+    ok &= del_tree(L"Software\\Classes\\*\\shell", L"nxExtract");
+    if (!ok && errOut)
+        *errOut = "删除失败";
+    return ok;
 }
 
 bool menu_installed() {
     HKEY k = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kRoot, 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kKeys[0], 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS)
         return false;
     RegCloseKey(k);
     return true;

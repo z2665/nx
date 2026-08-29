@@ -294,22 +294,22 @@ def main():
         finally:
             shutil.rmtree(eh, ignore_errors=True)
 
-    # 右键菜单 install/remove（HKCU 注册表断言）
+    # 右键菜单 install/remove（HKCU 注册表断言，平级两项）
     r = add("context_menu")
     code, _o, _e, _t = run_nx(["menu", "install"])
     r.check(code == 0, "menu install 退出码")
-    MENU_KEY = "Software\\Classes\\*\\shell\\nxExtract"
+    MENU_KEYS = ["Software\\Classes\\*\\shell\\nxExtractHere",
+                 "Software\\Classes\\*\\shell\\nxExtractInto"]
     try:
         import winreg
-        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, MENU_KEY)
-        verb = winreg.QueryValueEx(k, "MUIVerb")[0]
-        sub = winreg.QueryValueEx(k, "SubCommands")[0]
-        c = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                           MENU_KEY + "\\shell\\nx.here\\command")
-        cmdLine = winreg.QueryValueEx(c, "")[0]
-        r.check(verb == "nx 解压", f"MUIVerb={verb}")
-        r.check(sub == "nx.here;nx.into", f"SubCommands={sub}")
-        r.check("extract-here" in cmdLine and "%1" in cmdLine, f"here 命令行={cmdLine[:80]}")
+        for key, want in ((MENU_KEYS[0], "nx 解压到当前目录"),
+                          (MENU_KEYS[1], "nx 解压到指定目录…")):
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key)
+            title = winreg.QueryValueEx(k, "")[0]
+            c = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key + "\\command")
+            cmdLine = winreg.QueryValueEx(c, "")[0]
+            r.check(title == want, f"菜单文字={title}（期望 {want}）")
+            r.check("%1" in cmdLine, f"命令行={cmdLine[:80]}")
     except ImportError:
         r.check(False, "winreg 不可用")
     finally:
@@ -317,8 +317,9 @@ def main():
         r.check(code == 0, "menu remove 退出码")
     try:
         import winreg
-        winreg.OpenKey(winreg.HKEY_CURRENT_USER, MENU_KEY)
-        r.check(False, "menu remove 后键仍存在")
+        for key in MENU_KEYS + ["Software\\Classes\\*\\shell\\nxExtract"]:
+            winreg.OpenKey(winreg.HKEY_CURRENT_USER, key)
+            r.check(False, f"menu remove 后键仍存在: {key}")
     except FileNotFoundError:
         pass
 
