@@ -298,6 +298,95 @@ def case_mixed_filters():
     write_case("mixed_filters", build, expected)
 
 
+# ---------------------------------------------------------------- 隐写（README 待办 #1）
+
+def mp4_atom(typ: bytes, payload: bytes) -> bytes:
+    return (8 + len(payload)).to_bytes(4, "big") + typ + payload
+
+
+def mp4_bytes(mdat_payload: bytes, mdat_size_zero: bool = False) -> bytes:
+    """最小合法 MP4：ftyp + mdat + free（原子精确收尾 = 干净文件）。"""
+    ftyp = mp4_atom(b"ftyp", b"\x00\x00\x02\x00isomiso2mp41")
+    if mdat_size_zero:
+        mdat = b"\x00\x00\x00\x00" + b"mdat" + mdat_payload   # size=0 = 延伸到 EOF
+    else:
+        mdat = mp4_atom(b"mdat", mdat_payload)
+    return ftyp + mdat + mp4_atom(b"free", b"")
+
+
+def case_stego_mp4_zip():
+    inner = make_files({"flag.txt": "hidden message\n" * 50,
+                        "docs/plan.txt": "stego corpus\n" * 100})
+    z = zip_bytes(inner)
+
+    def build(d):
+        with open(os.path.join(d, "video.mp4"), "wb") as f:
+            f.write(mp4_bytes(b"\x00" * 4096))
+            f.write(z)
+    write_case("stego_mp4_zip", build,
+               {f"video.mp4/{k}": v for k, v in tree_hash(inner).items()})
+
+
+def case_stego_jpg_zip():
+    # 非 MP4 多合一：JPEG 头 + zip（EOCD 反扫路径；无 atom 结构可用）
+    inner = make_files({"a.txt": "polyglot\n" * 80})
+    z = zip_bytes(inner)
+
+    def build(d):
+        with open(os.path.join(d, "photo.jpg"), "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + b"\x00" * 2048)
+            f.write(z)
+    write_case("stego_jpg_zip", build,
+               {f"photo.jpg/{k}": v for k, v in tree_hash(inner).items()})
+
+
+def case_stego_mp4_mdat0_zip():
+    # mdat size=0：原子步进判"无尾部"，EOCD 反扫兜住尾接 zip
+    inner = make_files({"note.txt": "inside mdat\n" * 40})
+    z = zip_bytes(inner)
+
+    def build(d):
+        with open(os.path.join(d, "clip.mp4"), "wb") as f:
+            f.write(mp4_bytes(b"\x00" * 512, mdat_size_zero=True))
+            f.write(z)
+    write_case("stego_mp4_mdat0_zip", build,
+               {f"clip.mp4/{k}": v for k, v in tree_hash(inner).items()})
+
+
+def case_stego_none():
+    # 干净 MP4（原子精确收尾）：--stego → 未检测到（exit 0，零输出）
+    def build(d):
+        with open(os.path.join(d, "clean.mp4"), "wb") as f:
+            f.write(mp4_bytes(b"\x00" * 8192))
+    write_case("stego_none", build, {})
+
+
+def _stego_reuse(src_case, src_file, out_name, out_case):
+    """复用既有 m1 语料做 7z/rar 尾部隐写（缺失则跳过——run_tests 侧同步跳过）。"""
+    src = os.path.join(CASES_DIR, src_case, src_file)
+    if not os.path.exists(src):
+        print(f"[gen] {out_case}: 跳过（缺 {src_case}/{src_file}，先跑 gen_corpus_m1.py）")
+        return
+    exp = json.load(open(os.path.join(CASES_DIR, src_case, "expected.json"),
+                         encoding="utf-8"))["files"]
+
+    def build(d):
+        with open(os.path.join(d, out_name), "wb") as f:
+            f.write(mp4_bytes(b"\x00" * 1024))
+            f.write(open(src, "rb").read())
+    expected = {f"{out_name}/{k.split('/', 1)[1]}": v
+                for k, v in exp.items()}
+    write_case(out_case, build, expected)
+
+
+def case_stego_mp4_rar():
+    _stego_reuse("rar5_plain", "data.rar", "movie.mp4", "stego_mp4_rar")
+
+
+def case_stego_mp4_7z():
+    _stego_reuse("7z_encrypted", "sealed.7z", "film.mp4", "stego_mp4_7z")
+
+
 ALL = [
     case_plain_zip,
     case_three_layer,
@@ -313,6 +402,12 @@ ALL = [
     case_bare_gz,
     case_zspan,
     case_mixed_filters,
+    case_stego_mp4_zip,
+    case_stego_jpg_zip,
+    case_stego_mp4_mdat0_zip,
+    case_stego_none,
+    case_stego_mp4_rar,
+    case_stego_mp4_7z,
 ]
 
 if __name__ == "__main__":

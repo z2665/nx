@@ -2,6 +2,7 @@
 """M3 GUI 冒烟：前缀弹窗（输入/默认值/取消）+ 密码弹窗（多层异密码 + 取消）
 + 进度窗（出现/自动关闭 + 取消中止，待办 #1）。"""
 import os
+import io
 import shutil
 import subprocess
 import sys
@@ -185,6 +186,31 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
     else:
         print("[7] 7z 直读：跳过（未安装 7-Zip）")
+
+    # ---- 用例 8：extract-stego 动词（前缀默认 <名>_stego → 解出隐写 zip）----
+    tmp = fresh("t8")
+    mp4 = os.path.join(tmp, "clip.mp4")
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("flag.txt", "hidden\n" * 100)
+    with open(mp4, "wb") as f:
+        f.write((8 + 20).to_bytes(4, "big") + b"ftyp" + b"\x00\x00\x02\x00isomiso2mp41")
+        f.write((8 + 1024).to_bytes(4, "big") + b"mdat" + b"\x00" * 1024)
+        f.write((8).to_bytes(4, "big") + b"free")
+        f.write(zbuf.getvalue())
+    p = subprocess.Popen([NX, "extract-stego", mp4],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    d1 = NxDialog.wait_for(p.pid, "解压到指定目录")
+    default = d1.get_text()
+    d1.ok()
+    p.communicate(timeout=30)
+    found = rel_files(os.path.join(tmp, "clip_stego")) \
+        if os.path.isdir(os.path.join(tmp, "clip_stego")) else []
+    ok = default == "clip_stego" and p.returncode == 0 and found == ["flag.txt"]
+    print(f"[8] 隐写动词 默认前缀={default!r} exit={p.returncode} found={found} "
+          f"→ {'PASS' if ok else 'FAIL'}")
+    okAll &= ok
+    shutil.rmtree(tmp, ignore_errors=True)
 
     print("GUI 冒烟:", "PASS" if okAll else "FAIL")
     return 0 if okAll else 1

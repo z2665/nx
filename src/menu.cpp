@@ -80,9 +80,10 @@ bool menu_install(std::string* errOut) {
         const wchar_t* key;
         const wchar_t* title;
         const wchar_t* arg;
-    } subs[2] = {
+    } subs[3] = {
         {L"nx.here", L"解压到当前目录", L"extract-here"},
         {L"nx.into", L"解压到指定目录…", L"extract-into"},
+        {L"nx.stego", L"解压隐写压缩包…", L"extract-stego"},
     };
     for (auto& s : subs) {
         std::wstring key = std::wstring(kCascadeRoot) + L"\\shell\\" + s.key;

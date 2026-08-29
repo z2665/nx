@@ -3,6 +3,7 @@
 #include "detect.hpp"
 #include "filter.hpp"
 #include "gui.hpp"
+#include "stego.hpp"
 #include "volumeset.hpp"
 #include <algorithm>
 #include <cctype>
@@ -373,8 +374,57 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
     s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), UINT64_MAX, depth, false);
 }
 
+// ---- 隐写模式（extract-stego / --stego）：只解根文件内藏归档，根文件本体不落盘 ----
+// 检测仅限根 FS 层（stego::scan 需 seek 跳过 GB 级 mdat；嵌套流不查）。
+static void run_stego(Session& s, const std::wstring& inputPath) {
+    namespace fs = std::filesystem;
+    std::string rootName = wide_to_utf8(fs::path(inputPath).filename().wstring());
+    auto hit = stego::scan(inputPath);
+    if (!hit) {
+        s.stats.stegoNotFound = true;
+        log_err("[nx] 未检测到隐写压缩包（MP4 原子步进 + 尾部 EOCD 反扫均未命中）: %s\n",
+                rootName.c_str());
+        return;
+    }
+    if (s.opt.maxDepth < 1) {
+        s.stats.limitTripped = true;
+        throw LimitError("递归深度上限为 0");
+    }
+    std::string fmtName = format_name(hit->fmt);
+    std::string layerId = "第 1 层 " + rootName + " 隐写 (" + fmtName + ")";
+    layer_note(s, 0, rootName + " → 隐写 " + fmtName + " @+" + std::to_string(hit->offset) +
+                          " [" + hit->desc + "]");
+    gui::progress_stage("展开隐写 " + rootName + "（" + fmtName + "）");
+    std::shared_ptr<ContainerReader> reader;
+    try {
+        if (hit->fmt == Format::Zip) {
+            // 尾接 zip：libarchive 自EOCD 反推基址（SFX 同机制），整文件直开
+            reader = open_zip_file(inputPath, layerId, s.pw, s.engineOpt());
+        } else {
+            if (!sz::dll_available())
+                throw Error("隐写 " + fmtName + " 需要 7z.dll（未找到）");
+            sz::VolumeSource v;
+            v.fsPath = inputPath;
+            v.fsBase = hit->offset;   // [offset, EOF) 窗口 = 干净 7z/rar 流
+            std::map<std::wstring, sz::VolumeSource> vols{{L"", std::move(v)}};
+            reader = sz::open_archive(hit->fmt, vols, L"", layerId, s.pw, s.engineOpt());
+        }
+    } catch (CorruptError& e) {
+        // EOCD/原子头假阳性：按未检测到反馈（密码耗尽等仍照常上抛）
+        log_err("[nx] 隐写归档打开失败（疑似假阳性）: %s\n", e.what());
+        s.stats.stegoNotFound = true;
+        return;
+    }
+    s.stats.containers.fetch_add(1);
+    iterate_container(s, std::move(reader), s.opt.noRoot ? "" : rootName, fmtName, 1);
+}
+
 // ---- 根输入 ----
 void run_input(Session& s, const std::wstring& inputPath) {
+    if (s.opt.stegoMode) {
+        run_stego(s, inputPath);
+        return;
+    }
     // 文件系统级分片感知（D3）
     std::string volErr;
     auto set = group_filesystem(inputPath, &volErr);

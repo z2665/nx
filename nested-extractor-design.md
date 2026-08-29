@@ -325,11 +325,17 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   附带修正：此前 zip 根下嵌套过滤器的压缩比熔断分母虚小（≈64 KiB 检测读），
   补计量后才是 D6 语义的真实根输入（ratio_bomb 回归通过）。
   冒烟断言 `PBM_GETPOS` 随解压爬升（zip 直读 0→77%、7z 直读 0→99% 实测）。
-- **【待办】MP4 隐写压缩包识别**：部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 虚拟路径
-  模式可打开）。当前 D1 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB。
-  两种思路：(a) 解析 MP4 atom 结构（ftyp→moov→mdat…），定位 MP4 数据结束偏移后从该处扫描；
-  (b) 后台全文件扫描（对大文件需权衡 I/O）。7-Zip 22.01 已支持此场景可作参考实现。
-  优先级：中。
+- **【已完成】MP4 隐写压缩包识别（原待办）**：入口为右键第三项 `extract-stego` /
+  CLI `extract --stego`（用户显式选择"解隐写内容"→ 免运行时弹窗决策，语义=只解内藏
+  压缩包、根文件本体不落盘；默认解压路径行为零变化）。检测两条路（`stego.cpp`，
+  仅根 FS 层——流式 detect 无法跳过 GB 级 mdat）：① MP4 atom 步进（逐原子头小读、
+  按 size 跳越，非法头处即候选起点；size=1 走 64 位扩展长度，size=0=延伸到 EOF；
+  7z/rar 尾部无结束标记，只能经此发现）；② EOCD 反向扫描（末 64KiB+22 回扫
+  `PK\x05\x06`，注释长度须精确吃到 EOF；覆盖任意格式尾接 zip 与 mdat size=0 病态）。
+  打开：尾接 zip 整文件直开（libarchive 自 EOCD 反推 SFX 基址）；7z/rar 经
+  `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
+  未命中 → exit 0 + GUI「nx 隐写解压」信息框；EOCD 假阳性由试开 CorruptError 兜回未命中。
+  6 属性用例 + GUI 冒烟用例 8（40/40 + 8/8）。
 - **【实施记录】文件名编码三层根因**（D:\…\2.zip 真实案例，已修复）：
   ① libarchive 字符转换依赖进程 locale——C locale 下非 ASCII 名直接返回 NULL pathname，
   `setlocale(LC_ALL, ".UTF8")` 为主修复；② 本地头与中央目录文件名可不一致（本例本地头 EUC-JP、
@@ -346,7 +352,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 | M1（+2 周） | zip 双模式回退、7z.dll（分卷+AES+头加密）、SpoolStore、全部分片类型（含 `.z01+.zip`、条目级分片组）、密码缓存/LRU | 对抗用例全绿（含密码专项） | ✅ 完成（unRAR 略过，7z.dll 已覆盖） |
 | M2（+2 周） | 并发/背压调优、安全完备、`--tree/--report`、基准报告 | 基准不劣于 bsdtar 管道，峰值磁盘 0 中间 | ✅ 完成（链式快于手工 33-34%；附带发现 bsdtar 管道在 Windows 原生管道下解流式 zip 静默丢条目） |
 | M3（正式发布） | unRAR 可选插件、`nxcore.dll` C ABI 导出、安装器/右键菜单、可选 WPF 壳 | 分发物 + 全量测试矩阵 | ✅ 完成（便携打包/右键级联/GUI 密码/默认日志；nxcore.dll 与 WPF 未做，非必需） |
-| 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | 🔄 GUI 进度指示已完成（见 §10 实施记录）；MP4 隐写识别待办 |
+| 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | ✅ 均已完成（GUI 进度窗+真百分比、extract-stego 隐写解压，见 §10 实施记录） |
 
 ---
 

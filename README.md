@@ -1,7 +1,7 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录）。
-**当前状态：M0–M3 完成 + 真实语料验证**。34/34 属性测试通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压**。40/40 属性测试通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -46,6 +46,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 右键菜单：`nx menu install|remove`（HKCU ExtendedSubCommandsKey 级联，经典菜单可靠展开）
   - 解压到当前目录（`extract-here`，--no-root）
   - 解压到指定目录…（`extract-into`，GUI 前缀弹窗，默认=压缩文件名）
+  - 解压隐写压缩包…（`extract-stego`，GUI 前缀弹窗，默认=文件名去扩展名 + `_stego`）
 - GUI 密码弹窗（内存 DLGTEMPLATE）：无控制台或 `--gui` 时自动，每层一窗，取消→整体中止
 - 双模式 exe（`/SUBSYSTEM:WINDOWS`）：资源管理器启动无黑框，终端/管道行为不变
 - 默认日志 `nx.log`：运行头+全部输出+report JSON；append，超 5 MiB 截断
@@ -65,6 +66,21 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   大文件写出循环内逐块响应，`.part` 半成品照常清理
 - `gui_smoke.py` 扩至 7 用例（进度窗出现/自动关闭/取消中止/半成品清理/
   zip 直读与 7z 直读的百分比爬升——`PBM_GETPOS` 采样断言）
+
+### 隐写解压（原待办：MP4 隐写压缩包识别）
+- **检测两条路**（`stego.cpp`，仅根文件层——需 seek 跳过 GB 级 mdat）：
+  - MP4 atom 步进：逐原子头小读、按 size 跳越，非法头处即隐写候选起点
+    （7z/rar 尾部无结束标记，只能经此发现）；mdat size=0 视为延伸到 EOF；
+  - EOCD 反向扫描：文件尾 64 KiB+22 回扫 `PK\x05\x06`，注释长度须精确吃到 EOF——
+    覆盖任意格式文件的尾接 zip（jpg+zip 多合一、mdat size=0 病态 MP4）。
+  I/O 成本：几十次小读 + 尾部一块，GB 级文件毫秒级。
+- **打开**：尾接 zip 整文件直开 `open_zip_file`（libarchive 从 EOCD 反推 SFX 基址）；
+  7z/rar 走 `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
+- **入口**：右键第三项 `extract-stego`（交互复刻 extract-into）或 CLI `extract --stego`；
+  语义=只解隐写压缩包，根文件本体不落盘；输出照常走 Walker 递归 + Sink 熔断/消毒/密码链。
+- 未命中：exit 0 + CLI 消息 / GUI「nx 隐写解压」信息框；EOCD 假阳性由试开失败兜回未命中。
+- 6 个属性用例（mp4+zip / jpg+zip / mdat0+zip / mp4+rar / mp4+7z 加密 / 干净 MP4 未命中）
+  + GUI 冒烟用例 8（动词端到端、默认前缀 `<名>_stego`）。
 
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
@@ -89,10 +105,10 @@ python tests/gui_smoke.py       # GUI 冒烟（窗口消息自动化）
 
 | # | 问题 | 说明 | 优先级 |
 |---|---|---|---|
-| 1 | **MP4 隐写压缩包识别** | 部分 MP4 文件尾部隐写有 zip/rar 压缩包（7-Zip `#` 模式可打开）。当前 SFX 魔数扫描仅前 4 MiB，MP4 的 mdat 原子可达数 GB，需要扩展 MP4 原子解析或全文件扫描 | 中 |
+| 1 | 嵌套隐写检测 | 隐写扫描仅根文件层（需 seek）；压缩包内的 MP4 不查（真实场景是右键单个文件） | 低 |
 | 2 | 条目级分片连续到达 | M0 限制：分片组成员须连续到达，非成员条目到达即封组 | 低 |
 | 3 | RAR4/旧命名卷 | WinRAR 7.x 无法生成 rar4 语料（读取由 7z.dll 覆盖，无测试验证） | 低 |
 | 4 | tar 内符号链接 | v1 降级策略——跳过并告警，不落盘 | 低 |
 | 5 | unRAR 插件 | 经评估略过（7z.dll 已覆盖 RAR 主线） | — |
 
-（原待办 #1「GUI 无进度指示」与 #2「进度条真百分比」均已完成，见上「GUI 进度窗」小节。）
+（原待办「MP4 隐写压缩包识别」已完成：`extract-stego` 右键动词 / `--stego` 开关，见上「隐写解压」小节。）

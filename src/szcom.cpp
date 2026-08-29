@@ -151,15 +151,20 @@ public:
 class FileSeekInput : public SeekInput {
 public:
     // meter：根输入计量（仅 FS 卷挂；spool 卷字节来自外层已计量流，再计即重复）
-    explicit FileSeekInput(const std::wstring& path, InputMeter* meter = nullptr)
-        : meter_(meter) {
+    // base：窗口起始偏移（隐写模式：把 [base, EOF) 呈现为一个完整卷）
+    explicit FileSeekInput(const std::wstring& path, InputMeter* meter = nullptr,
+                           uint64_t base = 0)
+        : meter_(meter), base_(base) {
         h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                          OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (h_ == INVALID_HANDLE_VALUE)
             throw Error("打开卷文件失败: " + wide_to_utf8(path));
         LARGE_INTEGER sz{};
         GetFileSizeEx(h_, &sz);
-        size_ = static_cast<uint64_t>(sz.QuadPart);
+        uint64_t total = static_cast<uint64_t>(sz.QuadPart);
+        if (base > total)
+            throw Error("卷窗口偏移越界: " + wide_to_utf8(path));
+        size_ = total - base;
     }
     ~FileSeekInput() override {
         if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
@@ -167,7 +172,7 @@ public:
     size_t read_at(uint64_t pos, std::span<byte> buf) override {
         std::lock_guard<std::mutex> lk(m_);
         LARGE_INTEGER li{};
-        li.QuadPart = static_cast<LONGLONG>(pos);
+        li.QuadPart = static_cast<LONGLONG>(base_ + pos);
         if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN)) throw Error("卷定位失败");
         size_t got = 0;
         while (got < buf.size()) {
@@ -185,6 +190,7 @@ private:
     HANDLE h_ = INVALID_HANDLE_VALUE;
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
+    uint64_t base_ = 0;
     std::mutex m_;
 };
 
@@ -205,7 +211,7 @@ private:
 };
 
 std::shared_ptr<SeekInput> volume_input(const VolumeSource& v, InputMeter* meter) {
-    if (!v.fsPath.empty()) return std::make_shared<FileSeekInput>(v.fsPath, meter);
+    if (!v.fsPath.empty()) return std::make_shared<FileSeekInput>(v.fsPath, meter, v.fsBase);
     return std::make_shared<SpoolSeekInput>(v.spool, v.winStart, v.winLen);
 }
 

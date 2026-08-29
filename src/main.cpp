@@ -30,6 +30,7 @@ void usage() {
         "  nx extract <输入...> -O <输出目录> [选项]\n"
         "  nx extract-here <输入...>          # 解压到各输入所在目录（不建根目录层）\n"
         "  nx extract-into <输入>             # GUI 询问前缀目录（默认=压缩文件名）\n"
+        "  nx extract-stego <输入>            # GUI 询问前缀目录，解出文件内隐写压缩包\n"
         "  nx tree <输入...> [选项]\n"
         "  nx menu install | remove           # 资源管理器右键菜单（当前用户，免管理员）\n"
         "\n"
@@ -39,6 +40,7 @@ void usage() {
         "  --password-file <f>  密码文件（每行一个）\n"
         "  --no-prompt          非交互：不询问，仅候选列表\n"
         "  --gui                GUI 弹窗（密码 + 进度；无控制台时自动启用）\n"
+        "  --stego              隐写模式：解出根文件（MP4 等）内藏的压缩包，根文件不落盘\n"
         "  --no-root            不建根目录层（条目直接落在输出目录）\n"
         "  --depth <n>          递归深度上限（默认 8）\n"
         "  --max-bytes <n>      累计输出上限（默认 512G；支持 K/M/G/T）\n"
@@ -191,7 +193,8 @@ int main() {
         return 64;
     }
 
-    if (cmd != "extract" && cmd != "extract-here" && cmd != "extract-into" && cmd != "tree") {
+    if (cmd != "extract" && cmd != "extract-here" && cmd != "extract-into" &&
+        cmd != "extract-stego" && cmd != "tree") {
         log_err("[nx] 未知命令: %s\n", cmd.c_str());
         usage();
         return 64;
@@ -203,7 +206,8 @@ int main() {
     std::wstring outDir;
     std::wstring reportPath;
     bool haveOut = false;
-    bool forceNoRoot = (cmd == "extract-here" || cmd == "extract-into");
+    bool forceNoRoot = (cmd == "extract-here" || cmd == "extract-into" ||
+                        cmd == "extract-stego");
     ULONGLONG t0 = GetTickCount64();
 
     try {
@@ -221,6 +225,7 @@ int main() {
             else if (a == "--password-file") s.pw.loadPasswordFile(utf8_to_wide(need("--password-file")));
             else if (a == "--no-prompt") s.pw.setNoPrompt(true);
             else if (a == "--gui") { s.pw.setGuiPrompt(true); s.opt.guiPrompt = true; }
+            else if (a == "--stego") s.opt.stegoMode = true;
             else if (a == "--no-root") s.opt.noRoot = true;
             else if (a == "--depth") s.opt.maxDepth = std::stoi(need("--depth"));
             else if (a == "--max-bytes") s.opt.maxBytes = parse_size(need("--max-bytes"));
@@ -282,6 +287,24 @@ int main() {
         }
         outDir = parent_dir_of(inputs[0]) + L"\\" + *prefix;
         prefixDir = *prefix;
+    } else if (cmd == "extract-stego") {
+        if (inputs.size() > 1) {
+            log_err("[nx] extract-stego 一次只处理一个输入（右键语义）\n");
+            return 64;
+        }
+        // 隐写解压：默认前缀 = 去扩展名 + _stego（与普通解压默认区分）
+        std::wstring fname = inputs[0].substr(inputs[0].find_last_of(L"\\/") + 1);
+        std::wstring stem = fname;
+        size_t dot = fname.find_last_of(L'.');
+        if (dot != std::wstring::npos && dot > 0) stem = fname.substr(0, dot);
+        auto prefix = gui::ask_prefix(stem + L"_stego");
+        if (!prefix || prefix->empty()) {
+            log_raw("用户取消了前缀输入，退出\n");
+            return 2;
+        }
+        outDir = parent_dir_of(inputs[0]) + L"\\" + *prefix;
+        prefixDir = *prefix;
+        s.opt.stegoMode = true;
     }
 
     if (!dryRun && !haveOut && cmd == "extract") {
@@ -387,13 +410,22 @@ int main() {
 
     // 仅资源管理器/右键启动（无标准句柄）→ GUI 完成反馈；取消则不弹（用户已决定）。
     // 管道/重定向（脚本、CLI）不弹框——有输出通道。
+    bool stegoMiss = s.opt.stegoMode && s.stats.stegoNotFound.load() &&
+                     s.stats.filesOut.load() == 0;
     if (!dryRun && explorerLaunched && !cancelled) {
-        std::string detail = exitCode == 0
-            ? "已解出 " + std::to_string(s.stats.filesOut.load()) + " 个文件（" +
-                  format_size(s.stats.bytesOut.load()) + "）\n输出: " + wide_to_utf8(outDir)
-            : "存在错误（退出码 " + std::to_string(exitCode) + "），详见日志:\n" +
-                  wide_to_utf8(log_path());
-        gui::notify_done(exitCode == 0, detail);
+        if (stegoMiss) {
+            gui::notify_done(true,
+                             "未检测到隐写压缩包（MP4 原子步进 + 尾部 EOCD 反扫均未命中）:\n" +
+                                 wide_to_utf8(inputs[0]),
+                             L"nx 隐写解压");
+        } else {
+            std::string detail = exitCode == 0
+                ? "已解出 " + std::to_string(s.stats.filesOut.load()) + " 个文件（" +
+                      format_size(s.stats.bytesOut.load()) + "）\n输出: " + wide_to_utf8(outDir)
+                : "存在错误（退出码 " + std::to_string(exitCode) + "），详见日志:\n" +
+                      wide_to_utf8(log_path());
+            gui::notify_done(exitCode == 0, detail);
+        }
     }
     return exitCode;
 }

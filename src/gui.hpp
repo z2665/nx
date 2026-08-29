@@ -15,8 +15,10 @@ std::optional<std::wstring> ask_password(const std::string& titleUtf8);
 // 前缀输入：defaultValue 预填（默认=归档文件名）；返回输入或 nullopt（取消）
 std::optional<std::wstring> ask_prefix(const std::wstring& defaultValue);
 
-// 完成提示（无控制台运行时的反馈）；cancelled 为 true 时不弹
-void notify_done(bool ok, const std::string& detailUtf8);
+// 完成提示（无控制台运行时的反馈）；cancelled 为 true 时不弹。
+// titleOverride：自定义窗口标题（如隐写"未检测到"提示），null 用默认完成/失败标题
+void notify_done(bool ok, const std::string& detailUtf8,
+                 const wchar_t* titleOverride = nullptr);
 
 // ---- 进度窗（独立 GUI 线程上的无模式对话框；--gui 或 Explorer 启动时显示）----
 // GUI 线程定时轮询 Stats/InputMeter 原子量（只读），取消时置 abortFlag（原子写）。

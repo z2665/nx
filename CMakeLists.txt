@@ -49,6 +49,7 @@ add_executable(nx
   src/pipes.cpp
   src/spool.cpp
   src/detect.cpp
+  src/stego.cpp
   src/password.cpp
   src/volumeset.cpp
   src/filter.cpp

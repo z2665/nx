@@ -18,6 +18,7 @@ std::wstring dll_error();    // 加载失败原因
 // 一个卷的数据来源（二选一）：文件系统路径 / spool 窗口（条目级多卷）
 struct VolumeSource {
     std::wstring fsPath;
+    uint64_t fsBase = 0;   // FS 卷起始偏移（隐写窗口：文件 = [fsBase, EOF)）
     std::shared_ptr<SpoolBuffer> spool;   // 随窗口保活
     uint64_t winStart = 0, winLen = 0;
 };

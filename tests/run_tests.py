@@ -162,6 +162,35 @@ def main():
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), [], 0)
 
+    # 隐写（README 待办 #1）：--stego 模式解出根文件内藏压缩包（根文件本体不落盘）
+    for case, entry, args, want in [
+        ("stego_mp4_zip", "video.mp4", ["--stego"], 0),
+        ("stego_jpg_zip", "photo.jpg", ["--stego"], 0),
+        ("stego_mp4_mdat0_zip", "clip.mp4", ["--stego"], 0),
+        ("stego_mp4_rar", "movie.mp4", ["--stego"], 0),
+        ("stego_mp4_7z", "film.mp4", ["--stego", "-p", "7zPw@2024", "--no-prompt"], 0),
+    ]:
+        d = os.path.join(CASES, case)
+        if not os.path.isdir(d):
+            print(f"[run] 跳过缺失用例 {case}")
+            continue
+        r = add(case)
+        run_extract_and_compare(r, case, find_input(d, entry), args, want)
+
+    # 隐写未命中：干净 MP4 → exit 0 且零输出（"查了没有"不算失败）
+    d = os.path.join(CASES, "stego_none")
+    if os.path.isdir(d):
+        r = add("stego_none")
+        out = fresh_out("stego_none")
+        tmp = fresh_tmp("stego_none")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "clean.mp4"), "-O", out,
+                                       "--temp-dir", tmp, "--stego"])
+        r.check(code == 0, f"退出码 {code}（期望 0）stderr={stderr.strip()[:200]}")
+        r.check(not os.listdir(out), f"不应有输出: {os.listdir(out)[:5]}")
+        r.check(not os.listdir(tmp), "临时目录残留")
+    else:
+        print("[run] 跳过 stego_none")
+
     # 两层异密码：候选顺序故意与层级相反（外层密码在后）→ 均应通过候选迭代解开
     d = os.path.join(CASES, "two_passwords")
     if os.path.isdir(d):

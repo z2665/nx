@@ -2,7 +2,7 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++20，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 完成，34/34 测试通过）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 完成 + GUI 进度/隐写解压，40/40 测试通过）。
 
 ## 构建与打包
 
@@ -52,7 +52,10 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
 - zip 文件名解码走中央目录模式（File/Spool SeekView）；码表候选名须为 iconv 格式（如 `CP932`）。
 - 右键级联用 HKCU `ExtendedSubCommandsKey`；CommandStore 方案仅 HKLM 受支持（已回退）。
 - exe 是双模式（`/SUBSYSTEM:WINDOWS` + `mainCRTStartup`）：资源管理器启动无黑框，终端/管道行为不变——改入口/子系统前理解这一点。
-- 7z SFX 魔数扫描仅前 4 MiB（MP4 尾部隐写识别是待办 #2）。
+- 7z SFX 前缀魔数扫描仍仅前 4 MiB；尾部隐写（MP4/多合一）走独立 `stego.cpp`
+  （atom 步进 + EOCD 反扫，仅根 FS 层，`extract-stego`/`--stego` 显式启用）。
+- `EngineOptions.meter`（根 InputMeter）是进度百分比与压缩比分母的公共数据源：
+  根层直读视图（FileSeekView/FileSeekInput）挂、码表探测视图与 spool 卷不挂——动这些类时保持该纪律。
 
 ## 约定
 

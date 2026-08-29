@@ -18,6 +18,7 @@ struct Options {
     std::string verify;                 // "sha256"（D8：--verify sha256）
     bool noRoot = false;                // 不建根目录层（右键"解压到当前目录/前缀"语义）
     bool guiPrompt = false;             // 密码经 GUI 弹窗（--gui；无控制台时自动）
+    bool stegoMode = false;             // 隐写模式（extract-stego / --stego）：只解根文件内藏归档
 };
 
 struct Stats {
@@ -34,6 +35,7 @@ struct Stats {
     std::atomic<bool> sawMissingVol{false};
     std::atomic<bool> sawCorrupt{false};
     std::atomic<bool> limitTripped{false};
+    std::atomic<bool> stegoNotFound{false};  // 隐写模式未命中（exit 0 + GUI 提示，不算失败）
     std::atomic<bool> abortFlag{false};         // Sink 硬错误 → 全局终止
     std::string firstHardError;
 };

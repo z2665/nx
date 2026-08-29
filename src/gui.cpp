@@ -349,9 +349,11 @@ std::optional<std::wstring> ask_prefix(const std::wstring& defaultValue) {
     return run_input_dialog(ctx);
 }
 
-void notify_done(bool ok, const std::string& detailUtf8) {
+void notify_done(bool ok, const std::string& detailUtf8, const wchar_t* titleOverride) {
     std::wstring msg = utf8_to_wide(detailUtf8);
-    MessageBoxW(nullptr, msg.c_str(), ok ? L"nx 解压完成" : L"nx 解压失败",
+    std::wstring title = titleOverride ? titleOverride
+                                       : (ok ? L"nx 解压完成" : L"nx 解压失败");
+    MessageBoxW(nullptr, msg.c_str(), title.c_str(),
                 ok ? MB_OK | MB_ICONINFORMATION : MB_OK | MB_ICONERROR);
 }
 
