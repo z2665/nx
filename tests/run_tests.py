@@ -298,18 +298,18 @@ def main():
     r = add("context_menu")
     code, _o, _e, _t = run_nx(["menu", "install"])
     r.check(code == 0, "menu install 退出码")
-    PARENT = r"Software\Classes\*\shell\nxExtract"
-    STORE = r"Software\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell"
+    PARENT = "Software\\Classes\\*\\shell\\nxExtract"
+    CASCADE = "Software\\Classes\\nx.ContextMenu"
     try:
         import winreg
         k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, PARENT)
         verb = winreg.QueryValueEx(k, "MUIVerb")[0]
-        subs = winreg.QueryValueEx(k, "SubCommands")[0]
+        ext = winreg.QueryValueEx(k, "ExtendedSubCommandsKey")[0]
         r.check(verb == "nx 解压", f"MUIVerb={verb}")
-        r.check(subs == "nx.here;nx.into", f"SubCommands={subs}")
+        r.check(ext == "nx.ContextMenu", f"ExtendedSubCommandsKey={ext}")
         for leaf, want, arg in (("nx.here", "解压到当前目录", "extract-here"),
                                 ("nx.into", "解压到指定目录…", "extract-into")):
-            sub = STORE + "\\" + leaf
+            sub = CASCADE + "\\shell\\" + leaf
             ks = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub)
             title = winreg.QueryValueEx(ks, "")[0]
             kc = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub + r"\command")
@@ -323,7 +323,7 @@ def main():
         r.check(code == 0, "menu remove 退出码")
     try:
         import winreg
-        for key in (PARENT, STORE + r"\nx.here", STORE + r"\nx.into"):
+        for key in (PARENT, CASCADE + "\\shell\\nx.here", CASCADE + "\\shell\\nx.into"):
             winreg.OpenKey(winreg.HKEY_CURRENT_USER, key)
             r.check(False, f"menu remove 后键仍存在: {key}")
     except FileNotFoundError:

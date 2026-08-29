@@ -11,13 +11,13 @@ namespace nx {
 
 namespace {
 
-// 父菜单键（HKCU，免管理员）
+// 级联方式：ExtendedSubCommandsKey（微软 Static Cascasing Menus 的第二种形式）。
+// CommandStore 仅 HKLM 受支持（HKCU 下 SubCommands 解析不到 → 前版不展开的根因）；
+// ExtendedSubCommandsKey 指向自定义级联键，纯 HKCU 可用。
 const wchar_t* kParent = L"Software\\Classes\\*\\shell\\nxExtract";
-// 子命令注册到 CommandStore（微软文档的级联实现方式：
-// learn.microsoft.com/windows/win32/shell/context-menus — Creating Static Cascading Menus）
-const wchar_t* kStoreRoot =
+const wchar_t* kCascadeRoot = L"Software\\Classes\\nx.ContextMenu";   // 子动词宿主
+const wchar_t* kLegacyStore =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CommandStore\\shell";
-const wchar_t* kStoreKeys[2] = {L"nx.here", L"nx.into"};
 
 std::wstring exe_path() {
     wchar_t buf[MAX_PATH * 4];
@@ -66,15 +66,16 @@ bool menu_install(std::string* errOut) {
         if (errOut) *errOut = "无法定位 nx.exe 路径";
         return false;
     }
-    // 清理旧形态（平级两项 / 旧级联）
+    // 清理旧形态（平级两项 / CommandStore 级联）
     del_tree(HKEY_CURRENT_USER, kParent);
+    del_tree(HKEY_CURRENT_USER, kCascadeRoot);
     del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractHere");
     del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractInto");
-    for (const wchar_t* k : kStoreKeys)
-        del_tree(HKEY_CURRENT_USER, (std::wstring(kStoreRoot) + L"\\" + k).c_str());
+    del_tree(HKEY_CURRENT_USER, (std::wstring(kLegacyStore) + L"\\nx.here").c_str());
+    del_tree(HKEY_CURRENT_USER, (std::wstring(kLegacyStore) + L"\\nx.into").c_str());
 
     bool ok = true;
-    // 1) 子命令进 CommandStore（级联展开的内容）
+    // 1) 子动词挂在自定义级联键下（HKCR 相对路径 nx.ContextMenu）
     struct Sub {
         const wchar_t* key;
         const wchar_t* title;
@@ -84,16 +85,16 @@ bool menu_install(std::string* errOut) {
         {L"nx.into", L"解压到指定目录…", L"extract-into"},
     };
     for (auto& s : subs) {
-        std::wstring key = std::wstring(kStoreRoot) + L"\\" + s.key;
+        std::wstring key = std::wstring(kCascadeRoot) + L"\\shell\\" + s.key;
         ok &= set_reg(HKEY_CURRENT_USER, key.c_str(), nullptr, s.title);
         std::wstring cmd = L"\"" + exe + L"\" " + s.arg + L" \"%1\"";
         ok &= set_reg(HKEY_CURRENT_USER, (key + L"\\command").c_str(), nullptr, cmd.c_str());
         ok &= set_reg(HKEY_CURRENT_USER, key.c_str(), L"Icon", (exe + L",0").c_str());
     }
-    // 2) 父菜单：MUIVerb + SubCommands 引用 CommandStore 条目
+    // 2) 父菜单：MUIVerb + ExtendedSubCommandsKey 指向级联键（相对 HKCR）
     ok &= set_reg(HKEY_CURRENT_USER, kParent, L"MUIVerb", L"nx 解压");
     ok &= set_reg(HKEY_CURRENT_USER, kParent, L"Icon", (exe + L",0").c_str());
-    ok &= set_reg(HKEY_CURRENT_USER, kParent, L"SubCommands", L"nx.here;nx.into");
+    ok &= set_reg(HKEY_CURRENT_USER, kParent, L"ExtendedSubCommandsKey", L"nx.ContextMenu");
 
     if (!ok && errOut)
         *errOut = "注册表写入失败";
@@ -102,8 +103,9 @@ bool menu_install(std::string* errOut) {
 
 bool menu_remove(std::string* errOut) {
     bool ok = del_tree(HKEY_CURRENT_USER, kParent);
-    for (const wchar_t* k : kStoreKeys)
-        ok &= del_tree(HKEY_CURRENT_USER, (std::wstring(kStoreRoot) + L"\\" + k).c_str());
+    ok &= del_tree(HKEY_CURRENT_USER, kCascadeRoot);
+    ok &= del_tree(HKEY_CURRENT_USER, (std::wstring(kLegacyStore) + L"\\nx.here").c_str());
+    ok &= del_tree(HKEY_CURRENT_USER, (std::wstring(kLegacyStore) + L"\\nx.into").c_str());
     ok &= del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractHere");
     ok &= del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractInto");
     if (!ok && errOut)
