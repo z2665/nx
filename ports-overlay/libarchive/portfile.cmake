@@ -8,6 +8,7 @@ vcpkg_from_github(
         fix-buildsystem.patch
         fix-deps.patch
         nx-batch-ctr.patch
+        nx-batch-ctr-test.patch
 )
 
 if("xar" IN_LIST FEATURES)
