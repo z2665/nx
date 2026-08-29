@@ -21,3 +21,6 @@ tests/bench_corpus/
 tests/bench_work/
 tests/bench_report.json
 dist/
+
+# 本地临时工作区（上游 clone / 合成样本等）
+tmp/

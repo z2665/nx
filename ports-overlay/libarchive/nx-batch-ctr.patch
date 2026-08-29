@@ -1,49 +1,56 @@
---- a/libarchive/archive_cryptor.c	2026-08-29 21:12:06.307042500 +0800
-+++ b/libarchive/archive_cryptor.c	2026-08-29 21:12:06.514651000 +0800
-@@ -486,7 +486,7 @@
+--- a/libarchive/archive_cryptor.c	2026-08-30 00:05:25.940865000 +0800
++++ b/libarchive/archive_cryptor.c	2026-08-30 00:05:26.397243100 +0800
+@@ -485,6 +485,77 @@
+ 	}
  }
  
- static int
--aes_ctr_update(archive_crypto_ctx *ctx, const uint8_t * const in,
-+aes_ctr_update_one_by_one(archive_crypto_ctx *ctx, const uint8_t * const in,
-     size_t in_len, uint8_t * const out, size_t *out_len)
- {
- 	uint8_t *const ebuf = ctx->encr_buf;
-@@ -519,6 +519,62 @@
- 
- 	return 0;
- }
-+
-+/* nx 补丁：WinZip AES 解密提速。上游对每 16 字节做一次单块 EVP 调用（实测 ~60MB/s）；
-+ * 批量化为每 64KiB 一次 EVP（AES-NI 下 ECB 多块即标准 CTR keystream）。
-+ * 计数块序列与逐块版严格一致（先 increase 再入块）；无预生成——批后 pos=16、
-+ * ebuf 视为陈旧，任何消费方都经 pos<16 守卫，陈旧块永不误用。 */
 +#if defined(ARCHIVE_CRYPTOR_USE_OPENSSL)
++/* Generate the keystream for complete blocks in batches.
++ *
++ * The one-by-one variant below asks the provider for a single
++ * 16-byte keystream block per AES block.  With OpenSSL, every such
++ * request pays an EVP_EncryptInit_ex() plus an EVP_EncryptUpdate()
++ * call, which caps WinZip AES decryption at roughly 60 MB/s on
++ * current hardware even though the EVP cipher itself can deliver
++ * several GB/s when driven with large buffers.
++ *
++ * Here the next counter blocks are collected into ctx->ctr_blk (in
++ * the same increment-then-encrypt order the one-by-one variant
++ * uses), encrypted with a single EVP_EncryptUpdate() call and XORed
++ * in bulk.  The cipher context runs in ECB mode, so encrypting
++ * several blocks at once produces exactly the same keystream as
++ * encrypting them one at a time.  Partial trailing blocks and
++ * leftover keystream bytes still go through the single-block path,
++ * so the visible sequence of keystream bytes is unchanged. */
 +static int
 +aes_ctr_update(archive_crypto_ctx *ctx, const uint8_t * const in,
 +    size_t in_len, uint8_t * const out, size_t *out_len)
 +{
-+	enum { CTR_BATCH = 64 * 1024 };
-+	size_t max = (in_len < *out_len)? in_len : *out_len;
++	enum { ks_batch = sizeof(ctx->ctr_blk) };
++	size_t max = (in_len < *out_len) ? in_len : *out_len;
 +	size_t i = 0, pos = ctx->encr_pos;
 +
++	/* Consume any leftover keystream of the current block. */
 +	while (i < max && pos < AES_BLOCK_SIZE)
 +		out[i++] = in[i] ^ ctx->encr_buf[pos++];
 +
++	/* Complete blocks: one EVP call per ks_batch bytes. */
 +	while (max - i >= AES_BLOCK_SIZE) {
 +		size_t blocks = (max - i) / AES_BLOCK_SIZE;
 +		size_t b, k;
 +		int outl = 0;
-+		if (blocks > (size_t)(CTR_BATCH / AES_BLOCK_SIZE))
-+			blocks = CTR_BATCH / AES_BLOCK_SIZE;
++
++		if (blocks > ks_batch / AES_BLOCK_SIZE)
++			blocks = ks_batch / AES_BLOCK_SIZE;
 +		for (b = 0; b < blocks; b++) {
 +			aes_ctr_increase_counter(ctx);
 +			memcpy(ctx->ctr_blk + b * AES_BLOCK_SIZE,
 +			    ctx->nonce, AES_BLOCK_SIZE);
 +		}
-+		if (EVP_EncryptInit_ex(ctx->ctx, ctx->type, NULL, ctx->key, NULL) != 1 ||
-+		    EVP_EncryptUpdate(ctx->ctx, ctx->ctr_ks, &outl, ctx->ctr_blk,
-+		        (int)(blocks * AES_BLOCK_SIZE)) != 1 ||
++		if (EVP_EncryptInit_ex(ctx->ctx, ctx->type, NULL,
++		    ctx->key, NULL) != 1 ||
++		    EVP_EncryptUpdate(ctx->ctx, ctx->ctr_ks, &outl,
++		    ctx->ctr_blk, (int)(blocks * AES_BLOCK_SIZE)) != 1 ||
 +		    (size_t)outl != blocks * AES_BLOCK_SIZE)
 +			return -1;
 +		for (k = 0; k < blocks * AES_BLOCK_SIZE; k++)
@@ -52,6 +59,7 @@
 +		pos = AES_BLOCK_SIZE;
 +	}
 +
++	/* Partial trailing block: refill keystream one block at a time. */
 +	if (i < max) {
 +		aes_ctr_increase_counter(ctx);
 +		if (aes_ctr_encrypt_counter(ctx) != 0)
@@ -67,18 +75,25 @@
 +	return 0;
 +}
 +#else
-+#define aes_ctr_update aes_ctr_update_one_by_one
-+#endif
+ static int
+ aes_ctr_update(archive_crypto_ctx *ctx, const uint8_t * const in,
+     size_t in_len, uint8_t * const out, size_t *out_len)
+@@ -519,6 +590,7 @@
+ 
+ 	return 0;
+ }
++#endif /* ARCHIVE_CRYPTOR_USE_OPENSSL */
  #endif /* ARCHIVE_CRYPTOR_STUB */
  
  
---- a/libarchive/archive_cryptor_private.h	2026-08-29 21:12:06.308041400 +0800
-+++ b/libarchive/archive_cryptor_private.h	2026-08-29 21:12:06.514651000 +0800
-@@ -144,6 +144,9 @@
+--- a/libarchive/archive_cryptor_private.h	2026-08-30 00:05:25.942864700 +0800
++++ b/libarchive/archive_cryptor_private.h	2026-08-30 00:05:26.396244800 +0800
+@@ -144,6 +144,10 @@
  	uint8_t		nonce[AES_BLOCK_SIZE];
  	uint8_t		encr_buf[AES_BLOCK_SIZE];
  	unsigned	encr_pos;
-+	/* nx 补丁：批量 CTR keystream 缓冲（每 64KiB 一次 EVP 调用） */
++	/* Scratch buffers used to generate multiple keystream blocks
++	 * with a single EVP call. */
 +	uint8_t		ctr_blk[64 * 1024];
 +	uint8_t		ctr_ks[64 * 1024];
  } archive_crypto_ctx;
