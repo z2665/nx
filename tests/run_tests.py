@@ -263,6 +263,12 @@ def main():
         for k, v in exp.items():
             r.check(got.get(k) == v, f"{k} 哈希不符（verify 数据流正确性）")
 
+    # ---- 文件名编码（§3.2 EFS 位缺失：CP932/GBK 原始字节名）----
+    d = os.path.join(CASES, "cp_names")
+    if os.path.isdir(d):
+        r = add("cp_names")
+        run_extract_and_compare(r, "cp_names", find_input(d, "cpnames.zip"), ["--no-prompt"], 0)
+
     # ---- M3 ----
     # --no-root：条目直接落在输出目录（无根目录层）
     d = os.path.join(CASES, "three_layer")
