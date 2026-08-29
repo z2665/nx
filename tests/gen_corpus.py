@@ -387,6 +387,90 @@ def case_stego_mp4_7z():
     _stego_reuse("7z_encrypted", "sealed.7z", "film.mp4", "stego_mp4_7z")
 
 
+def _disguise_wrap(mp4_prefix: bytes, zip_bytes_: bytes) -> bytes:
+    """复刻真实伪装样本（D:\\...\\1.mp4）三件套：
+    ① zip 前诱饵本地头（首见 PK 偏移 ≠ EOCD 反推基址）
+    ② EOCD 之后拖随机伪装数据
+    ③ 文件末尾补一个 size=8 的假 mdat 原子头（专防尾部回扫类检测）"""
+    return (mp4_prefix
+            + b"PK\x03\x04\x2d\x00\x00\x08\x08\x00" + b"\xde\xad" * 32   # 诱饵：76B
+            + zip_bytes_
+            + os.urandom(4096)                                            # EOCD 后伪装
+            + (8).to_bytes(4, "big") + b"mdat")                           # 假原子尾
+
+
+def case_stego_disguise():
+    inner = make_files({"payload/game.exe": "disguised\n" * 200,
+                        "docs/manual.txt": "trailer junk beyond EOCD\n" * 40})
+    z = zip_bytes(inner)
+
+    def build(d):
+        with open(os.path.join(d, "trap.mp4"), "wb") as f:
+            f.write(_disguise_wrap(mp4_bytes(b"\x00" * 2048), z))
+    write_case("stego_disguise", build,
+               {f"trap.mp4/{k}": v for k, v in tree_hash(inner).items()})
+
+
+def case_stego_disguise_pw():
+    # 加密变体（真实样本同款：AES zip + 伪装尾）；无 7z CLI 则跳过
+    if not sevenz_available():
+        print("[gen] 跳过 stego_disguise_pw（无 7z CLI）")
+        return
+    inner = make_files({"vault/key.dat": os.urandom(65536),
+                        "readme.txt": "encrypted stego\n" * 60})
+    th = tree_hash(inner)
+
+    def build(d):
+        s1 = build_staging(d, inner, "_sd")
+        zp = os.path.abspath(os.path.join(d, "_inner.zip"))
+        subprocess.run([SEVEN_ZIP, "a", "-tzip", "-mem=AES256", "-pStegoPw@2024",
+                        zp, "."], check=True, capture_output=True, cwd=s1)
+        with open(os.path.join(d, "vault.mp4"), "wb") as f:
+            f.write(_disguise_wrap(mp4_bytes(b"\x00" * 2048),
+                                   open(zp, "rb").read()))
+        os.remove(zp)
+    write_case("stego_disguise_pw", build, {f"vault.mp4/{k}": v for k, v in th.items()})
+
+
+def case_stego_zip64_shadow():
+    """zip64 影子 EOCD（复刻真实样本 D:\\…\\1.mp4）：真值在 EOCD64+定位器，
+    经典 EOCD 的 cdOffset/cdSize/条目数是错的，且 EOCD 之后还有伪装尾巴。
+    期望：EOCD 数学自证（CD 首 PK\x01\x02）失败 → 魔数锚点窗口到 EOF →
+    libarchive 依 EOCD64 真值解开。"""
+    inner = make_files({"z64/a.bin": os.urandom(50000),
+                        "z64/b.txt": "shadow eocd\n" * 80})
+    th = tree_hash(inner)
+    z = zip_bytes(inner)
+    eocd_i = z.rfind(b"PK\x05\x06")
+    cd_i = z.find(b"PK\x01\x02")
+    n = len(inner)
+    eocd64 = (b"PK\x06\x06" + (44).to_bytes(8, "little")
+              + (45).to_bytes(2, "little") + (45).to_bytes(2, "little")
+              + (0).to_bytes(4, "little") * 2
+              + n.to_bytes(8, "little") * 2
+              + (eocd_i - cd_i).to_bytes(8, "little")
+              + cd_i.to_bytes(8, "little"))
+
+    def build(d):
+        prefix = mp4_bytes(b"\x00" * 1024)
+        with open(os.path.join(d, "ghost.mp4"), "wb") as f:
+            f.write(prefix)
+            f.write(z[:eocd_i])                      # 本地头+数据+CD（去掉旧 EOCD）
+            eocd64_rel = f.tell() - len(prefix)      # 定位器存 zip 相对偏移
+            f.write(eocd64)
+            f.write(b"PK\x06\x07" + (0).to_bytes(4, "little") * 2
+                    + eocd64_rel.to_bytes(8, "little") + (1).to_bytes(4, "little"))
+            # 影子经典 EOCD：cdOffset 偏 +422、cdSize=90、条目=1（自证必失败）
+            f.write(b"PK\x05\x06" + (0).to_bytes(2, "little") * 2
+                    + (1).to_bytes(2, "little") * 2
+                    + (90).to_bytes(4, "little")
+                    + (cd_i + 422).to_bytes(4, "little")
+                    + (0).to_bytes(2, "little"))
+            f.write(os.urandom(2048))                # EOCD 后伪装尾巴
+            f.write((8).to_bytes(4, "big") + b"mdat")
+    write_case("stego_zip64_shadow", build, {f"ghost.mp4/{k}": v for k, v in th.items()})
+
+
 ALL = [
     case_plain_zip,
     case_three_layer,
@@ -408,6 +492,9 @@ ALL = [
     case_stego_none,
     case_stego_mp4_rar,
     case_stego_mp4_7z,
+    case_stego_disguise,
+    case_stego_disguise_pw,
+    case_stego_zip64_shadow,
 ]
 
 if __name__ == "__main__":

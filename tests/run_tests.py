@@ -169,6 +169,9 @@ def main():
         ("stego_mp4_mdat0_zip", "clip.mp4", ["--stego"], 0),
         ("stego_mp4_rar", "movie.mp4", ["--stego"], 0),
         ("stego_mp4_7z", "film.mp4", ["--stego", "-p", "7zPw@2024", "--no-prompt"], 0),
+        ("stego_disguise", "trap.mp4", ["--stego"], 0),
+        ("stego_disguise_pw", "vault.mp4", ["--stego", "-p", "StegoPw@2024", "--no-prompt"], 0),
+        ("stego_zip64_shadow", "ghost.mp4", ["--stego"], 0),
     ]:
         d = os.path.join(CASES, case)
         if not os.path.isdir(d):

@@ -1,7 +1,7 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压**。40/40 属性测试通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压**。43/43 属性测试通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -74,13 +74,19 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   - EOCD 反向扫描：文件尾 64 KiB+22 回扫 `PK\x05\x06`，注释长度须精确吃到 EOF——
     覆盖任意格式文件的尾接 zip（jpg+zip 多合一、mdat size=0 病态 MP4）。
   I/O 成本：几十次小读 + 尾部一块，GB 级文件毫秒级。
-- **打开**：尾接 zip 整文件直开 `open_zip_file`（libarchive 从 EOCD 反推 SFX 基址）；
-  7z/rar 走 `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
+- **打开**：尾接 zip 走 `FileSeekView` 窗口（EOCD 精确区间排除尾部伪装）；7z/rar 走
+  `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
+- **真实样本三重陷阱**（D:\…\1.mp4，2.5 GB，已解）：
+  ① EOCD 之后拖 18 KB 伪装数据 + 末尾假 `mdat` 原子（防尾部回扫类检测）——EOCD 校验
+  不要求精确到 EOF，窗口按区间排除尾巴；② zip 前有 76 字节诱饵偏移；③ **zip64 影子值**——
+  真值在 EOCD64+定位器，经典 EOCD 的 cdOffset/cdSize/条目数全是错的，数学基址会偏——
+  区间必须自证（算出的 CD 位置验 `PK\x01\x02` 签名），不信任则回退"魔数锚点+到 EOF"
+  窗口，由 libarchive 依 EOCD64 真值定位。
 - **入口**：右键第三项 `extract-stego`（交互复刻 extract-into）或 CLI `extract --stego`；
   语义=只解隐写压缩包，根文件本体不落盘；输出照常走 Walker 递归 + Sink 熔断/消毒/密码链。
 - 未命中：exit 0 + CLI 消息 / GUI「nx 隐写解压」信息框；EOCD 假阳性由试开失败兜回未命中。
-- 6 个属性用例（mp4+zip / jpg+zip / mdat0+zip / mp4+rar / mp4+7z 加密 / 干净 MP4 未命中）
-  + GUI 冒烟用例 8（动词端到端、默认前缀 `<名>_stego`）。
+- 8 个属性用例（mp4+zip / jpg+zip / mdat0+zip / mp4+rar / mp4+7z 加密 / 干净 MP4 未命中 /
+  伪装样本明文+加密 / zip64 影子 EOCD）+ GUI 冒烟用例 8（动词端到端、默认前缀 `<名>_stego`）。
 
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／

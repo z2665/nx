@@ -398,8 +398,9 @@ static void run_stego(Session& s, const std::wstring& inputPath) {
     std::shared_ptr<ContainerReader> reader;
     try {
         if (hit->fmt == Format::Zip) {
-            // 尾接 zip：libarchive 自EOCD 反推基址（SFX 同机制），整文件直开
-            reader = open_zip_file(inputPath, layerId, s.pw, s.engineOpt());
+            // 尾接 zip：EOCD 精确窗口（基址反推 + 尾部伪装排除）；无区间时整文件直开
+            reader = open_zip_file(inputPath, layerId, s.pw, s.engineOpt(),
+                                   hit->offset, hit->length);
         } else {
             if (!sz::dll_available())
                 throw Error("隐写 " + fmtName + " 需要 7z.dll（未找到）");

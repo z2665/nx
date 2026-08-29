@@ -145,15 +145,20 @@ private:
 class FileSeekView : public SeekView {
 public:
     // meter：根输入计量（进度窗分子；null = 码表探测等不计量的临时视图）
-    explicit FileSeekView(const std::wstring& path, InputMeter* meter = nullptr)
-        : meter_(meter) {
+    // base/length：窗口（隐写 zip——EOCD 精确区间，排除尾部伪装数据）；length=0 = 到 EOF
+    explicit FileSeekView(const std::wstring& path, InputMeter* meter = nullptr,
+                          uint64_t base = 0, uint64_t length = 0)
+        : meter_(meter), base_(base) {
         h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                          OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (h_ == INVALID_HANDLE_VALUE)
             throw Error("打开文件失败: " + wide_to_utf8(path));
         LARGE_INTEGER sz{};
         GetFileSizeEx(h_, &sz);
-        size_ = static_cast<uint64_t>(sz.QuadPart);
+        uint64_t total = static_cast<uint64_t>(sz.QuadPart);
+        if (base > total || base + (length ? length : (total - base)) > total)
+            throw Error("视图窗口越界: " + wide_to_utf8(path));
+        size_ = length ? length : (total - base);
     }
     ~FileSeekView() override {
         if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
@@ -163,7 +168,7 @@ public:
     size_t read_at(uint64_t pos, std::span<byte> buf) override {
         std::lock_guard<std::mutex> lk(m_);
         LARGE_INTEGER li{};
-        li.QuadPart = static_cast<LONGLONG>(pos);
+        li.QuadPart = static_cast<LONGLONG>(base_ + pos);
         if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN)) throw Error("定位失败");
         size_t got = 0;
         while (got < buf.size()) {
@@ -181,6 +186,7 @@ private:
     HANDLE h_ = INVALID_HANDLE_VALUE;
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
+    uint64_t base_ = 0;
     std::mutex m_;
 };
 
@@ -664,14 +670,17 @@ std::shared_ptr<ContainerReader> open_container_volumes(
     return sz::open_archive(fmt, volumes, firstVol, layerId, pw, opt);
 }
 
-// Zip 根文件直读（中央目录模式 + 码表探测；文件本身可 seek，免 spool）
+// Zip 根文件直读（中央目录模式 + 码表探测；文件本身可 seek，免 spool）。
+// base/length：隐写窗口（EOCD 精确区间，排除尾部伪装数据）；默认整文件。
 std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
                                                const std::string& layerId,
                                                PasswordProvider& pw,
-                                               const EngineOptions& opt) {
+                                               const EngineOptions& opt,
+                                               uint64_t base, uint64_t length) {
     // 码表探测视图不挂 meter：多候选各重读一遍中央目录，会虚增根消耗计数
-    std::string cs = detect_zip_charset([&] { return std::make_shared<FileSeekView>(path); });
-    auto view = std::make_shared<FileSeekView>(path, opt.meter);
+    std::string cs = detect_zip_charset(
+        [&] { return std::make_shared<FileSeekView>(path, nullptr, base, length); });
+    auto view = std::make_shared<FileSeekView>(path, opt.meter, base, length);
     std::unique_ptr<PushbackSource> nullSrc{};
     auto oc = try_open(Format::Zip, nullSrc, nullptr, nullptr, view, cs.c_str());
     if (oc.reader) return std::move(oc.reader);
@@ -681,7 +690,7 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
             auto cand = pw.nextAttempt(layerId);
             if (!cand)
                 throw PasswordExhausted(layerId, "密码缺失或已耗尽: " + layerId);
-            auto v2 = std::make_shared<FileSeekView>(path, opt.meter);
+            auto v2 = std::make_shared<FileSeekView>(path, opt.meter, base, length);
             auto oc2 = try_open(Format::Zip, nullSrc, nullptr, &*cand, v2, cs.c_str());
             if (oc2.reader) {
                 pw.reportSuccess(layerId, *cand);

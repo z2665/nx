@@ -335,7 +335,19 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   打开：尾接 zip 整文件直开（libarchive 自 EOCD 反推 SFX 基址）；7z/rar 经
   `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
   未命中 → exit 0 + GUI「nx 隐写解压」信息框；EOCD 假阳性由试开 CorruptError 兜回未命中。
-  6 属性用例 + GUI 冒烟用例 8（40/40 + 8/8）。
+  8 属性用例 + GUI 冒烟用例 8（43/43 + 8/8）。
+- **【实施记录】真实隐写样本三重陷阱**（D:\…\1.mp4，2.5 GB，"7-Zip `#` 模式可开"）：
+  ① EOCD 之后拖 18 KB 伪装数据，且文件末尾补一个 `size=8` 假 mdat 原子头——专门对付
+  "EOCD 必须精确到 EOF"的尾部回扫类检测（libarchive 整文件直开也拒收）；
+  ② zip 起点前有 76 字节诱饵（首见 `PK\x03\x04` 偏移 ≠ 真实基址）；
+  ③ **zip64 影子值**——该档真值在 EOCD64+定位器，经典 EOCD 的 cdOffset/cdSize/条目数
+  全是错的（写着 1 条目/90B，实际 4762 条目），EOCD 数学基址偏 76 字节。
+  修复三层：EOCD 校验放宽（允许尾部伪装，区间 = [基址, EOCD 末尾)）；区间结果必须
+  **自证**（算出的 CD 位置读 4 字节验 `PK\x01\x02`，不匹配即影子值 → 不信任）；
+  不可信时回退**魔数锚点窗口**（首见 PK → 到 EOF），libarchive 自依 EOCD64 真值定位、
+  且对窗口尾部残余数据有容忍（实测 [魔数, EOF) 与 [魔数, EOCD末尾) 均可解）。
+  另踩一坑：EOCD 的 cdSize/cdOffset 是小端字段，与 MP4 atom 大端相反——已分设 be32/le32。
+  样本病理已固化为语料（stego_disguise / stego_disguise_pw / stego_zip64_shadow）。
 - **【实施记录】文件名编码三层根因**（D:\…\2.zip 真实案例，已修复）：
   ① libarchive 字符转换依赖进程 locale——C locale 下非 ASCII 名直接返回 NULL pathname，
   `setlocale(LC_ALL, ".UTF8")` 为主修复；② 本地头与中央目录文件名可不一致（本例本地头 EUC-JP、

@@ -194,7 +194,7 @@ def main():
     with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("flag.txt", "hidden\n" * 100)
     with open(mp4, "wb") as f:
-        f.write((8 + 20).to_bytes(4, "big") + b"ftyp" + b"\x00\x00\x02\x00isomiso2mp41")
+        f.write((8 + 16).to_bytes(4, "big") + b"ftyp" + b"\x00\x00\x02\x00isomiso2mp41")
         f.write((8 + 1024).to_bytes(4, "big") + b"mdat" + b"\x00" * 1024)
         f.write((8).to_bytes(4, "big") + b"free")
         f.write(zbuf.getvalue())
