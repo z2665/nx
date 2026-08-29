@@ -1,4 +1,4 @@
-// menu.hpp：资源管理器右键菜单注册（M3 需求 2/3）—— HKCU，免管理员
+// menu.hpp：资源管理器右键菜单注册（Win11 新版右键级联：IExplorerCommand + 稀疏 MSIX）
 #pragma once
 #include <string>
 

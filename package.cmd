@@ -21,6 +21,14 @@ if exist "C:\Program Files\7-Zip\7z.dll" (
   echo [package] WARN: 7z.dll not found - 7z/rar fall back to libarchive, rar multivolume unavailable
 )
 
+if not exist "build\nxshell.dll" (
+  echo [package] WARN: build\nxshell.dll missing - Win11 new context menu unavailable
+) else (
+  copy /y "build\nxshell.dll" "%OUT%\nxshell.dll" >nul
+  xcopy /e /i /y "menupkg" "%OUT%\menupkg" >nul
+  echo [package] nxshell.dll + menupkg/ ^(Win11 new context menu^)
+)
+
 copy /y "README.md" "%OUT%\README.md" >nul
 copy /y "LICENSE-distro.txt" "%OUT%\LICENSE.txt" >nul
 echo [package] README.md + LICENSE.txt

@@ -294,22 +294,28 @@ def main():
         finally:
             shutil.rmtree(eh, ignore_errors=True)
 
-    # 右键菜单 install/remove（HKCU 注册表断言，平级两项）
+    # 右键菜单 install/remove（CommandStore 级联断言）
     r = add("context_menu")
     code, _o, _e, _t = run_nx(["menu", "install"])
     r.check(code == 0, "menu install 退出码")
-    MENU_KEYS = ["Software\\Classes\\*\\shell\\nxExtractHere",
-                 "Software\\Classes\\*\\shell\\nxExtractInto"]
+    PARENT = r"Software\Classes\*\shell\nxExtract"
+    STORE = r"Software\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell"
     try:
         import winreg
-        for key, want in ((MENU_KEYS[0], "nx 解压到当前目录"),
-                          (MENU_KEYS[1], "nx 解压到指定目录…")):
-            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key)
-            title = winreg.QueryValueEx(k, "")[0]
-            c = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key + "\\command")
-            cmdLine = winreg.QueryValueEx(c, "")[0]
-            r.check(title == want, f"菜单文字={title}（期望 {want}）")
-            r.check("%1" in cmdLine, f"命令行={cmdLine[:80]}")
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, PARENT)
+        verb = winreg.QueryValueEx(k, "MUIVerb")[0]
+        subs = winreg.QueryValueEx(k, "SubCommands")[0]
+        r.check(verb == "nx 解压", f"MUIVerb={verb}")
+        r.check(subs == "nx.here;nx.into", f"SubCommands={subs}")
+        for leaf, want, arg in (("nx.here", "解压到当前目录", "extract-here"),
+                                ("nx.into", "解压到指定目录…", "extract-into")):
+            sub = STORE + "\\" + leaf
+            ks = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub)
+            title = winreg.QueryValueEx(ks, "")[0]
+            kc = winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub + r"\command")
+            cmdLine = winreg.QueryValueEx(kc, "")[0]
+            r.check(title == want, f"{leaf} 标题={title}")
+            r.check(arg in cmdLine and "%1" in cmdLine, f"{leaf} 命令行={cmdLine[:80]}")
     except ImportError:
         r.check(False, "winreg 不可用")
     finally:
@@ -317,7 +323,7 @@ def main():
         r.check(code == 0, "menu remove 退出码")
     try:
         import winreg
-        for key in MENU_KEYS + ["Software\\Classes\\*\\shell\\nxExtract"]:
+        for key in (PARENT, STORE + r"\nx.here", STORE + r"\nx.into"):
             winreg.OpenKey(winreg.HKEY_CURRENT_USER, key)
             r.check(False, f"menu remove 后键仍存在: {key}")
     except FileNotFoundError:

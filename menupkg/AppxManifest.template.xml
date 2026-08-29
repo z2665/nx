@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap com desktop4 desktop5 uap10 rescap">
+
+  <!-- Publisher 必须与签名证书 Subject 一致（脚本打包时替换 ${PUBLISHER}） -->
+  <Identity Name="nx.zunzip"
+            Publisher="${PUBLISHER}"
+            Version="1.0.0.0"
+            ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>nx 解压</DisplayName>
+    <PublisherDisplayName>nx</PublisherDisplayName>
+    <Logo>Assets\logo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Resources>
+    <Resource Language="zh-cn" />
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="nx"
+                 Executable="nx.exe"
+                 uap10:TrustLevel="mediumIL"
+                 uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements
+        DisplayName="nx 解压"
+        Description="流式嵌套压缩包解压工具"
+        Square44x44Logo="Assets\logo.png"
+        Square150x150Logo="Assets\logo.png"
+        BackgroundColor="transparent" />
+      <Extensions>
+
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="nx shell commands">
+              <com:Class Id="7A3E9C41-5B2D-4E8A-9F60-3C1D84B2A501"
+                         Path="nxshell.dll" ThreadingModel="STA" />
+              <com:Class Id="7A3E9C41-5B2D-4E8A-9F60-3C1D84B2A502"
+                         Path="nxshell.dll" ThreadingModel="STA" />
+              <com:Class Id="7A3E9C41-5B2D-4E8A-9F60-3C1D84B2A503"
+                         Path="nxshell.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="nxMenu" Clsid="7A3E9C41-5B2D-4E8A-9F60-3C1D84B2A501" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+</Package>

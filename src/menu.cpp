@@ -11,13 +11,13 @@ namespace nx {
 
 namespace {
 
-// 平级两项（M3：级联 SubCommands 在部分 Windows 版本不展开子菜单，平级 100% 可靠）
-const wchar_t* kKeys[2] = {
-    L"Software\\Classes\\*\\shell\\nxExtractHere",
-    L"Software\\Classes\\*\\shell\\nxExtractInto",
-};
-// 旧版级联键（升级清理）
-const wchar_t* kLegacy = L"Software\\Classes\\*\\shell\\nxExtract";
+// 父菜单键（HKCU，免管理员）
+const wchar_t* kParent = L"Software\\Classes\\*\\shell\\nxExtract";
+// 子命令注册到 CommandStore（微软文档的级联实现方式：
+// learn.microsoft.com/windows/win32/shell/context-menus — Creating Static Cascading Menus）
+const wchar_t* kStoreRoot =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CommandStore\\shell";
+const wchar_t* kStoreKeys[2] = {L"nx.here", L"nx.into"};
 
 std::wstring exe_path() {
     wchar_t buf[MAX_PATH * 4];
@@ -25,9 +25,9 @@ std::wstring exe_path() {
     return std::wstring(buf, n);
 }
 
-bool set_reg(HKEY parent, const wchar_t* sub, const wchar_t* value, const wchar_t* data) {
+bool set_reg(HKEY root, const wchar_t* sub, const wchar_t* value, const wchar_t* data) {
     HKEY k = nullptr;
-    if (RegCreateKeyExW(parent, sub, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) !=
+    if (RegCreateKeyExW(root, sub, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) !=
         ERROR_SUCCESS)
         return false;
     bool ok = RegSetValueExW(k, value, 0, REG_SZ,
@@ -38,13 +38,24 @@ bool set_reg(HKEY parent, const wchar_t* sub, const wchar_t* value, const wchar_
     return ok;
 }
 
-bool del_tree(const wchar_t* shellParent, const wchar_t* sub) {
-    HKEY k = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, shellParent, 0, DELETE, &k) != ERROR_SUCCESS)
-        return true;   // 不存在即成功
-    LSTATUS r = SHDeleteKeyW(k, sub);
-    RegCloseKey(k);
-    return r == ERROR_SUCCESS || r == ERROR_FILE_NOT_FOUND;
+bool del_tree(HKEY root, const wchar_t* sub) {
+    std::wstring parentPath, leaf;
+    const wchar_t* s = wcsrchr(sub, L'\\');
+    if (s) {
+        parentPath.assign(sub, s - sub);
+        leaf = s + 1;
+    } else {
+        leaf = sub;
+    }
+    HKEY h = nullptr;
+    LSTATUS r = parentPath.empty()
+                    ? RegOpenKeyExW(root, nullptr, 0, DELETE, &h)
+                    : RegOpenKeyExW(root, parentPath.c_str(), 0, DELETE, &h);
+    if (r != ERROR_SUCCESS)
+        return true;   // 路径不存在 = 已删
+    LSTATUS d = SHDeleteKeyW(h, leaf.c_str());
+    RegCloseKey(h);
+    return d == ERROR_SUCCESS || d == ERROR_FILE_NOT_FOUND;
 }
 
 } // namespace
@@ -55,33 +66,46 @@ bool menu_install(std::string* errOut) {
         if (errOut) *errOut = "无法定位 nx.exe 路径";
         return false;
     }
-    del_tree(L"Software\\Classes\\*\\shell", L"nxExtract");   // 清理旧级联键
+    // 清理旧形态（平级两项 / 旧级联）
+    del_tree(HKEY_CURRENT_USER, kParent);
+    del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractHere");
+    del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractInto");
+    for (const wchar_t* k : kStoreKeys)
+        del_tree(HKEY_CURRENT_USER, (std::wstring(kStoreRoot) + L"\\" + k).c_str());
+
     bool ok = true;
-    struct Item {
+    // 1) 子命令进 CommandStore（级联展开的内容）
+    struct Sub {
         const wchar_t* key;
         const wchar_t* title;
-        const wchar_t* verbArg;
-    } items[2] = {
-        {kKeys[0], L"nx 解压到当前目录", L"extract-here"},
-        {kKeys[1], L"nx 解压到指定目录…", L"extract-into"},
+        const wchar_t* arg;
+    } subs[2] = {
+        {L"nx.here", L"解压到当前目录", L"extract-here"},
+        {L"nx.into", L"解压到指定目录…", L"extract-into"},
     };
-    std::wstring icon = exe + L",0";
-    for (auto& it : items) {
-        ok &= set_reg(HKEY_CURRENT_USER, it.key, nullptr, it.title);
-        ok &= set_reg(HKEY_CURRENT_USER, it.key, L"Icon", icon.c_str());
-        std::wstring cmd = L"\"" + exe + L"\" " + it.verbArg + L" \"%1\"";
-        ok &= set_reg(HKEY_CURRENT_USER, (std::wstring(it.key) + L"\\command").c_str(), nullptr,
-                      cmd.c_str());
+    for (auto& s : subs) {
+        std::wstring key = std::wstring(kStoreRoot) + L"\\" + s.key;
+        ok &= set_reg(HKEY_CURRENT_USER, key.c_str(), nullptr, s.title);
+        std::wstring cmd = L"\"" + exe + L"\" " + s.arg + L" \"%1\"";
+        ok &= set_reg(HKEY_CURRENT_USER, (key + L"\\command").c_str(), nullptr, cmd.c_str());
+        ok &= set_reg(HKEY_CURRENT_USER, key.c_str(), L"Icon", (exe + L",0").c_str());
     }
+    // 2) 父菜单：MUIVerb + SubCommands 引用 CommandStore 条目
+    ok &= set_reg(HKEY_CURRENT_USER, kParent, L"MUIVerb", L"nx 解压");
+    ok &= set_reg(HKEY_CURRENT_USER, kParent, L"Icon", (exe + L",0").c_str());
+    ok &= set_reg(HKEY_CURRENT_USER, kParent, L"SubCommands", L"nx.here;nx.into");
+
     if (!ok && errOut)
         *errOut = "注册表写入失败";
     return ok;
 }
 
 bool menu_remove(std::string* errOut) {
-    bool ok = del_tree(L"Software\\Classes\\*\\shell", L"nxExtractHere");
-    ok &= del_tree(L"Software\\Classes\\*\\shell", L"nxExtractInto");
-    ok &= del_tree(L"Software\\Classes\\*\\shell", L"nxExtract");
+    bool ok = del_tree(HKEY_CURRENT_USER, kParent);
+    for (const wchar_t* k : kStoreKeys)
+        ok &= del_tree(HKEY_CURRENT_USER, (std::wstring(kStoreRoot) + L"\\" + k).c_str());
+    ok &= del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractHere");
+    ok &= del_tree(HKEY_CURRENT_USER, L"Software\\Classes\\*\\shell\\nxExtractInto");
     if (!ok && errOut)
         *errOut = "删除失败";
     return ok;
@@ -89,7 +113,7 @@ bool menu_remove(std::string* errOut) {
 
 bool menu_installed() {
     HKEY k = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kKeys[0], 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kParent, 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS)
         return false;
     RegCloseKey(k);
     return true;

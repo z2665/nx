@@ -38,6 +38,10 @@ else()
   message(FATAL_ERROR "lz4 target not found")
 endif()
 
+add_library(nxshell SHARED src/nxshell.cpp)
+# COM DLL 由资源管理器进程内加载：仅链接、不启用 PCH/统一UTF8 也无妨
+set_target_properties(nxshell PROPERTIES OUTPUT_NAME "nxshell")
+
 add_executable(nx
   src/main.cpp
   src/util.cpp
