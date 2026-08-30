@@ -65,6 +65,12 @@ add_executable(nx
 # 双模式：资源管理器启动不闪黑框；终端/管道行为不变（继承句柄）
 target_link_options(nx PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
 
+# Release 全速：LTO（跨模块内联，尤其 sink/spool/engine 回调链）；/GS 等安全检查保留
+if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
+  target_compile_options(nx PRIVATE /GL /Gy /Oi)
+  target_link_options(nx PRIVATE /LTCG)
+endif()
+
 target_include_directories(nx PRIVATE src)
 target_link_libraries(nx PRIVATE
   LibArchive::LibArchive
