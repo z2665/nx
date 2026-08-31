@@ -278,9 +278,13 @@ int main() {
             log_err("[nx] extract-into 一次只处理一个输入（右键语义）\n");
             return 64;
         }
-        // 前缀 GUI：默认填与压缩文件名一样的前缀；X/取消 → 直接退出（需求 3/5）
+        // 前缀 GUI：默认=去扩展名的文件名（WinRAR"解压到 <名>\"惯例）。
+        // 不得用完整文件名——输出目录会与输入文件同名（Windows 文件/目录不能同名）
         std::wstring fname = inputs[0].substr(inputs[0].find_last_of(L"\\/") + 1);
-        auto prefix = gui::ask_prefix(fname);
+        std::wstring stem = fname;
+        size_t dot = fname.find_last_of(L'.');
+        if (dot != std::wstring::npos && dot > 0) stem = fname.substr(0, dot);
+        auto prefix = gui::ask_prefix(stem);
         if (!prefix || prefix->empty()) {
             log_raw("用户取消了前缀输入，退出\n");
             return 2;

@@ -56,12 +56,18 @@ bool ensure_dir_recursive(const std::wstring& dir) {
     std::wstring p = win_long_path(dir);
     if (CreateDirectoryW(p.c_str(), nullptr)) return true;
     DWORD e = GetLastError();
-    if (e == ERROR_ALREADY_EXISTS) return true;
+    // ALREADY_EXISTS 可能是"目录已存在"也可能是"同名文件占位"（真实案例：
+    // extract-into 默认前缀曾=完整文件名 → 输出目录与输入 zip 同名，本级误报
+    // 成功、子目录创建才失败）——必须验证现存路径确为目录
+    if (e == ERROR_ALREADY_EXISTS)
+        return (GetFileAttributesW(p.c_str()) & FILE_ATTRIBUTE_DIRECTORY) != 0;
     if (e == ERROR_PATH_NOT_FOUND) {
         size_t pos = p.find_last_of(L"\\/");
         if (pos == std::wstring::npos || pos <= 4 /*\\?\c:*/) return false;
         if (!ensure_dir_recursive(p.substr(0, pos))) return false;
-        return CreateDirectoryW(p.c_str(), nullptr) != 0 || GetLastError() == ERROR_ALREADY_EXISTS;
+        if (CreateDirectoryW(p.c_str(), nullptr) != 0) return true;
+        return GetLastError() == ERROR_ALREADY_EXISTS &&
+               (GetFileAttributesW(p.c_str()) & FILE_ATTRIBUTE_DIRECTORY) != 0;
     }
     return false;
 }

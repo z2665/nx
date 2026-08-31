@@ -30,7 +30,8 @@ def rel_files(root):
 def main():
     okAll = True
 
-    # ---- 用例 1：前缀弹窗（默认=压缩文件名），输入 myprefix → 确定
+    # ---- 用例 1：前缀弹窗，直接用默认前缀（真实右键路径；默认=去扩展名 stem，
+    # 避免输出目录与输入文件同名——案例 Z 真实案例回归） ----
     tmp = fresh("t1")
     shutil.copy(os.path.join(ROOT, "tests/cases/plain_zip/plain.zip"),
                 os.path.join(tmp, "plain.zip"))
@@ -38,13 +39,12 @@ def main():
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     d = NxDialog.wait_for(p.pid, "解压到指定目录")
     default = d.get_text()
-    d.set_text("myprefix")
     d.ok()
     out, _ = p.communicate(timeout=20)
-    found = rel_files(os.path.join(tmp, "myprefix"))
-    ok = default == "plain.zip" and found == ["dir/a.bin", "readme.txt"] \
+    found = rel_files(os.path.join(tmp, "plain")) if os.path.isdir(os.path.join(tmp, "plain")) else []
+    ok = default == "plain" and found == ["dir/a.bin", "readme.txt"] \
         and p.returncode == 0
-    print(f"[1] 前缀弹窗 默认值={default!r} exit={p.returncode} found={found} → {'PASS' if ok else 'FAIL'}")
+    print(f"[1] 前缀弹窗(默认) 默认值={default!r} exit={p.returncode} found={found} → {'PASS' if ok else 'FAIL'}")
     okAll &= ok
     shutil.rmtree(tmp, ignore_errors=True)
 
