@@ -21,11 +21,14 @@ void SpoolBuffer::flushToTemp() {
         throw Error("创建临时文件失败: " + wide_to_utf8(win32_last_error_text()));
     hf_ = h;
     overflowed_ = true;
-    // RAM 全量落盘
+    // RAM 全量落盘（分块 ≤16MiB：ram_ 可达 8GiB，一次 cast DWORD 会截断——
+    // 真实案例 8GiB 恰为 2×4GiB，截断成 0 后 WriteFile 成功写入 0 字节，
+    // 表现为"写临时文件失败: 操作成功完成 (Win32 0)"）
     size_t off = 0;
     while (off < ram_.size()) {
+        size_t want = std::min<size_t>(ram_.size() - off, 16u << 20);
         DWORD wrote = 0;
-        if (!WriteFile(hf_, ram_.data() + off, static_cast<DWORD>(ram_.size() - off), &wrote, nullptr)
+        if (!WriteFile(hf_, ram_.data() + off, static_cast<DWORD>(want), &wrote, nullptr)
             || wrote == 0)
             throw Error("写临时文件失败: " + wide_to_utf8(win32_last_error_text()));
         off += wrote;

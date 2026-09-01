@@ -348,6 +348,13 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   且对窗口尾部残余数据有容忍（实测 [魔数, EOF) 与 [魔数, EOCD末尾) 均可解）。
   另踩一坑：EOCD 的 cdSize/cdOffset 是小端字段，与 MP4 atom 大端相反——已分设 be32/le32。
   样本病理已固化为语料（stego_disguise / stego_disguise_pw / stego_zip64_shadow）。
+- **【实施记录】spool 溢出 4GiB DWORD 截断修复**（11.23GiB 隐写 MP4 真实案例）：
+  SpoolBuffer::flushToTemp 整段落盘时 `static_cast<DWORD>(ram_.size())`——RAM 环
+  自适应至 8GiB 后首次触发（恰为 2×4GiB，截断成 0），WriteFile 以长度 0 调用返回
+  TRUE/写入 0 字节，落入 `wrote==0` 分支且 GetLastError()==0，报错文本竟为
+  "写临时文件失败: 操作成功完成 (Win32 0)"。M0 起潜伏（旧固定 64MiB 环从未越过
+  4GiB；1.mp4 案例 2.5GB 亦侥幸）。修复：分块 ≤16MiB 落盘；全仓扫 DWORD 截断
+  无同类。真实验证：解出 9.32GiB 双视频 exit 0（540s，含 8GB spool 往返）。
 - **【实施记录】extract-into 同名冲突修复**（案例 Z 真实案例）：默认前缀
   曾=完整文件名 → 输出目录与输入 zip 同名，`ensure_dir_recursive` 把 ALREADY_EXISTS
   误判成功（未验证是目录），到子条目目录创建才失败（错误仅在 stderr："创建目录失败"），
