@@ -1,7 +1,7 @@
 # nx — 流式嵌套压缩包解压工具
 
-设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压**。43/43 属性测试通过。
+设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读**。44/44 属性测试 + GUI 冒烟 8/8 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -46,7 +46,8 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 便携打包：`package.cmd` → `dist\nx\`（免安装）
 - 右键菜单：`nx menu install|remove`（HKCU ExtendedSubCommandsKey 级联，经典菜单可靠展开）
   - 解压到当前目录（`extract-here`，--no-root）
-  - 解压到指定目录…（`extract-into`，GUI 前缀弹窗，默认=压缩文件名）
+  - 解压到指定目录…（`extract-into`，GUI 前缀弹窗，默认=去扩展名文件名——WinRAR 惯例，
+    避免输出目录与输入文件同名）
   - 解压隐写压缩包…（`extract-stego`，GUI 前缀弹窗，默认=文件名去扩展名 + `_stego`）
 - GUI 密码弹窗（内存 DLGTEMPLATE）：无控制台或 `--gui` 时自动，每层一窗，取消→整体中止
 - 双模式 exe（`/SUBSYSTEM:WINDOWS`）：资源管理器启动无黑框，终端/管道行为不变
@@ -65,8 +66,8 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 显示条件与完成弹窗一致：Explorer/右键启动（无标准句柄）或 `--gui`，且非 `tree`
 - 取消（按钮/X）→ `abortFlag` → Walker/Sink 抛 `Cancelled` → exit 2 静默退出；
   大文件写出循环内逐块响应，`.part` 半成品照常清理
-- `gui_smoke.py` 扩至 7 用例（进度窗出现/自动关闭/取消中止/半成品清理/
-  zip 直读与 7z 直读的百分比爬升——`PBM_GETPOS` 采样断言）
+- `gui_smoke.py` 共 8 用例（前缀默认值（去扩展名，同名冲突回归）/取消/密码/进度窗
+  出现·自动关闭·百分比爬升·取消中止/隐写动词端到端——窗口消息自动化 + `PBM_GETPOS` 采样）
 
 ### 隐写解压（原待办：MP4 隐写压缩包识别）
 - **检测两条路**（`stego.cpp`，仅根文件层——需 seek 跳过 GB 级 mdat）：
@@ -92,8 +93,32 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 ### 性能（v1 后续四项）
 - **zlib-ng[compat]**（自建 overlay feature）：inflate/CRC SIMD 化
 - **spool RAM 自适应**：默认空闲物理内存 50%（64MiB–8GiB，`--spool-ram` 覆盖）；溢出临时目录默认=输出目录（同盘零跨盘 I/O，`FILE_ATTRIBUTE_TEMPORARY` 驻留系统缓存）
-- **WinZip AES 批量 CTR**（libarchive overlay 补丁）：单块 EVP→64KiB 批量，AES 路径 ~12×；已按上游风格提交 PR libarchive/libarchive#3443
+- **WinZip AES 批量 CTR**（libarchive overlay 补丁 `nx-batch-ctr.patch`）：单块 EVP→64KiB 批量，
+  AES 路径 ~12×（2GiB 实测 33.6s→2.7s 内容校验一致）；曾按上游风格提交 PR libarchive#3443
+  （含 round-trip 测试），上游暂无 review 带宽已礼貌关闭——overlay 补丁持续生效
 - bench（256MB 语料）：A 0.67→0.44s（-34%，反超 bsdtar）· B 1.27→0.67s（-47%，恢复快于手工两遍）· C 3.26→2.97s（-9%）
+- nx Release 开启 LTO（/GL /Gy /Oi + /LTCG；实测无感——热路径在依赖库）
+
+### 嵌套容器免 spool 窗口直读（v1 后续）
+- 父容器为 seekable 视图支撑且条目为 **stored** 时，嵌套 zip/7z/rar 直接在父区间上
+  随机访问，**免全量 spool 往返**（实测 300MB stored 嵌套 0.14s；8GB 级嵌套省掉整轮磁盘搬运与内存占用）
+- 机制：条目数据相位的视图访问记录（read+seek 双记——libarchive 256KB read-ahead 缓冲
+  命中时 read 回调不触发）→ 从首读位置回溯 512KB 定位本地头（PK+stored+未加密+区间精确覆盖，
+  zip 条目区间互不重叠保证唯一）→ `RegionView` 可链式套窗口（zip-in-zip-in-zip 逐层直读）
+- 安全网：任何失败（deflate 父条目语义上无连续区间/加密/推导误判/子打开失败）**自动回退
+  spool 原路径**，行为与基线一致
+- 边界：deflate 方式打包嵌套档案的外层（不可压缩数据仍标 deflate 的工具产物）不适用——
+  载荷必须解压，语义上无区间
+
+### 稳定性修复（真实语料案例）
+- **spool 溢出 4GiB DWORD 截断**（11.23GiB 隐写 MP4 案例）：`flushToTemp` 整段落盘
+  `cast DWORD` 把 8GiB（=2×4GiB）截断成 0 → `WriteFile` 长度 0 成功返回 → 报错竟是
+  "写临时文件失败: 操作成功完成 (Win32 0)"。修复：分块 ≤16MiB 落盘。M0 起潜伏，
+  spool 自适应 8GiB 后首次暴露
+- **extract-into 输出目录与输入文件同名**（案例 Z）：默认前缀曾=完整文件名 →
+  与输入 zip 同名；`ensure_dir_recursive` 把 ALREADY_EXISTS 误判成功（同名文件占位），
+  解到子条目才失败且错误仅在 stderr。修复：默认前缀改去扩展名 stem（WinRAR 惯例）+
+  ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY
 
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
@@ -105,13 +130,13 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 ## 测试
 
 ```bash
-python tests/gen_corpus.py      # M0 语料（14 组）
-python tests/gen_corpus_m1.py   # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
-python tests/gen_corpus_m2.py   # M2 语料（压缩比炸弹）
-python tests/gen_corpus_fn.py   # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py       # 34/34 属性测试
-python tests/bench.py           # 基准（3 语料 × 3 方案）
-python tests/gui_smoke.py       # GUI 冒烟（窗口消息自动化）
+python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
+python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
+python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
+python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
+python tests/run_tests.py        # 44/44 属性测试
+python tests/bench.py            # 基准（3 语料 × 3 方案）
+python tests/gui_smoke.py        # GUI 冒烟 8 用例（窗口消息自动化）
 ```
 
 ## 已知限制与待办
