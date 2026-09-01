@@ -372,7 +372,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   表现为 GUI 解压 0 文件退出 1。修复两层：默认前缀改为去扩展名 stem（WinRAR 惯例，
   设计上避开撞名）；ensure_dir_recursive 对 ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY。
   gui_smoke 用例 1 改为直接采用默认前缀（此前所有用例都覆盖了默认值，恰好漏掉该路径）。
-- **【实施记录】性能四项（v1 后续）**：①zlib→zlib-ng[compat]（自建 overlay feature；inflate/CRC SIMD）；②spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（同盘零跨盘 I/O）；③libarchive nx-batch-ctr.patch：WinZip AES 每 16B单块 EVP（实测 ~60MB/s；OpenSSL 本体 AES-NI 10.8GB/s——瓶颈在调用粒度）→ 64KiB 批量 CTR，AES 2GiB 33.6s→2.8s 内容校验一致（首版两教训：批量 EVP 前须 EncryptInit_ex 重置、批后预生成状态跨批跳块——终版无预生成）；④bench：A -34%（反超 bsdtar）/ B -47%（恢复快于手工两遍）/ C -9%。补丁已按上游风格提交 PR libarchive/libarchive#3443（overlay 与 PR 文本完全一致；3.8.7 与 master 该区域一字不差）。
+- **【实施记录】性能四项（v1 后续）**：①zlib→zlib-ng[compat]（自建 overlay feature；inflate/CRC SIMD）；②spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（同盘零跨盘 I/O）；③libarchive nx-batch-ctr.patch：WinZip AES 每 16B单块 EVP（实测 ~60MB/s；OpenSSL 本体 AES-NI 10.8GB/s——瓶颈在调用粒度）→ 64KiB 批量 CTR，AES 2GiB 33.6s→2.8s 内容校验一致（首版两教训：批量 EVP 前须 EncryptInit_ex 重置、批后预生成状态跨批跳块——终版无预生成）；④bench：A -34%（反超 bsdtar）/ B -47%（恢复快于手工两遍）/ C -9%。补丁曾按上游风格提交 PR libarchive/libarchive#3443（overlay 与 PR 文本完全一致；3.8.7 与 master 该区域一字不差）——上游暂无 review 带宽已礼貌关闭，overlay 补丁持续生效，后续可重开或重提。
   PR 已含上游风格测试（aes128/256_multiblock：块边界尺寸 + 多批次 + 7B 流式/seek 读回逐字节校验；
   破坏性对照证实其能抓住跨批跳块类 bug；全量 866 用例无本补丁引入的失败，
   唯一失败的 test_archive_read_support_twice 在 pristine master 同样失败）。
