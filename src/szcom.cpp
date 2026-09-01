@@ -141,7 +141,7 @@ std::wstring dll_error() { return g_error; }
 
 namespace {
 
-class SeekInput {
+class SeekInput : public RegionSource {
 public:
     virtual ~SeekInput() = default;
     virtual size_t read_at(uint64_t pos, std::span<byte> buf) = 0;
@@ -210,7 +210,20 @@ private:
     uint64_t start_, len_;
 };
 
+// 父视图区间适配（嵌套容器免 spool 直读）：转发到 RegionSource（区间本身已窗口化）
+class RegionSeekInput : public SeekInput {
+public:
+    explicit RegionSeekInput(std::shared_ptr<RegionSource> s) : s_(std::move(s)) {}
+    size_t read_at(uint64_t pos, std::span<byte> buf) override {
+        return s_->read_at(pos, buf);
+    }
+    uint64_t size() const override { return s_->size(); }
+private:
+    std::shared_ptr<RegionSource> s_;
+};
+
 std::shared_ptr<SeekInput> volume_input(const VolumeSource& v, InputMeter* meter) {
+    if (v.region) return std::make_shared<RegionSeekInput>(v.region);
     if (!v.fsPath.empty()) return std::make_shared<FileSeekInput>(v.fsPath, meter, v.fsBase);
     return std::make_shared<SpoolSeekInput>(v.spool, v.winStart, v.winLen);
 }

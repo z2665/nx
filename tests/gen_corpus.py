@@ -399,6 +399,31 @@ def _disguise_wrap(mp4_prefix: bytes, zip_bytes_: bytes) -> bytes:
             + (8).to_bytes(4, "big") + b"mdat")                           # 假原子尾
 
 
+def case_nested_zip_stored():
+    """外层 STORED 内嵌 inner.zip——免 spool 窗口直读正路径（嵌套容器直读语料）。
+    外层必须 stored：deflate 条目载荷在父中无连续区间，走 spool 回退路径。"""
+    inner = make_files({"直接读/inner1.txt": ("region direct" + chr(10)) * 300,
+                        "直接读/d2/inner2.bin": os.urandom(60000),
+                        # >2MiB：越过 libarchive read-ahead 缓冲（256KB），确保
+                        # region 直读命中路径被覆盖（小文件整包缓冲时走 spool 回退）
+                        "直接读/big.bin": os.urandom(2 << 20)})
+    z2 = zip_bytes(inner)
+    loose = ("loose" + chr(10)) * 50
+
+    def build(d):
+        with zipfile.ZipFile(os.path.join(d, "outer.zip"), "w", zipfile.ZIP_STORED) as z:
+            z.writestr("inner.zip", z2)          # 原样字节（stored）
+            z.writestr("loose.txt", loose)
+    write_case("nested_zip_stored", build,
+               {"outer.zip/inner.zip/直接读/inner1.txt":
+                    tree_hash(inner)["直接读/inner1.txt"],
+                "outer.zip/inner.zip/直接读/d2/inner2.bin":
+                    tree_hash(inner)["直接读/d2/inner2.bin"],
+                "outer.zip/inner.zip/直接读/big.bin":
+                    tree_hash(inner)["直接读/big.bin"],
+                "outer.zip/loose.txt": sha256(loose.encode())})
+
+
 def case_stego_disguise():
     inner = make_files({"payload/game.exe": "disguised\n" * 200,
                         "docs/manual.txt": "trailer junk beyond EOCD\n" * 40})
@@ -495,6 +520,7 @@ ALL = [
     case_stego_disguise,
     case_stego_disguise_pw,
     case_stego_zip64_shadow,
+    case_nested_zip_stored,
 ]
 
 if __name__ == "__main__":

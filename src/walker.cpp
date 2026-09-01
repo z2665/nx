@@ -92,11 +92,20 @@ void process_entry(Session& s, ContainerEntry& e, const std::string& sub,
     auto pb = std::make_unique<PushbackSource>(std::move(view), s.opt.histCap);
     Detection d = detect(*pb, e.name);
     FormatClass fc = classify(d.fmt);
+    // 免 spool 直读：detect 已 peek → 视图支撑的 stored 条目可给出父区间。
+    // 首次为空时对容器类条目再 peek 1MiB 促发底层读（libarchive 缓冲 256KB，
+    // 不越过它则回调无记录）；peek 不消费，无副作用。仍为空（非 stored/加密/
+    // 小文件整包缓冲）→ open_container 回退 spool 原路径
+    std::shared_ptr<RegionSource> region = pb->seekRegion();
+    if (!region && fc != FormatClass::None) {
+        pb->peek(1 << 20);
+        region = pb->seekRegion();
+    }
     std::string entryChain = chain.empty() ? format_name(d.fmt)
                                            : chain + " → " + format_name(d.fmt);
     if (fc == FormatClass::Filter || fc == FormatClass::SeqContainer ||
         fc == FormatClass::TailContainer || fc == FormatClass::RandContainer) {
-        walk(s, std::move(pb), sub, e.name, entryChain, depth, false);
+        walk(s, std::move(pb), sub, e.name, entryChain, depth, false, region);
     } else {
         // 普通文件（独立源 → 线程池异步写，D4）
         pb->setHistoryEnabled(false);   // D5：落盘路径无需回看
@@ -302,8 +311,11 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
 }
 
 // ---- walk：策略核心 ----
+// region：父视图区间（免 spool 直读；经 detect peek 后由流侧 seekRegion() 提供；
+// 过滤器链会剥离——解压后的字节无区间语义）
 void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
-          const std::string& origin, const std::string& chain, int depth, bool throughFilter) {
+          const std::string& origin, const std::string& chain, int depth, bool throughFilter,
+          const std::shared_ptr<RegionSource>& region) {
     auto pb = std::make_unique<PushbackSource>(std::move(src), s.opt.histCap);
     Detection d = detect(*pb, origin);
     FormatClass fc = classify(d.fmt);
@@ -330,7 +342,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         });
         {
             auto qs = std::make_unique<QueueSource>(*q);
-            walk(s, std::move(qs), sub, origin, ch2, depth, true);
+            walk(s, std::move(qs), sub, origin, ch2, depth, true);   // 过滤输出：无区间
         }   // qs 析构 → abandon → 泵解阻塞
         pump.join();   // 先 join 再读 pumpErr（避免竞态）
         if (pumpErr) std::rethrow_exception(pumpErr);
@@ -350,7 +362,8 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         layer_note(s, depth, origin + " → " + format_name(d.fmt) +
                                  (d.detail.empty() ? "" : " " + d.detail));
         gui::progress_stage("展开 " + origin + "（" + format_name(d.fmt) + "）");
-        auto reader = open_container(std::move(pb), d.fmt, layerId, s.pw, s.engineOpt());
+        auto reader = open_container(std::move(pb), d.fmt, layerId, s.pw, s.engineOpt(),
+                                     region);
         s.stats.containers.fetch_add(1);
         // 仅根容器（depth==0）的目录层受 --no-root 抑制；嵌套层照常镜像
         std::string newSub;

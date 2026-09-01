@@ -14,12 +14,15 @@ namespace nx {
 // - R 类（7z/rar/iso/cab）：先 spool 全量再随机访问
 //   · 7z/rar 优先 7z.dll（§7.2：7z 全特性 + RAR 解码），不可用/失败回退 libarchive
 // - 加密层：候选密码迭代（§6.2）；zip 流式失败/SFX → D2 回退 spool+seek 重试
+// region：可选——父视图中的连续 stored 区间（免 spool 窗口直读，见 bytesource.hpp
+// RegionSource）；zip/R 类命中时直接在区间上开，失败自动回退 spool 原路径
 // 层身份 layerId 用于密码提示与缓存（如 "data.zip#inner.7z"）
 std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> src,
                                                 Format fmt,
                                                 const std::string& layerId,
                                                 PasswordProvider& pw,
-                                                const EngineOptions& opt);
+                                                const EngineOptions& opt,
+                                                const std::shared_ptr<RegionSource>& region = nullptr);
 
 // 原生多卷（RAR）打开：volumes 各卷数据（FS 路径或 spool 窗口），firstVol 主卷名。
 // 走 7z.dll 卷回调路径（§3.3：原生卷型不拼接）。

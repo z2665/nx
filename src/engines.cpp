@@ -126,7 +126,7 @@ FailKind classify_msg(const char* m) {
 }
 
 // ---- 随机访问视图（zip 中央目录模式：spool 或根文件，M3 文件名修复）----
-class SeekView {
+class SeekView : public RegionSource {
 public:
     virtual ~SeekView() = default;
     virtual size_t read_at(uint64_t pos, std::span<byte> buf) = 0;
@@ -190,11 +190,35 @@ private:
     std::mutex m_;
 };
 
+// 区间窗口：父 RegionSource（文件视图/spool/另一区间）中 [base, base+len) 的只读视图。
+// 嵌套容器免 spool 直读的核心——子引擎把它当作本地小文件随机访问（可链式套窗口）。
+class RegionView : public SeekView {
+public:
+    RegionView(std::shared_ptr<RegionSource> parent, uint64_t base, uint64_t len)
+        : parent_(std::move(parent)), base_(base), len_(len) {}
+    size_t read_at(uint64_t pos, std::span<byte> buf) override {
+        if (pos >= len_) return 0;
+        uint64_t avail = len_ - pos;
+        size_t n = static_cast<size_t>(std::min<uint64_t>(buf.size(), avail));
+        return parent_->read_at(base_ + pos, std::span<byte>(buf.data(), n));
+    }
+    uint64_t size() const override { return len_; }
+private:
+    std::shared_ptr<RegionSource> parent_;
+    uint64_t base_, len_;
+};
+
 struct CbCtx {
     ByteSource* src = nullptr;      // 流式 = PushbackSource
     SeekView* view = nullptr;       // seekable 模式（spool/文件）
     uint64_t viewPos = 0;           // seekable 模式当前位置
     std::vector<byte> buf;
+    // 条目数据相位的视图访问记录（免 spool 直读：推导演区间用）。
+    // recActive 在条目首次数据读时置位；recMin/RecMax 记录该相位视图读覆盖范围
+    //（stored 条目 = 本地头+载荷的连续读；seek 不计入，读越界无害——只用起点）
+    bool recActive = false;
+    uint64_t recMin = UINT64_MAX;
+    uint64_t recMax = 0;
 };
 
 la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
@@ -202,8 +226,13 @@ la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
     try {
         size_t n;
         if (ctx->view) {
+            uint64_t posBefore = ctx->viewPos;
             n = ctx->view->read_at(ctx->viewPos, ctx->buf);
             ctx->viewPos += n;
+            if (ctx->recActive && n) {   // 数据相位访问记录（区间推导）
+                if (posBefore < ctx->recMin) ctx->recMin = posBefore;
+                if (ctx->viewPos > ctx->recMax) ctx->recMax = ctx->viewPos;
+            }
         } else {
             n = ctx->src->read(ctx->buf);
         }
@@ -227,6 +256,11 @@ la_int64_t la_seek_cb(archive*, void* c, la_int64_t off, int whence) {
             case SEEK_END: abs = size + static_cast<uint64_t>(off); break;
             default: return -1;
         }
+        // 区间推导记录：数据相位的视图读位置（载荷锚点，本地头由回溯扫描定位）
+        if (ctx->recActive) {
+            if (abs < ctx->recMin) ctx->recMin = abs;
+            if (abs > ctx->recMax) ctx->recMax = abs;
+        }
         ctx->viewPos = abs;
         return static_cast<la_int64_t>(abs);
     } catch (...) {
@@ -239,6 +273,7 @@ la_int64_t la_seek_cb(archive*, void* c, la_int64_t off, int whence) {
 // （seekable 模式遍历中央目录，不读数据），按"零空名 + 假名加分"择优。
 template <class ViewFactory>
 std::string detect_zip_charset(ViewFactory makeView) {
+    static int n = 0;
     int acp = GetACP();
     std::vector<std::string> cands;
     cands.push_back("");                       // EFS/纯 ASCII：无需选项
@@ -337,6 +372,45 @@ public:
     CbCtx& ctx() { return ctx_; }
     archive* arch() { return a_; }
 
+    // 免 spool 直读：当前条目若为父视图（文件/spool）中的连续 stored 载荷，
+    // 返回其精确区间视图。前提：条目数据已经开始经本读取器读取（detect peek /
+    // probe 预读皆可）——数据相位首个视图读覆盖本地头，由此解析载荷起点。
+    // 解析失败（非 stored/加密/头不合法/未进入数据相位）返回 null → 调用方回退 spool。
+    std::shared_ptr<RegionSource> regionOf(int idx) {
+        if (!view_ || idx != curIdx_ || !dataPhase_ || sizes_.empty()) return nullptr;
+        uint64_t esz = sizes_[std::min<size_t>(idx, sizes_.size() - 1)];
+        if (esz == UINT64_MAX || !ctx_.recActive || ctx_.recMin == UINT64_MAX) {
+            return nullptr;
+        }
+        // recMin = 数据相位首个视图读位置（载荷中段或本地头）。
+        // 向前回溯定位本地头：PK\x03\x04 + method==0 + 未加密 + 覆盖 recMin
+        // 且长度精确 = esz。zip 条目区间互不重叠 → 覆盖 recMin 的 stored 载荷至多
+        // 一个；误配由调用方的"子打开失败回退 spool"兜底。
+        // 覆盖 libarchive 首块缓冲（256KB）+ 本地头/扩展字段上限（30+64K+64K）
+        const uint64_t back = 512 * 1024;
+        uint64_t from = ctx_.recMin > back ? ctx_.recMin - back : 0;
+        size_t spanLen = static_cast<size_t>(ctx_.recMin - from) + 30;
+        std::vector<byte> scan(spanLen);
+        if (view_->read_at(from, std::span<byte>(scan)) != spanLen) return nullptr;
+        for (size_t p = 0; p + 30 <= scan.size(); ++p) {
+            if (scan[p] != 'P' || scan[p + 1] != 'K' || scan[p + 2] != 0x03 ||
+                scan[p + 3] != 0x04)
+                continue;
+            unsigned flags = scan[p + 6] | (scan[p + 7] << 8);
+            if (flags & 0x1) continue;   // 加密（12B 密码头在载荷前）→ 回退
+            unsigned method = scan[p + 8] | (scan[p + 9] << 8);
+            if (method != 0) continue;   // 仅 stored
+            unsigned nlen = scan[p + 26] | (scan[p + 27] << 8);
+            unsigned elen = scan[p + 28] | (scan[p + 29] << 8);
+            uint64_t payload = from + p + 30 + nlen + elen;
+            if (payload > ctx_.recMin) continue;              // 载荷须始于首读前
+            if (ctx_.recMin >= payload + esz) continue;       // 首读须落在载荷内
+            if (payload + esz > view_->size()) continue;
+            return std::make_shared<RegionView>(view_, payload, esz);
+        }
+        return nullptr;
+    }
+
     bool next(ContainerEntry& out) override;
 
 private:
@@ -390,6 +464,7 @@ private:
     size_t blockOff_ = 0;
     uint64_t entryPos_ = 0;      // 已拉入 leftover 的条目内偏移
     std::vector<uint64_t> sizes_;
+    bool dataPhase_ = false;     // 当前条目已开始数据读取（激活视图访问记录）
 };
 
 class LaEntrySource : public ByteSource {
@@ -401,6 +476,7 @@ public:
         return r_->readEntryDirect(idx_, maxN);
     }
     std::optional<uint64_t> sizeHint() const override { return r_->entrySize(idx_); }
+    std::shared_ptr<RegionSource> seekRegion() const override { return r_->regionOf(idx_); }
 private:
     std::shared_ptr<LaSeqReader> r_;
     int idx_;
@@ -428,6 +504,8 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
     laBlock_ = {};
     blockOff_ = 0;
     entryPos_ = 0;
+    dataPhase_ = false;
+    ctx_.recActive = false;
     probeFront_.clear();
     const char* nm = archive_entry_pathname(e_.get());
     if (!nm) {
@@ -456,6 +534,14 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
 std::span<const byte> LaSeqReader::readEntryDirect(int idx, size_t maxN) {
     if (idx != curIdx_ || maxN == 0) return {};
     if (!probeFront_.empty()) return {};
+    if (!dataPhase_) {   // 首次数据访问：激活视图访问记录（区间推导前提）
+        dataPhase_ = true;
+        if (view_) {
+            ctx_.recActive = true;
+            ctx_.recMin = UINT64_MAX;
+            ctx_.recMax = 0;
+        }
+    }
     if (blockOff_ >= laBlock_.size()) {
         const void* p = nullptr;
         size_t sz = 0;
@@ -491,6 +577,14 @@ std::span<const byte> LaSeqReader::readEntryDirect(int idx, size_t maxN) {
 size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
     if (idx != curIdx_) throw Error("条目流已失效（迭代已前进）");
     if (buf.empty()) return 0;
+    if (!dataPhase_ && probeFront_.empty()) {   // 首次数据访问：激活视图访问记录
+        dataPhase_ = true;
+        if (view_) {
+            ctx_.recActive = true;
+            ctx_.recMin = UINT64_MAX;
+            ctx_.recMax = 0;
+        }
+    }
     if (!probeFront_.empty()) {   // probe 预读字节优先交付
         size_t n = std::min(buf.size(), probeFront_.size());
         std::memcpy(buf.data(), probeFront_.data(), n);
@@ -707,11 +801,47 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
                                                 Format fmt,
                                                 const std::string& layerId,
                                                 PasswordProvider& pw,
-                                                const EngineOptions& opt) {
+                                                const EngineOptions& opt,
+                                                const std::shared_ptr<RegionSource>& region) {
+    // ---- 免 spool 窗口直读：父视图中的连续 stored 区间即子归档完整字节 ----
+    // 仅当调用方携带区间（父为 seekable 视图支撑 + stored 条目）时生效；
+    // 视图无流语义，密码重试直接重开同一区间；任何打开失败回退下方 spool 原路径
+    //（流未被消费——detect 只 peek，PushbackSource 可从 0 重读）。
+    auto regionAsView = std::dynamic_pointer_cast<SeekView>(region);
+
     // ---- Zip：中央目录模式（seekable）+ 码表探测（§3.2 文件名修复）----
     // 不走本地头流式：无 EFS 标志的本地码表名（CP932/GBK…）在流式下会得到
     // NULL pathname（实测 D:\...\2.zip 案例），中央目录 + hdrcharset 才可靠。
     if (fmt == Format::Zip) {
+        if (regionAsView) {
+            try {
+                std::string cs = detect_zip_charset([&] { return regionAsView; });
+                std::unique_ptr<PushbackSource> nullSrc{};
+                // 首次无密码直开；密码错则按解析链迭代（视图无流语义，重开即可）
+                auto oc = try_open(fmt, nullSrc, nullptr, nullptr, regionAsView,
+                                   cs.c_str());
+                while (!oc.reader && oc.fail == FailKind::Password) {
+                    auto cand = pw.nextAttempt(layerId);
+                    if (!cand)
+                        throw PasswordExhausted(layerId,
+                                                "密码缺失或已耗尽: " + layerId);
+                    oc = try_open(fmt, nullSrc, nullptr, &*cand, regionAsView,
+                                  cs.c_str());
+                    if (oc.reader) pw.reportSuccess(layerId, *cand);
+                }
+                if (oc.reader) {
+                    src.reset();   // 区间打开成功：丢弃未消费的流（子经区间读取）
+                    return std::move(oc.reader);
+                }
+                throw CorruptError(oc.failMsg);   // 区间推导误判等 → 回退 spool
+            } catch (PasswordExhausted&) {
+                throw;   // 密码耗尽：与 spool 路径数据相同，重试无意义
+            } catch (CorruptError&) {
+                // 回退 spool 原路径
+            } catch (Error&) {
+                // 码表探测等异常：回退
+            }
+        }
         auto spool = spool_all(*src, opt);
         src.reset();
         std::string cs = detect_zip_charset(
@@ -725,6 +855,22 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
     }
 
     if (classify(fmt) == FormatClass::RandContainer) {
+        // R 类：优先父区间直交 7z.dll（免 spool）；失败回退全量 spool
+        if (region && (fmt == Format::SevenZip || fmt == Format::Rar) && sz::dll_available()) {
+            try {
+                std::map<std::wstring, sz::VolumeSource> vols;
+                sz::VolumeSource v;
+                v.region = region;
+                vols[L""] = std::move(v);
+                auto r = sz::open_archive(fmt, vols, L"", layerId, pw, opt);
+                src.reset();
+                return r;
+            } catch (PasswordExhausted&) {
+                throw;
+            } catch (Error&) {
+                // 回退 spool
+            }
+        }
         // R 类：先 spool 全量再随机访问
         auto spool = spool_all(*src, opt);
         src.reset();

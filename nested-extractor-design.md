@@ -348,6 +348,17 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   且对窗口尾部残余数据有容忍（实测 [魔数, EOF) 与 [魔数, EOCD末尾) 均可解）。
   另踩一坑：EOCD 的 cdSize/cdOffset 是小端字段，与 MP4 atom 大端相反——已分设 be32/le32。
   样本病理已固化为语料（stego_disguise / stego_disguise_pw / stego_zip64_shadow）。
+- **【实施记录】嵌套容器免 spool 窗口直读**（nested-window-direct-read 分支）：父为
+  seekable 视图支撑且条目为 stored 时，子容器直接在父区间上随机访问，免全量 spool 往返。
+  机制：CbCtx 记录条目数据相位的视图访问（seek/read 双记——read-ahead 缓冲命中时 read
+  回调不触发）；regionOf 从首读位置回溯 512KB 定位本地头（PK\x03\x04+method==0+未加密+
+  区间精确覆盖，zip 条目区间互不重叠保证唯一）；detect 后 walk 侧对容器条目 peek 1MiB
+  促发底层读再取区间（peek 不消费零副作用）。任何失败（非 stored/加密/推导误判）自动回退
+  spool 原路径——子打开失败即回退，安全性由兜底保证。
+  边界实证：stored 父条目命中（300MB 嵌套 0.14s 免搬运）；deflate 父条目语义上无连续区间
+  （澳洲女足 11GB 案例外层为 deflate 存储≈不可压缩数据）→ 正确回退 spool，行为与修复后
+  基线一致。语料 nested_zip_stored（>2MiB 内层越过 256KB read-ahead 缓冲）覆盖命中路径。
+  嵌套链 region 可链式套窗口（RegionView : SeekView : RegionSource）。
 - **【实施记录】spool 溢出 4GiB DWORD 截断修复**（11.23GiB 隐写 MP4 真实案例）：
   SpoolBuffer::flushToTemp 整段落盘时 `static_cast<DWORD>(ram_.size())`——RAM 环
   自适应至 8GiB 后首次触发（恰为 2×4GiB，截断成 0），WriteFile 以长度 0 调用返回

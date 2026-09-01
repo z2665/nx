@@ -12,6 +12,16 @@
 
 namespace nx {
 
+// 可 seek 区间源：父容器支撑（文件视图/spool/另一区间）中的一段连续只读字节。
+// 嵌套容器免 spool 窗口直读用：stored 条目在父视图中的区间即子归档的完整字节，
+// 子引擎经此随机访问，免去全量 spool 往返（引擎分工见 engines/szcom 的视图实现）。
+class RegionSource {
+public:
+    virtual ~RegionSource() = default;
+    virtual size_t read_at(uint64_t pos, std::span<byte> buf) = 0;
+    virtual uint64_t size() const = 0;
+};
+
 class ByteSource {
 public:
     virtual ~ByteSource() = default;
@@ -21,6 +31,9 @@ public:
     // 不支持或 EOF 返回空 span（调用方退回 read() 判 EOF）。
     virtual std::span<const byte> read_direct(size_t maxN) { (void)maxN; return {}; }
     virtual std::optional<uint64_t> sizeHint() const { return {}; }
+    // 可选：底层为可 seek 区间支撑时返回之（嵌套容器免 spool 直读）。
+    // 仅在消费方已开始 read（如 detect 已 peek）后有意义——区间推导依赖读取位置记录。
+    virtual std::shared_ptr<RegionSource> seekRegion() const { return nullptr; }
 };
 
 using SourcePtr = std::unique_ptr<ByteSource>;
@@ -69,6 +82,7 @@ public:
     size_t read(std::span<byte> buf) override { return inner_->read(buf); }
     std::span<const byte> read_direct(size_t maxN) override { return inner_->read_direct(maxN); }
     std::optional<uint64_t> sizeHint() const override { return inner_->sizeHint(); }
+    std::shared_ptr<RegionSource> seekRegion() const override { return inner_->seekRegion(); }
 private:
     std::shared_ptr<ByteSource> inner_;
 };
@@ -107,6 +121,7 @@ public:
     void rewindTo(uint64_t absPos);
     uint64_t pos() const { return base_; }
     uint64_t histStart() const { return base_ - hist_.size(); }
+    std::shared_ptr<RegionSource> seekRegion() const override { return src_->seekRegion(); }
 
 private:
     void pull(size_t n);   // 从上游补充 pend 至少 n 字节（或 EOF）
