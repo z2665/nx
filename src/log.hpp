@@ -15,5 +15,9 @@ void log_err(const char* fmt, ...);
 void log_raw(const std::string& text);
 // 日志文件绝对路径（诊断）
 std::wstring log_path();
+// 抑制控制台双写（文件日志不受影响）——fuzz 等高频调用场景
+void log_set_quiet(bool v);
+// 纯控制台显示（不经 nx.log 的输出，如 walker 层级列表）是否可用：quiet 时 false
+bool log_console_enabled();
 
 } // namespace nx

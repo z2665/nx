@@ -17,7 +17,8 @@ namespace {
 
 void layer_note(Session& s, int depth, const std::string& line) {
     (void)s;
-    std::printf("%*s%s\n", depth * 2, "", line.c_str());
+    if (log_console_enabled())
+        std::printf("%*s%s\n", depth * 2, "", line.c_str());
 }
 
 // 名字按最后一个 '.' 拆分（无扩展名返回 false）

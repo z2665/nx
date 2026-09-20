@@ -24,3 +24,8 @@ dist/
 
 # 本地临时工作区（上游 clone / 合成样本等）
 tmp/
+
+# fuzz（libFuzzer 目标与语料）
+build-fuzz/
+tests/fuzz-corpus/
+tests/fuzz-corpus-seeds/

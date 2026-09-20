@@ -15,6 +15,7 @@ constexpr uint64_t kMaxLogBytes = 5ull * 1024 * 1024;   // 5 MiB：超过截断�
 std::mutex g_logMx;
 FILE* g_logFile = nullptr;
 std::wstring g_logPath;
+bool g_quiet = false;   // log_set_quiet：抑制控制台双写
 
 void close_log() {
     if (g_logFile) {
@@ -88,13 +89,22 @@ static void vwrite(bool err, const char* fmt, va_list ap) {
     int n = std::vsnprintf(buf, sizeof(buf), fmt, ap);
     if (n <= 0) return;
     if (n >= static_cast<int>(sizeof(buf))) n = sizeof(buf) - 1;
-    // 控制台（无控制台时写无效句柄，无害）
-    std::fwrite(buf, 1, static_cast<size_t>(n), err ? stderr : stdout);
+    // 控制台（无控制台时写无效句柄，无害；quiet 时跳过——fuzz 高频调用防刷屏/拖速）
+    if (!g_quiet)
+        std::fwrite(buf, 1, static_cast<size_t>(n), err ? stderr : stdout);
     std::lock_guard<std::mutex> lk(g_logMx);
     if (g_logFile) {
         std::fwrite(buf, 1, static_cast<size_t>(n), g_logFile);
         std::fflush(g_logFile);
     }
+}
+
+void log_set_quiet(bool v) {
+    g_quiet = v;
+}
+
+bool log_console_enabled() {
+    return !g_quiet;
 }
 
 void log_out(const char* fmt, ...) {

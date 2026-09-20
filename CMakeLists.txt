@@ -42,8 +42,8 @@ add_library(nxshell SHARED src/nxshell.cpp)
 # COM DLL 由资源管理器进程内加载：仅链接、不启用 PCH/统一UTF8 也无妨
 set_target_properties(nxshell PROPERTIES OUTPUT_NAME "nxshell")
 
-add_executable(nx
-  src/main.cpp
+# 除入口外的全部管线源（nx 主程序与 fuzz 目标共用）
+set(NX_CORE_SOURCES
   src/util.cpp
   src/bytesource.cpp
   src/pipes.cpp
@@ -60,6 +60,11 @@ add_executable(nx
   src/gui.cpp
   src/log.cpp
   src/menu.cpp
+)
+
+add_executable(nx
+  src/main.cpp
+  ${NX_CORE_SOURCES}
 )
 
 # 双模式：资源管理器启动不闪黑框；终端/管道行为不变（继承句柄）
@@ -81,3 +86,32 @@ target_link_libraries(nx PRIVATE
   ${NX_LZ4}
   comctl32
 )
+
+# ---- libFuzzer 全管线目标（tests/fuzz_run.py 自动配置构建；见 README「Fuzz 安全护城河」）----
+# vcpkg 依赖为非插桩静态库：仅本仓代码带 ASan/覆盖率，依赖库内崩溃仍可被捕获。
+option(NX_FUZZ "构建 libFuzzer+ASan 目标 nxfuzz（需 VS 的 AddressSanitizer 组件）" OFF)
+if(NX_FUZZ)
+  add_executable(nxfuzz EXCLUDE_FROM_ALL
+    ${NX_CORE_SOURCES}
+    src/fuzz_main.cpp
+  )
+  target_include_directories(nxfuzz PRIVATE src)
+  target_link_libraries(nxfuzz PRIVATE
+    LibArchive::LibArchive
+    ZLIB::ZLIB
+    BZip2::BZip2
+    LibLZMA::LibLZMA
+    ${NX_ZSTD}
+    ${NX_LZ4}
+    comctl32
+  )
+  # 注意：不能开 /GL（与 sanitizer 不兼容）；MSVC libFuzzer 同时提供驱动 main
+  target_compile_options(nxfuzz PRIVATE /fsanitize=address /fsanitize=fuzzer)
+  target_link_options(nxfuzz PRIVATE /fsanitize=address /fsanitize=fuzzer)
+  # 动态 ASan 运行时随构建复制到 exe 旁——否则脱离 VS 环境启动报 0xC0000141
+  get_filename_component(NX_CXX_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  add_custom_command(TARGET nxfuzz POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${NX_CXX_DIR}/clang_rt.asan_dynamic-x86_64.dll"
+            $<TARGET_FILE_DIR:nxfuzz>)
+endif()
