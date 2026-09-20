@@ -145,6 +145,16 @@ struct Runtime {
     bool ok = false;
 };
 
+// Win32 EDIT 控件原生不处理 Ctrl+A：子类化补全（密码/前缀两弹窗共用）
+LRESULT CALLBACK edit_ctrl_a(HWND h, UINT msg, WPARAM w, LPARAM l,
+                             UINT_PTR /*id*/, DWORD_PTR /*ref*/) {
+    if (msg == WM_CHAR && w == 0x01) {   // 0x01 = Ctrl+A
+        SendMessageW(h, EM_SETSEL, 0, -1);
+        return 0;
+    }
+    return DefSubclassProc(h, msg, w, l);
+}
+
 INT_PTR CALLBACK ask_proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     switch (msg) {
         case WM_INITDIALOG: {
@@ -152,10 +162,15 @@ INT_PTR CALLBACK ask_proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
             SetWindowLongPtrW(h, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(rt));
             const AskCtx* c = rt->ctx;
             SetDlgItemTextW(h, IDC_LABEL, c->label.c_str());
-            SetFocus(GetDlgItem(h, IDC_EDIT));
+            HWND edit = GetDlgItem(h, IDC_EDIT);
+            SetWindowSubclass(edit, edit_ctrl_a, 1, 0);
+            SetFocus(edit);
             SendDlgItemMessageW(h, IDC_EDIT, EM_SETSEL, 0, -1);
             return FALSE;   // 焦点已自设
         }
+        case WM_ACTIVATE:   // 弹窗由解压工作线程创建，常无前台焦点；用户点活窗口时焦点回输入框
+            if (LOWORD(w) != WA_INACTIVE) SetFocus(GetDlgItem(h, IDC_EDIT));
+            return TRUE;
         case WM_COMMAND: {
             if (LOWORD(w) == IDOK) {
                 auto* rt = reinterpret_cast<Runtime*>(GetWindowLongPtrW(h, GWLP_USERDATA));
