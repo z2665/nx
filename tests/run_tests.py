@@ -130,6 +130,7 @@ def main():
         ("rar_multivol", "mv.part1.rar", [], 0),
         ("rar_entry_level_volumes", "outer.zip", [], 0),
         ("7z_encrypted", "sealed.7z", ["-p", "7zPw@2024", "--no-prompt"], 0),
+        ("7z_solid_many", "solidmany.7z", ["-p", "SolidPw@2024", "--no-prompt"], 0),
         ("7z_mhe", "blind.7z", ["-p", "7zPw@2024", "--no-prompt"], 0),
         ("7z_split", "sp.7z.001", [], 0),
         ("zip_sfx", "installer.exe", [], 0),
@@ -141,6 +142,11 @@ def main():
             continue
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), args, want)
+
+    # solid 批量抽取性能回归（szcom materializeBatch）：逐条目单独 Extract 会对
+    # solid 块逐文件从头重解码（O(N²)）——600 文件语料分钟级；批量后秒级
+    for r0 in [r for r in results if r.name == "7z_solid_many"]:
+        r0.check(r0.dt < 60, f"solid 批量抽取过慢（{r0.dt:.0f}s，疑似逐条目回退）")
 
     # M0 常规：正确解出 + 零中间
     for case, entry in [

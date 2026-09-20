@@ -410,9 +410,13 @@ private:
 class ExtractCb : public Z7_IArchiveExtractCallback,
                   public Z7_ICryptoGetTextPassword {
 public:
-    ExtractCb(U32 wantIndex, SpoolBuffer* dst,
+    // 批量抽取：targets = 本批 {index → spool}（单条目即一项）。GetStream 按 index
+    // 分发；SetOperationResult 紧跟对应文件写流结束，结果记入 results_。
+    // （solid 归档逐条目单独 Extract 会从 solid 块头重解码到目标位置——O(N²)，
+    // 3692 文件 2.3GB 实测 10 小时级；一次 Extract 携带一批索引则前缀每批只解一次）
+    ExtractCb(std::map<uint32_t, SpoolBuffer*> targets,
               std::shared_ptr<SharedOpenState> st)
-        : wantIndex_(wantIndex), dst_(dst), st_(std::move(st)) {}
+        : targets_(std::move(targets)), st_(std::move(st)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
         if (!ppv) return E_POINTER;
         if (IsEqualGUID(riid, IID_IUnknown) || IsEqualGUID(riid, kIidIArchiveExtractCallback)) {
@@ -438,13 +442,16 @@ public:
                                         I32 askExtractMode) override {
         if (!outStream) return E_POINTER;
         *outStream = nullptr;
-        if (index != wantIndex_ || askExtractMode == kAskSkip) return S_OK;
-        *outStream = new OutStreamImpl(dst_);
+        lastIdx_ = index;
+        if (askExtractMode == kAskSkip) return S_OK;
+        auto it = targets_.find(index);
+        if (it == targets_.end()) return S_OK;   // 非本批目标 → 不接流（丢弃）
+        *outStream = new OutStreamImpl(it->second);
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE PrepareOperation(I32) override { return S_OK; }
     HRESULT STDMETHODCALLTYPE SetOperationResult(I32 opResult) override {
-        opResult_ = opResult;
+        if (targets_.count(lastIdx_)) results_[lastIdx_] = opResult;
         return S_OK;
     }
     // 内容加密条目：抽取时经此接口取密码（7z/rar 均然）
@@ -457,10 +464,12 @@ public:
         *password = SysAllocStringLen(w.c_str(), static_cast<UINT>(w.size()));
         return S_OK;
     }
-    I32 opResult_ = 0;
+    // 每条目操作结果（kOpOK=成功；未出现的条目=未处理/被跳过）
+    const std::map<uint32_t, I32>& results() const { return results_; }
 private:
-    U32 wantIndex_;
-    SpoolBuffer* dst_;
+    std::map<uint32_t, SpoolBuffer*> targets_;
+    std::map<uint32_t, I32> results_;
+    uint32_t lastIdx_ = 0;
     std::shared_ptr<SharedOpenState> st_;
     std::atomic<ULONG> ref_{1};
 };
@@ -496,6 +505,11 @@ private:
     void closeArc();
     void enumerateItems();
     void extractOne(uint32_t idx, SpoolBuffer* dst);   // 抛 PasswordExhausted/CorruptError
+    // 批量物化（调用方持 mx_）：一次 Extract 抽 [start,…) 的数据条目（字节预算
+    // 截断）到各自 spool 并入缓存；批失败丢弃整批、仅单条重试被请求条目
+    // （隔离坏点，其后条目触发从自身开始的新批——keepGoing 语义不变）
+    void materializeBatch(uint32_t start);
+    uint64_t batchBudget() const;
 
     Format fmt_;
     std::map<std::wstring, VolumeSource> volumes_;   // 键小写
@@ -519,6 +533,9 @@ private:
         uint64_t pos = 0;
     };
     std::map<uint32_t, Cached> cache_;
+    // Sink 写出线程池并发调 EntrySource::read → readEntry：Extract 与 cache_
+    // （及 7z.dll IInArchive/InStreamImpl 单线程约定）必须整体串行
+    std::mutex mx_;
 };
 
 class EntrySource : public ByteSource {
@@ -706,14 +723,75 @@ void SevenZipReader::enumerateItems() {
 }
 
 void SevenZipReader::extractOne(uint32_t idx, SpoolBuffer* dst) {
-    ExtractCb cb(idx, dst, openState_);
+    std::map<uint32_t, SpoolBuffer*> targets{{idx, dst}};
+    ExtractCb cb(std::move(targets), openState_);
     HRESULT hr = arc_->Extract(&idx, 1, 0, &cb);
     dst->finish();
-    I32 res = (hr == S_OK) ? cb.opResult_ : kOpDataError;
-    if (res == kOpOK) return;
-    if (res == kOpWrongPassword || (anyEncrypted_ && (res == kOpCRCError || res == kOpDataError)))
-        throw PasswordExhausted(layerId_, "条目密码错误 (op=" + std::to_string(res) + ")");
-    throw CorruptError("条目数据损坏 (op=" + std::to_string(res) + ")");
+    const auto& res = cb.results();
+    auto it = res.find(idx);
+    I32 r = (hr == S_OK && it != res.end()) ? it->second : kOpDataError;
+    if (r == kOpOK) return;
+    if (r == kOpWrongPassword || (anyEncrypted_ && (r == kOpCRCError || r == kOpDataError)))
+        throw PasswordExhausted(layerId_, "条目密码错误 (op=" + std::to_string(r) + ")");
+    throw CorruptError("条目数据损坏 (op=" + std::to_string(r) + ")");
+}
+
+uint64_t SevenZipReader::batchBudget() const {
+    // 预算 = spoolRam/2，钳 [64MiB, 1GiB]：太小 → 批多（solid 前缀重解码次数多）；
+    // 太大 → 预取的未消费条目 spool 驻留内存多（Sink 异步写出滞后时）
+    uint64_t b = static_cast<uint64_t>(opt_.spoolRam) / 2;
+    if (b < (64ull << 20)) b = 64ull << 20;
+    if (b > (1ull << 30)) b = 1ull << 30;
+    return b;
+}
+
+void SevenZipReader::materializeBatch(uint32_t start) {
+    constexpr size_t kMaxEntriesPerBatch = 4096;   // 防巨量小文件一批（索引/回调开销）
+    const uint64_t budget = batchBudget();
+    std::vector<uint32_t> idxs;
+    std::map<uint32_t, SpoolBuffer*> targets;
+    std::vector<std::shared_ptr<SpoolBuffer>> hold;   // 持有各条目 spool 生命周期
+    uint64_t bytes = 0;
+    for (uint32_t i = start; i < items_.size(); ++i) {
+        if (items_[i].isDir) continue;
+        uint64_t sz = items_[i].size == UINT64_MAX ? 0 : items_[i].size;
+        if (!idxs.empty() && bytes + sz > budget) break;   // 首条目必入批（单个可超预算）
+        auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
+        idxs.push_back(i);
+        targets.emplace(i, sp.get());
+        hold.push_back(std::move(sp));
+        bytes += sz;
+        if (idxs.size() >= kMaxEntriesPerBatch) break;
+    }
+    if (idxs.empty()) return;   // start 为目录：不缓存，readEntry 返回 0
+
+    ExtractCb cb(std::move(targets), openState_);
+    HRESULT hr = arc_->Extract(idxs.data(), static_cast<U32>(idxs.size()), 0, &cb);
+    bool allOk = (hr == S_OK);
+    if (allOk) {
+        for (uint32_t i : idxs) {
+            auto it = cb.results().find(i);
+            if (it == cb.results().end() || it->second != kOpOK) {
+                allOk = false;
+                break;
+            }
+        }
+    }
+    if (allOk) {
+        for (size_t k = 0; k < idxs.size(); ++k) {
+            hold[k]->finish();
+            cache_.emplace(idxs[k], Cached{std::move(hold[k]), 0});
+        }
+        return;
+    }
+    // 批内失败（某条目坏/密码）：丢弃整批——部分完成的 spool 不可信；
+    // 仅单条重试被请求条目（失败按原语义抛），其后条目触发从自身开始的
+    // 新批（不含坏点），keepGoing 语义与逐条目时代一致
+    if (!items_[start].isDir) {
+        auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
+        extractOne(start, sp.get());
+        cache_.emplace(start, Cached{std::move(sp), 0});
+    }
 }
 
 bool SevenZipReader::next(ContainerEntry& out) {
@@ -733,11 +811,12 @@ bool SevenZipReader::next(ContainerEntry& out) {
 
 size_t SevenZipReader::readEntry(uint32_t idx, std::span<byte> buf) {
     if (idx >= items_.size()) throw Error("条目索引越界");
+    std::lock_guard<std::mutex> lk(mx_);
     auto found = cache_.find(idx);
     if (found == cache_.end()) {
-        auto spool = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
-        extractOne(idx, spool.get());
-        found = cache_.emplace(idx, Cached{std::move(spool), 0}).first;
+        materializeBatch(idx);
+        found = cache_.find(idx);
+        if (found == cache_.end()) return 0;   // 目录等无数据条目
     }
     Cached& c = found->second;
     if (c.pos >= c.spool->size()) return 0;

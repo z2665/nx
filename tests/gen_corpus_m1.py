@@ -149,6 +149,23 @@ def case_7z_encrypted():
     write_case("7z_encrypted", build, {f"sealed.7z/{k}": v for k, v in tree_hash(files).items()})
 
 
+def case_7z_solid_many():
+    """solid 7z 批量抽取回归：600 小文件强制单 solid 块（-ms=1g）+ AES。
+    修复前逐条目单独 Extract = 每文件从 solid 块头重解码（O(N²)，本例 ~11GB
+    解码量，分钟级）；批量后一次 Extract 前缀只解一次（秒级）。"""
+    if not sevenz_available():
+        print("[gen] 跳过 7z_solid_many"); return
+    files = make_files({f"pack/f{i:03d}.bin": os.urandom(64 * 1024) for i in range(600)})
+    def build(d):
+        st = stage(d, files)
+        subprocess.run([SEVEN_ZIP, "a", "-t7z", "-ms=1g", "-mx=1", "-pSolidPw@2024",
+                        os.path.abspath(os.path.join(d, "solidmany.7z")), "."],
+                       check=True, capture_output=True, cwd=st)
+        shutil.rmtree(st)
+    write_case("7z_solid_many", build,
+               {f"solidmany.7z/{k}": v for k, v in tree_hash(files).items()})
+
+
 def case_7z_mhe():
     """7z 头加密（-mhe=on）：无密码连条目列表都拿不到（§6.1）"""
     if not sevenz_available():
@@ -231,6 +248,7 @@ ALL_M1 = [
     case_rar_oldvol,
     case_rar_entry_level_volumes,
     case_7z_encrypted,
+    case_7z_solid_many,
     case_7z_mhe,
     case_7z_split,
     case_zip_sfx,
