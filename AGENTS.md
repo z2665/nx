@@ -25,13 +25,17 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 属性测试 44/44；NX_EXE 环境变量可覆盖被测 exe 路径
-python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 8 用例
+python tests/run_tests.py        # 属性测试 45/45；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore）
+python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
 ```
 
 - 退出码契约（测试断言依赖）：`0` 成功｜`1` 部分失败｜`2` 密码｜`3` 超限｜`4` 缺分片。
 - 密码交互测试依赖环境变量 `NX_PROMPT_TEST=1`。
 - context_menu 用例会真实装卸 HKCU 菜单——已做现场保存/还原（测试后用原 exe 重装），不会再吃掉用户菜单。
+- fuzz 目标（`src/fuzz_main.cpp` + CMake `NX_FUZZ`）复用全部管线源但**不能开 /GL**（与 sanitizer
+  不兼容）；MSVC libFuzzer 提供驱动 main；动态 ASan DLL 由 post-build 复制到 exe 旁。改管线代码后
+  长跑 `fuzz_run.py` 是安全回归手段（`--rerun` 复现工件）。
 
 ## 架构分层（src/ 一文件一阶段，勿跨层直达）
 

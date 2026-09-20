@@ -367,12 +367,38 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   "写临时文件失败: 操作成功完成 (Win32 0)"。M0 起潜伏（旧固定 64MiB 环从未越过
   4GiB；1.mp4 案例 2.5GB 亦侥幸）。修复：分块 ≤16MiB 落盘；全仓扫 DWORD 截断
   无同类。真实验证：解出 9.32GiB 双视频 exit 0（540s，含 8GB spool 往返）。
+- **【实施记录】solid 7z 批量抽取（O(N²) 修复）**（案例 XJ，2.61GB 隐写 MP4 真实案例）：文件=MP4（尾部假 mdat + zip64 影子
+  EOCD + 76B 诱饵，7-Zip 22.01 完全打不开）→ 隐写 zip（deflate 标记的不可压缩
+  2.27GB 单条目 exe）→ 7z SFX（**Solid=+**，Delta+LZMA2:26+BCJ2+7zAES，3692 文件
+  2.7GB，Ren'Py 游戏目录树）。病灶：szcom 逐条目单独 `arc_->Extract(&idx,1,…)` ——
+  solid 块无独立寻址点，7z.dll 每次从头解码到目标位置，O(N×C/2)≈TB 级解码量；
+  实测 10 分钟 322 文件且速率递减（0.63→0.30 文件/s），外推 8~12 小时。
+  修复（pull 模型保持不变）：`materializeBatch(start)` 一次 `Extract` 携带
+  [start,…) 一批连续数据条目（字节预算=spoolRam/2 钳 [64MiB,1GiB]，首条目必入批，
+  条目数上限 4096），`ExtractCb` 批化——GetStream 按 index 分发到各条目独立
+  SpoolBuffer，SetOperationResult 按 lastIdx 归属逐条目结果；全批成功逐条 finish 入
+  cache_，批失败丢弃整批、仅单条重试被请求条目（坏点隔离，其后条目触发从自身开始的
+  新批天然跳过坏点，keepGoing 语义与逐条目时代一致）。附带修复并发隐患：Sink 写出
+  线程池并发 EntrySource::read → readEntry 对 `arc_->Extract`/`cache_`/
+  InStreamImpl::pos_ 的无锁竞争（7z.dll IInArchive 单线程约定）——`mx_` 整体串行。
+  理论：批预算 B 下重解码量 ≈ C²/2B（本例 B=1GiB → ~5GB，7z.dll 多线程解码 ~30s）。
+  验证：新语料 7z_solid_many（600 文件×64KB，-ms=1g+AES）0.54s（逐条目时代分钟级，
+  run_tests 加 <60s 时间断言防回退）；真实文件 38s/3747 文件/2.53GiB exit 0，
+  与 7z CLI 单遍全解对比共同条目哈希零差异（多出的 66 文件=.save（Ren'Py 存档=zip）
+  按设计递归展开；7z CLI 的 1 条 Warning 即同批矛盾路径）。fuzz 60s 回归无异常。
 - **【实施记录】extract-into 同名冲突修复**（案例 Z 真实案例）：默认前缀
   曾=完整文件名 → 输出目录与输入 zip 同名，`ensure_dir_recursive` 把 ALREADY_EXISTS
   误判成功（未验证是目录），到子条目目录创建才失败（错误仅在 stderr："创建目录失败"），
   表现为 GUI 解压 0 文件退出 1。修复两层：默认前缀改为去扩展名 stem（WinRAR 惯例，
   设计上避开撞名）；ensure_dir_recursive 对 ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY。
   gui_smoke 用例 1 改为直接采用默认前缀（此前所有用例都覆盖了默认值，恰好漏掉该路径）。
+  **无扩展名残余场景**（案例 X，1.85GiB 7z 嵌套 7z 真实案例）：
+  文件名无小数点 → stem 回退=完整文件名 → 撞名仍发生；且创建失败在 main 提前 return 1，
+  绕过完成弹窗，GUI 右键场景下用户完全看不到失败原因。补丁：失败按成因分类
+  （`CompareStringOrdinal` 判撞输入文件/GetFileAttributes 判同名文件占位/其他含
+  Win32 错误文本）+ GUI 交互流（extract-into/-stego 已弹过前缀窗、Explorer/`--gui` 启动）
+  弹 `MessageBox` 给出换前缀指引；纯终端场景维持 stderr 不弹。gui_smoke 增用例 9
+  （无扩展名输入 + 默认前缀 → 断言弹窗文案与 exit 1）。
 - **【实施记录】性能四项（v1 后续）**：①zlib→zlib-ng[compat]（自建 overlay feature；inflate/CRC SIMD）；②spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（同盘零跨盘 I/O）；③libarchive nx-batch-ctr.patch：WinZip AES 每 16B单块 EVP（实测 ~60MB/s；OpenSSL 本体 AES-NI 10.8GB/s——瓶颈在调用粒度）→ 64KiB 批量 CTR，AES 2GiB 33.6s→2.8s 内容校验一致（首版两教训：批量 EVP 前须 EncryptInit_ex 重置、批后预生成状态跨批跳块——终版无预生成）；④bench：A -34%（反超 bsdtar）/ B -47%（恢复快于手工两遍）/ C -9%。补丁曾按上游风格提交 PR libarchive/libarchive#3443（overlay 与 PR 文本完全一致；3.8.7 与 master 该区域一字不差）——上游暂无 review 带宽已礼貌关闭，overlay 补丁持续生效，后续可重开或重提。
   PR 已含上游风格测试（aes128/256_multiblock：块边界尺寸 + 多批次 + 7B 流式/seek 读回逐字节校验；
   破坏性对照证实其能抓住跨批跳块类 bug；全量 866 用例无本补丁引入的失败，
@@ -382,6 +408,23 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   `setlocale(LC_ALL, ".UTF8")` 为主修复；② 本地头与中央目录文件名可不一致（本例本地头 EUC-JP、
   中央目录 UTF-8），流式读头必错——zip 已改中央目录模式（SeekView 免 spool 直读）；
   ③ `zip:hdrcharset` 候选须 iconv 名（CP932 非 932），码表探测按整包择一。
+- **【实施记录】Fuzz 安全护城河**（自用定位下安全优先）：目标=全管线端到端——
+  `src/fuzz_main.cpp` 每迭代写临时文件后走真实 `run_input`（detect/stego/容器引擎/密码链/
+  Walker 递归/Sink 消毒），覆盖面=生产路径本身。MSVC libFuzzer+ASan（独立构建目录
+  `build-fuzz/`、CMake `NX_FUZZ`；管线源与 nx 共用列表但禁 /GL），vcpkg 依赖非插桩——
+  本仓代码带覆盖率/内存检测，依赖库硬崩溃仍被捕获。单迭代成本有界：深度 3 / 输出 2MiB /
+  压缩比 50 / spool RAM 1MiB（促发溢出分支）；`stegoMode`/`noRoot` 由输入尺寸奇偶派生
+  （libFuzzer 依赖确定性执行）；输出目录 4 槽轮换先清后用；进程内 `log_set_quiet` 静音
+  （含 walker 层级列表的 printf，原来绕过 log 体系）。踩坑两枚：MSVC ASan 链的是
+  **动态运行时 DLL**（`clang_rt.asan_dynamic-x86_64.dll`，post-build 复制到 exe 旁，否则
+  非 VS 环境启动报 0xC0000141）；walker `layer_note` 直写 printf 绕过 quiet。首跑实测
+  （5 分钟）：22,947 次 / 76 exec/s / 0 崩溃 / RSS 457MB，自动字典习得 CP936/CP932、
+  各格式魔数、`ftyp` 等深层特征——码表探测与 stego atom 步进路径确被打到。
+- **【实施记录】GUI 弹窗输入补齐**（自用体验）：① Win32 EDIT 原生不处理 Ctrl+A——
+  子类化编辑框（`WM_CHAR` 0x01 → `EM_SETSEL 0,-1`），密码/前缀两弹窗共用；
+  ② 弹窗自解压工作线程创建，常拿不到前台焦点——补 `WM_ACTIVATE`（非 WA_INACTIVE 即
+  `SetFocus` 输入框），用户点活窗口后焦点直落输入框。窗口消息自动化不受影响
+  （gui_smoke 8/8 照旧）。
 
 ---
 

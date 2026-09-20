@@ -1,7 +1,7 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读**。44/44 属性测试 + GUI 冒烟 8/8 通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读**。45/45 属性测试 + GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -49,7 +49,9 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   - 解压到指定目录…（`extract-into`，GUI 前缀弹窗，默认=去扩展名文件名——WinRAR 惯例，
     避免输出目录与输入文件同名）
   - 解压隐写压缩包…（`extract-stego`，GUI 前缀弹窗，默认=文件名去扩展名 + `_stego`）
-- GUI 密码弹窗（内存 DLGTEMPLATE）：无控制台或 `--gui` 时自动，每层一窗，取消→整体中止
+- GUI 密码弹窗（内存 DLGTEMPLATE）：无控制台或 `--gui` 时自动，每层一窗，取消→整体中止；
+  输入框支持 Ctrl+A 全选（Win32 EDIT 原生不支持，子类化补齐）+ 窗口激活即聚焦输入框
+  （弹窗自解压工作线程创建，常拿不到前台焦点，用户点活窗口后焦点直落输入框）
 - 双模式 exe（`/SUBSYSTEM:WINDOWS`）：资源管理器启动无黑框，终端/管道行为不变
 - 默认日志 `nx.log`：运行头+全部输出+report JSON；append，超 5 MiB 截断
 - Win11 新版右键菜单：`menupkg/` 留有 IExplorerCommand+稀疏 MSIX 方案雏形（nxshell.dll/清单/脚本），未启用
@@ -66,8 +68,8 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 显示条件与完成弹窗一致：Explorer/右键启动（无标准句柄）或 `--gui`，且非 `tree`
 - 取消（按钮/X）→ `abortFlag` → Walker/Sink 抛 `Cancelled` → exit 2 静默退出；
   大文件写出循环内逐块响应，`.part` 半成品照常清理
-- `gui_smoke.py` 共 8 用例（前缀默认值（去扩展名，同名冲突回归）/取消/密码/进度窗
-  出现·自动关闭·百分比爬升·取消中止/隐写动词端到端——窗口消息自动化 + `PBM_GETPOS` 采样）
+- `gui_smoke.py` 共 9 用例（前缀默认值（去扩展名，同名冲突回归）/取消/密码/进度窗
+  出现·自动关闭·百分比爬升·取消中止/隐写动词端到端/无扩展名输入撞名错误弹窗——窗口消息自动化 + `PBM_GETPOS` 采样）
 
 ### 隐写解压（原待办：MP4 隐写压缩包识别）
 - **检测两条路**（`stego.cpp`，仅根文件层——需 seek 跳过 GB 级 mdat）：
@@ -111,6 +113,16 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   载荷必须解压，语义上无区间
 
 ### 稳定性修复（真实语料案例）
+- **solid 7z 逐条目抽取 O(N²)**（案例 XJ 隐写案例）：内层 7z SFX
+  为 solid（3692 文件 2.3GB，LZMA2+BCJ2+AES），szcom 逐条目单独 `Extract` = 每文件
+  从 solid 块头重解码到目标位置，实测外推 8~12 小时。修复：**批量抽取**
+  （`materializeBatch`：一次 `Extract` 携带一批连续索引，`GetStream` 按 index 分发到
+  各条目 spool；预算 = spoolRam/2 钳 [64MiB,1GiB]；批失败丢弃整批仅单条重试，坏点
+  隔离、其后条目自成新批——keepGoing 语义不变）。真实验证：38s / 3747 文件 / 2.53GiB，
+  与 7z CLI 单遍结果共同条目哈希零差异（.save 嵌套 zip 按设计递归多解 66 文件）。
+  另修正隐患：Sink 线程池并发 `readEntry` 对 `arc_->Extract`/`cache_` 无锁——
+  补 `mx_` 整体串行（7z.dll IInArchive 单线程约定）。语料 7z_solid_many（600 文件
+  solid+AES）+ 时间断言（<60s；逐条目回退分钟级即抓）
 - **spool 溢出 4GiB DWORD 截断**（11.23GiB 隐写 MP4 案例）：`flushToTemp` 整段落盘
   `cast DWORD` 把 8GiB（=2×4GiB）截断成 0 → `WriteFile` 长度 0 成功返回 → 报错竟是
   "写临时文件失败: 操作成功完成 (Win32 0)"。修复：分块 ≤16MiB 落盘。M0 起潜伏，
@@ -118,7 +130,26 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **extract-into 输出目录与输入文件同名**（案例 Z）：默认前缀曾=完整文件名 →
   与输入 zip 同名；`ensure_dir_recursive` 把 ALREADY_EXISTS 误判成功（同名文件占位），
   解到子条目才失败且错误仅在 stderr。修复：默认前缀改去扩展名 stem（WinRAR 惯例）+
-  ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY
+  ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY。
+  **无扩展名残余场景**（`案例 X` 真实案例）：无小数点输入 stem 回退=完整文件名，
+  撞名仍发生且 GUI 右键场景下仅 log_err 用户完全不可见（提前 return 1 绕过完成弹窗）。
+  修复：创建失败按成因分类（撞输入文件/被同名文件占用/其他）+ **GUI 交互流弹窗告知**
+  （extract-into/-stego 刚弹过前缀窗或 Explorer/`--gui` 启动时 `MessageBox` 指引换前缀；
+  纯终端仍走 stderr 不打扰）
+
+### Fuzz 安全护城河（v1 后续）
+- **目标=全管线端到端**（`src/fuzz_main.cpp`）：每迭代输入写临时文件 → `run_input` 真实
+  递归（detect/stego/容器引擎/密码链/Walker/Sink 消毒落盘），覆盖面=生产路径本身
+- MSVC libFuzzer + ASan（独立构建目录 `build-fuzz/`，`-DNX_FUZZ=ON`；动态 ASan 运行时
+  随构建复制到 exe 旁，脱离 VS 环境可跑）；vcpkg 依赖为非插桩静态库——本仓代码带
+  覆盖率与内存检测，依赖库内硬崩溃仍被捕获
+- 限额收紧保证单迭代成本有界：深度 3 / 输出 2MiB / 压缩比 50 / spool RAM 1MiB
+  （促发磁盘溢出分支）；`stegoMode`/`noRoot` 由输入尺寸奇偶派生（libFuzzer 需确定性）
+- 运行：`python tests/fuzz_run.py`（默认 10 分钟；`--time` / `--jobs N`（-fork 并行）/
+  `--rerun <file>` 复现工件）；种子=tests/cases 全量（≤1MiB），累积语料跨次增长
+- 进程内静音：`log_set_quiet`（含 walker 层级列表的纯控制台显示），不写 nx.log
+- 首跑实测（5 分钟）：22,947 次 / 76 exec/s / 0 崩溃，峰值 RSS 457MB；自动字典已习得
+  CP936/CP932（码表探测）、各格式魔数、`ftyp`（MP4 atom 步进）等深层特征——覆盖真实
 
 ### 真实语料修复（D:\…\2.zip 案例）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
@@ -134,9 +165,10 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 44/44 属性测试
+python tests/run_tests.py        # 45/45 属性测试
+python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
-python tests/gui_smoke.py        # GUI 冒烟 8 用例（窗口消息自动化）
+python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）
 ```
 
 ## 已知限制与待办
