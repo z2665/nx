@@ -212,6 +212,27 @@ def main():
     okAll &= ok
     shutil.rmtree(tmp, ignore_errors=True)
 
+    # ---- 用例 9：extract-into 无扩展名输入，默认前缀=完整文件名 → 撞名创建失败，
+    # 错误弹窗告知（GUI 交互流不可只见 stderr；案例 X 真实案例回归） ----
+    tmp = fresh("t9")
+    shutil.copy(os.path.join(ROOT, "tests/cases/plain_zip/plain.zip"),
+                os.path.join(tmp, "noext"))
+    p = subprocess.Popen([NX, "extract-into", os.path.join(tmp, "noext")],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    d1 = NxDialog.wait_for(p.pid, "解压到指定目录")
+    default = d1.get_text()
+    d1.ok()   # 接受默认前缀 noext == 输入文件名 → 输出目录撞输入文件
+    d2 = NxDialog.wait_for(p.pid, "创建输出目录失败")
+    texts = " ".join(d2.static_texts())
+    d2.close()
+    p.communicate(timeout=10)
+    ok = default == "noext" and p.returncode == 1 and "同名" in texts \
+        and not os.path.isdir(os.path.join(tmp, "noext"))
+    print(f"[9] 撞名弹窗 默认前缀={default!r} exit={p.returncode} "
+          f"提示含同名指引={('同名' in texts)} → {'PASS' if ok else 'FAIL'}")
+    okAll &= ok
+    shutil.rmtree(tmp, ignore_errors=True)
+
     print("GUI 冒烟:", "PASS" if okAll else "FAIL")
     return 0 if okAll else 1
 

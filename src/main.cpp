@@ -315,9 +315,47 @@ int main() {
         log_err("[nx] extract 需要 -O <输出目录>\n");
         return 64;
     }
+    // ---- GUI 语境判定（提前到输出目录创建处即需使用）----
+    // 无标准输入句柄 = 资源管理器/右键启动（脚本与 CLI 不弹）
+    bool explorerLaunched = GetStdHandle(STD_INPUT_HANDLE) == nullptr ||
+                            GetStdHandle(STD_INPUT_HANDLE) == INVALID_HANDLE_VALUE;
+
     if (!dryRun) {
         if (!ensure_dir_recursive(outDir)) {
-            log_err("[nx] 创建输出目录失败: %s\n", wide_to_utf8(outDir).c_str());
+            // 成因分类：目标路径被同名文件占用（真实案例：extract-into 无扩展名输入，
+            // 默认前缀=完整文件名 → 输出目录恰=输入文件路径）vs 其他（权限/非法字符…）。
+            // 注意先取错误文本再探测属性——后续 Win32 调用会覆盖 GetLastError。
+            std::wstring errText = win32_last_error_text();
+            DWORD attr = GetFileAttributesW(outDir.c_str());
+            bool occupiedByFile = attr != INVALID_FILE_ATTRIBUTES
+                                  && (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            bool sameAsInput = occupiedByFile;
+            for (const auto& in : inputs) {
+                if (CompareStringOrdinal(outDir.c_str(), -1, in.c_str(), -1, TRUE)
+                    == CSTR_EQUAL) {
+                    sameAsInput = true;
+                    break;
+                }
+            }
+            std::string u8dir = wide_to_utf8(outDir);
+            std::string detail;
+            if (sameAsInput) {
+                detail = "无法创建输出目录：\n" + u8dir
+                       + "\n\n输出目录与输入文件同名（Windows 中文件与目录不能同名）。"
+                         "请重新解压并换一个前缀目录名。";
+            } else if (occupiedByFile) {
+                detail = "无法创建输出目录：\n" + u8dir
+                       + "\n\n该名称已被同名文件占用，请换一个目录名。";
+            } else {
+                detail = "无法创建输出目录：\n" + u8dir + "\n\n" + wide_to_utf8(errText);
+            }
+            log_err("[nx] 创建输出目录失败: %s\n%s\n", u8dir.c_str(), detail.c_str());
+            // GUI 交互流必须弹窗告知：extract-into/-stego 刚弹过前缀窗（用户已处于
+            // 图形交互），Explorer/--gui 启动则无控制台可见 stderr——仅 log_err 用户不可见
+            if (cmd == "extract-into" || cmd == "extract-stego" || s.opt.guiPrompt
+                || explorerLaunched) {
+                gui::notify_done(false, detail, L"nx 创建输出目录失败");
+            }
             return 1;
         }
     }
@@ -343,9 +381,7 @@ int main() {
             (s.tempDir.empty() ? "(系统临时目录)" : wide_to_utf8(s.tempDir)).c_str());
 
     // ---- 进度窗（待办 #1）：GUI 模式（--gui 或 Explorer/右键启动）且非 tree 时显示 ----
-    // 判据与完成弹窗一致：无标准输入句柄 = 资源管理器/右键启动（脚本与 CLI 不弹）。
-    bool explorerLaunched = GetStdHandle(STD_INPUT_HANDLE) == nullptr ||
-                            GetStdHandle(STD_INPUT_HANDLE) == INVALID_HANDLE_VALUE;
+    // 判据与完成弹窗一致；explorerLaunched 已在输出目录创建前判定
     struct ProgressGuard {
         ~ProgressGuard() { gui::progress_hide(); }   // 异常路径兜底（幂等）
     };
