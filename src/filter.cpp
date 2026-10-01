@@ -75,6 +75,161 @@ bool trailing_all_zero(CompressedIn& in) {
     return true;
 }
 
+// ---- 五家 C API 的 RAII 适配（M2：init/end 手工清理散布 20+ 出口点 → 构造/析构；
+// 原实现连 zstd 初始化失败路径都漏 free）----
+// 三段式多成员协议（gzip/bzip2/xz·lzma 同构）：bind → step → 产出/消费，
+// 成员尾窥探下一成员 magic → reset 或收尾
+struct ZlibDec {
+    static constexpr const char* kName = "gzip";
+    z_stream s{};
+    ZlibDec() {
+        if (inflateInit2(&s, 15 + 16) != Z_OK) throw Error("zlib 初始化失败");
+    }
+    ~ZlibDec() { inflateEnd(&s); }
+    void bindIn(const byte* p, size_t n) {
+        s.next_in = const_cast<Bytef*>(p);
+        s.avail_in = static_cast<uInt>(n);
+    }
+    void bindOut(byte* p, size_t n) { s.next_out = p; s.avail_out = static_cast<uInt>(n); }
+    int step() { return inflate(&s, Z_NO_FLUSH); }
+    size_t availIn() const { return s.avail_in; }
+    size_t produced(size_t cap) const { return cap - s.avail_out; }
+    static bool end(int r) { return r == Z_STREAM_END; }
+    static bool ok(int r) { return r == Z_OK; }
+    std::string errMsg(int) const {
+        return std::string(kName) + " 数据损坏 (" + (s.msg ? s.msg : "zlib") + ")";
+    }
+    void reset() {
+        if (inflateReset(&s) != Z_OK) throw Error("zlib 重置失败");
+    }
+};
+
+struct Bzip2Dec {
+    static constexpr const char* kName = "bzip2";
+    bz_stream s{};
+    Bzip2Dec() { init("初始化"); }
+    ~Bzip2Dec() {
+        if (armed) BZ2_bzDecompressEnd(&s);
+    }
+    void bindIn(const byte* p, size_t n) {
+        s.next_in = reinterpret_cast<char*>(const_cast<byte*>(p));
+        s.avail_in = static_cast<unsigned>(n);
+    }
+    void bindOut(byte* p, size_t n) {
+        s.next_out = reinterpret_cast<char*>(p);
+        s.avail_out = static_cast<unsigned>(n);
+    }
+    int step() { return BZ2_bzDecompress(&s); }
+    size_t availIn() const { return s.avail_in; }
+    size_t produced(size_t cap) const { return cap - s.avail_out; }
+    static bool end(int r) { return r == BZ_STREAM_END; }
+    static bool ok(int r) { return r == BZ_OK; }
+    std::string errMsg(int r) const {
+        return std::string(kName) + " 数据损坏 (bzlib " + std::to_string(r) + ")";
+    }
+    void reset() {   // bzlib 无轻量重置：end 后重 init
+        BZ2_bzDecompressEnd(&s);
+        armed = false;
+        init("重置");
+    }
+private:
+    void init(const char* what) {
+        if (BZ2_bzDecompressInit(&s, 0, 0) != BZ_OK)
+            throw Error(std::string("bzip2 ") + what + "失败");
+        armed = true;
+    }
+    bool armed = false;
+};
+
+struct LzmaDec {
+    static constexpr const char* kName = "xz/lzma";
+    lzma_stream s = LZMA_STREAM_INIT;
+    LzmaDec() { init("初始化"); }
+    ~LzmaDec() {
+        if (armed) lzma_end(&s);
+    }
+    void bindIn(const byte* p, size_t n) { s.next_in = p; s.avail_in = n; }
+    void bindOut(byte* p, size_t n) { s.next_out = p; s.avail_out = n; }
+    int step() { return static_cast<int>(lzma_code(&s, LZMA_RUN)); }
+    size_t availIn() const { return s.avail_in; }
+    size_t produced(size_t cap) const { return cap - s.avail_out; }
+    static bool end(int r) { return r == LZMA_STREAM_END; }
+    static bool ok(int r) { return r == LZMA_OK; }
+    std::string errMsg(int r) const {
+        return std::string(kName) + " 数据损坏 (liblzma " + std::to_string(r) + ")";
+    }
+    void reset() {   // liblzma 无重置：end 后重建
+        lzma_end(&s);
+        armed = false;
+        s = LZMA_STREAM_INIT;
+        init("重置");
+    }
+private:
+    void init(const char* what) {
+        if (lzma_auto_decoder(&s, UINT64_MAX, 0) != LZMA_OK)
+            throw Error(std::string("liblzma ") + what + "失败");
+        armed = true;
+    }
+    bool armed = false;
+};
+
+struct ZstdDec {
+    ZSTD_DStream* d;
+    ZstdDec() : d(ZSTD_createDStream()) {
+        if (!d || ZSTD_initDStream(d) != 0) throw Error("zstd 初始化失败");
+    }
+    ~ZstdDec() {
+        if (d) ZSTD_freeDStream(d);
+    }
+    ZstdDec(const ZstdDec&) = delete;
+    ZstdDec& operator=(const ZstdDec&) = delete;
+};
+
+struct Lz4Dec {
+    LZ4F_dctx* d = nullptr;
+    Lz4Dec() {
+        if (LZ4F_createDecompressionContext(&d, LZ4F_VERSION) != 0)
+            throw Error("lz4 初始化失败");
+    }
+    ~Lz4Dec() {
+        if (d) LZ4F_freeDecompressionContext(d);
+    }
+    Lz4Dec(const Lz4Dec&) = delete;
+    Lz4Dec& operator=(const Lz4Dec&) = delete;
+};
+
+// 三段式多成员解码主循环（gzip/bzip2/xz·lzma 同构；M2 模板合并——三段 ~40 行
+// 逐字重复的多成员循环归一，异常/弃置路径的释放全部交给 Dec 的 RAII）
+template <class Dec, class Emit>
+void pump_members(Format fmt, CompressedIn& ci, std::vector<byte>& obuf, Emit&& emit) {
+    Dec d;
+    bool done = false;
+    while (!done) {
+        int r = 0;   // Z_OK/BZ_OK/LZMA_OK == 0
+        for (;;) {
+            if (ci.avail() == 0 && !ci.refill()) {
+                if (!Dec::end(r)) throw CorruptError(std::string(Dec::kName) + " 流截断");
+                break;
+            }
+            d.bindIn(ci.data(), ci.avail());
+            d.bindOut(obuf.data(), obuf.size());
+            r = d.step();
+            ci.consume(ci.avail() - d.availIn());
+            size_t got = d.produced(obuf.size());
+            if (got > 0 && !emit(obuf.data(), got)) return;
+            if (Dec::end(r)) break;
+            if (!Dec::ok(r)) throw CorruptError(d.errMsg(r));
+        }
+        if (next_member_is(ci, fmt)) {
+            d.reset();
+        } else {
+            if (ci.avail() != 0 && !trailing_all_zero(ci))
+                throw CorruptError(std::string(Dec::kName) + " 流后存在无法解析的多余字节");
+            done = true;
+        }
+    }
+}
+
 } // namespace
 
 void filter_decode(Format fmt, PushbackSource& in, BoundedQueue<std::vector<byte>>& out,
@@ -103,127 +258,16 @@ void filter_decode(Format fmt, PushbackSource& in, BoundedQueue<std::vector<byte
         };
 
         if (fmt == Format::Gzip) {
-            z_stream s{};
-            if (inflateInit2(&s, 15 + 16) != Z_OK) throw Error("zlib 初始化失败");
-            bool done = false;
-            while (!done) {
-                int r = Z_OK;
-                // 一个成员：直到 Z_STREAM_END
-                for (;;) {
-                    if (ci.avail() == 0 && !ci.refill()) {
-                        if (r != Z_STREAM_END) { inflateEnd(&s); throw CorruptError("gzip 流截断"); }
-                        break;
-                    }
-                    s.next_in = const_cast<Bytef*>(ci.data());
-                    s.avail_in = static_cast<uInt>(ci.avail());
-                    s.next_out = obuf.data();
-                    s.avail_out = static_cast<uInt>(obuf.size());
-                    r = inflate(&s, Z_NO_FLUSH);
-                    ci.consume(ci.avail() - s.avail_in);
-                    size_t got = obuf.size() - s.avail_out;
-                    if (got > 0 && !emit(obuf.data(), got)) { inflateEnd(&s); return; }
-                    if (r == Z_STREAM_END) break;
-                    if (r != Z_OK) {
-                        inflateEnd(&s);
-                        throw CorruptError(std::string("gzip 数据损坏 (") + (s.msg ? s.msg : "zlib") + ")");
-                    }
-                }
-                // 多成员：窥探
-                if (next_member_is(ci, Format::Gzip)) {
-                    if (inflateReset(&s) != Z_OK) { inflateEnd(&s); throw Error("zlib 重置失败"); }
-                } else {
-                    if (ci.avail() != 0 && !trailing_all_zero(ci)) {
-                        inflateEnd(&s);
-                        throw CorruptError("gzip 流后存在无法解析的多余字节");
-                    }
-                    done = true;
-                }
-            }
-            inflateEnd(&s);
+            pump_members<ZlibDec>(fmt, ci, obuf, emit);
         }
         else if (fmt == Format::Bzip2) {
-            bz_stream s{};
-            if (BZ2_bzDecompressInit(&s, 0, 0) != BZ_OK) throw Error("bzip2 初始化失败");
-            bool done = false;
-            while (!done) {
-                int r = BZ_OK;
-                for (;;) {
-                    if (ci.avail() == 0 && !ci.refill()) {
-                        if (r != BZ_STREAM_END) { BZ2_bzDecompressEnd(&s); throw CorruptError("bzip2 流截断"); }
-                        break;
-                    }
-                    s.next_in = reinterpret_cast<char*>(const_cast<byte*>(ci.data()));
-                    s.avail_in = static_cast<unsigned>(ci.avail());
-                    s.next_out = reinterpret_cast<char*>(obuf.data());
-                    s.avail_out = static_cast<unsigned>(obuf.size());
-                    r = BZ2_bzDecompress(&s);
-                    ci.consume(ci.avail() - s.avail_in);
-                    size_t got = obuf.size() - s.avail_out;
-                    if (got > 0 && !emit(obuf.data(), got)) { BZ2_bzDecompressEnd(&s); return; }
-                    if (r == BZ_STREAM_END) break;
-                    if (r != BZ_OK) {
-                        int code = r;
-                        BZ2_bzDecompressEnd(&s);
-                        throw CorruptError("bzip2 数据损坏 (bzlib " + std::to_string(code) + ")");
-                    }
-                }
-                if (next_member_is(ci, Format::Bzip2)) {
-                    BZ2_bzDecompressEnd(&s);
-                    if (BZ2_bzDecompressInit(&s, 0, 0) != BZ_OK) throw Error("bzip2 重置失败");
-                } else {
-                    if (ci.avail() != 0 && !trailing_all_zero(ci)) {
-                        BZ2_bzDecompressEnd(&s);
-                        throw CorruptError("bzip2 流后存在无法解析的多余字节");
-                    }
-                    done = true;
-                }
-            }
-            BZ2_bzDecompressEnd(&s);
+            pump_members<Bzip2Dec>(fmt, ci, obuf, emit);
         }
         else if (fmt == Format::Xz || fmt == Format::Lzma) {
-            lzma_stream s = LZMA_STREAM_INIT;
-            if (lzma_auto_decoder(&s, UINT64_MAX, 0) != LZMA_OK) throw Error("liblzma 初始化失败");
-            bool done = false;
-            while (!done) {
-                lzma_ret r = LZMA_OK;
-                for (;;) {
-                    if (ci.avail() == 0 && !ci.refill()) {
-                        if (r != LZMA_STREAM_END) { lzma_end(&s); throw CorruptError("xz/lzma 流截断"); }
-                        break;
-                    }
-                    s.next_in = ci.data();
-                    s.avail_in = ci.avail();
-                    s.next_out = obuf.data();
-                    s.avail_out = obuf.size();
-                    r = lzma_code(&s, LZMA_RUN);
-                    ci.consume(ci.avail() - s.avail_in);
-                    size_t got = obuf.size() - s.avail_out;
-                    if (got > 0 && !emit(obuf.data(), got)) { lzma_end(&s); return; }
-                    if (r == LZMA_STREAM_END) break;
-                    if (r != LZMA_OK) {
-                        std::string m = "xz/lzma 数据损坏 (liblzma ";
-                        m += std::to_string(static_cast<int>(r)); m += ")";
-                        lzma_end(&s);
-                        throw CorruptError(std::move(m));
-                    }
-                }
-                if (next_member_is(ci, fmt)) {
-                    lzma_end(&s);
-                    s = LZMA_STREAM_INIT;
-                    if (lzma_auto_decoder(&s, UINT64_MAX, 0) != LZMA_OK) throw Error("liblzma 重置失败");
-                } else {
-                    if (ci.avail() != 0 && !trailing_all_zero(ci)) {
-                        lzma_end(&s);
-                        throw CorruptError("xz/lzma 流后存在无法解析的多余字节");
-                    }
-                    done = true;
-                }
-            }
-            lzma_end(&s);
+            pump_members<LzmaDec>(fmt, ci, obuf, emit);
         }
         else if (fmt == Format::Zstd) {
-            ZSTD_DStream* d = ZSTD_createDStream();
-            if (!d || ZSTD_initDStream(d) != 0) throw Error("zstd 初始化失败");
+            ZstdDec d;
             // zstd 解码器原生支持多 frame 串联，无需重启
             bool eof = false;
             while (!eof) {
@@ -235,28 +279,22 @@ void filter_decode(Format fmt, PushbackSource& in, BoundedQueue<std::vector<byte
                 while (!inputDone) {
                     ZSTD_inBuffer inb{pin + consumedTotal, pinLen - consumedTotal, 0};
                     ZSTD_outBuffer outb{obuf.data(), obuf.size(), 0};
-                    size_t r = ZSTD_decompressStream(d, &outb, &inb);
-                    if (ZSTD_isError(r)) {
-                        std::string m = std::string("zstd 数据损坏 (") + ZSTD_getErrorName(r) + ")";
-                        ZSTD_freeDStream(d);
-                        throw CorruptError(std::move(m));
-                    }
-                    if (outb.pos > 0 && !emit(obuf.data(), outb.pos)) { ZSTD_freeDStream(d); return; }
+                    size_t r = ZSTD_decompressStream(d.d, &outb, &inb);
+                    if (ZSTD_isError(r))
+                        throw CorruptError(std::string("zstd 数据损坏 (") +
+                                           ZSTD_getErrorName(r) + ")");
+                    if (outb.pos > 0 && !emit(obuf.data(), outb.pos)) return;
                     consumedTotal += inb.pos;
                     if (consumedTotal >= pinLen) inputDone = true;
-                    else if (inb.pos == 0 && outb.pos < outb.size) {
-                        ZSTD_freeDStream(d);
+                    else if (inb.pos == 0 && outb.pos < outb.size)
                         throw CorruptError("zstd 无进展（数据损坏）");
-                    }
                 }
                 ci.consume(consumedTotal);
                 if (ci.avail() == 0 && !ci.refill()) eof = true;
             }
-            ZSTD_freeDStream(d);
         }
         else if (fmt == Format::Lz4) {
-            LZ4F_dctx* d = nullptr;
-            if (LZ4F_createDecompressionContext(&d, LZ4F_VERSION) != 0) throw Error("lz4 初始化失败");
+            Lz4Dec d;
             bool eof = false;
             while (!eof) {
                 if (ci.avail() == 0 && !ci.refill()) break;
@@ -264,21 +302,19 @@ void filter_decode(Format fmt, PushbackSource& in, BoundedQueue<std::vector<byte
                 for (;;) {
                     size_t outLen = obuf.size();
                     size_t consumed = inLen;
-                    size_t r = LZ4F_decompress(d, obuf.data(), &outLen, ci.data(), &consumed, nullptr);
-                    if (LZ4F_isError(r)) {
-                        std::string m = std::string("lz4 数据损坏 (") + LZ4F_getErrorName(r) + ")";
-                        LZ4F_freeDecompressionContext(d);
-                        throw CorruptError(std::move(m));
-                    }
+                    size_t r = LZ4F_decompress(d.d, obuf.data(), &outLen, ci.data(), &consumed,
+                                               nullptr);
+                    if (LZ4F_isError(r))
+                        throw CorruptError(std::string("lz4 数据损坏 (") +
+                                           LZ4F_getErrorName(r) + ")");
                     ci.consume(consumed);
                     inLen = ci.avail();
-                    if (outLen > 0 && !emit(obuf.data(), outLen)) { LZ4F_freeDecompressionContext(d); return; }
+                    if (outLen > 0 && !emit(obuf.data(), outLen)) return;
                     if (consumed == 0 && outLen == 0) break;   // 无进展（输入耗尽）
                     if (inLen == 0) break;
                 }
                 if (ci.avail() == 0 && !ci.refill()) eof = true;
             }
-            LZ4F_freeDecompressionContext(d);
         }
         else if (fmt == Format::CompressZ) {
             decode_via_libarchive(in, [&](std::span<const byte> p) {
@@ -310,6 +346,7 @@ la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
 void decode_via_libarchive(PushbackSource& in,
                            const std::function<bool(std::span<const byte>)>& emit,
                            Format filterAs) {
+    (void)filterAs;   // 调用方语义标注（.Z 专用）；实现走 filter_all+raw
     archive* a = archive_read_new();
     if (!a) throw Error("libarchive 分配失败");
     archive_read_support_filter_all(a);
