@@ -1,14 +1,12 @@
 #include "util.hpp"
 #include <windows.h>
 #include <shellapi.h>
-#include <shlwapi.h>
 #include <objbase.h>
 #include <cstdio>
 #include <cstring>
 #include <vector>
 
 #pragma comment(lib, "Shell32.lib")
-#pragma comment(lib, "Shlwapi.lib")
 
 namespace nx {
 
@@ -35,20 +33,19 @@ std::string wide_to_utf8(std::wstring_view w) {
 std::wstring win_long_path(std::wstring p) {
     if (p.compare(0, 4, L"\\\\?\\") == 0) return p;
     if (p.compare(0, 8, L"\\\\?\\UNC\\") == 0) return p;
-    // 相对路径必须先转绝对（\\?\ 不支持相对）
-    wchar_t abs[MAX_PATH * 4];
-    if (PathIsRelativeW(p.c_str())) {
-        wchar_t cwd[MAX_PATH * 4];
-        GetCurrentDirectoryW(MAX_PATH * 4, cwd);
-        std::wstring full = std::wstring(cwd) + L"\\" + p;
-        if (GetFullPathNameW(full.c_str(), MAX_PATH * 4, abs, nullptr) == 0) return p;
-        p = abs;
-    } else {
-        if (GetFullPathNameW(p.c_str(), MAX_PATH * 4, abs, nullptr) == 0) return p;
-        p = abs;
-    }
-    if (p.compare(0, 2, L"\\\\") == 0) return L"\\\\?\\UNC\\" + p.substr(2);
-    return L"\\\\?\\" + p;
+    // 两次调用协议（D4）：先以 1 字符缓冲查询所需长度（返回值 = 含 NUL 的字节数），
+    // 再按需分配写入——固定 1040 栈缓冲时超长路径 GetFullPathNameW 只返回所需
+    // 长度不写缓冲，原实现照样采纳 → 未初始化内存。相对路径由 GetFullPathNameW
+    // 自解析（相对当前目录），无需手工拼接 cwd
+    wchar_t probe = L'\0';
+    DWORD need = GetFullPathNameW(p.c_str(), 1, &probe, nullptr);
+    if (need <= 1) return p;   // 0 = 失败；1 = 空路径（不可能有更短的合法全路径）
+    std::wstring abs(need, L'\0');
+    DWORD n = GetFullPathNameW(p.c_str(), need, abs.data(), nullptr);
+    if (n == 0 || n >= need) return p;   // 竞态下变长/失败：退回原路径（不加前缀）
+    abs.resize(n);
+    if (abs.compare(0, 2, L"\\\\") == 0) return L"\\\\?\\UNC\\" + abs.substr(2);
+    return L"\\\\?\\" + abs;
 }
 
 bool ensure_dir_recursive(const std::wstring& dir) {
