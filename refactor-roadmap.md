@@ -303,7 +303,7 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 | 批次 | 内容 | 来源 | 量 | 验收门（增量） | 状态 |
 |---|---|---|---|---|---|
 | **0 缺陷修复** | §4 D1-D8 全部（D6 环修复 + D7 过滤器链深度 + S1-S5 哨兵随行） | §4 | ~2.5d | §4 验收门 | ✅ **已完成**（2026-10-02，36d04d1…8dfe638；49/49 + 9/9 + fuzz 哨兵常开） |
-| **1 低风险速赢** | FormatInfo 表 / NameCodec 会话 / Outcome+derive_exit_code / AccessRecorder / Detection.note / ascii_lower 统一 / detect·stego·report·volumeset 纯化 / SafePath / C++23 切换 + Result 别名试点 / M2 filter RAII 化 / M3 pullBlock | 领域 #1/3/4/5/12 + 函数式 P1 + M2/M3 | ~1 周 | 新增单测（纯核心）+ 全量 | 待排期 |
+| **1 低风险速赢** | FormatInfo 表 / NameCodec 会话 / Outcome+derive_exit_code / AccessRecorder / Detection.note / ascii_lower 统一 / detect·stego·report·volumeset 纯化 / SafePath / C++23 切换 + Result 别名试点 / M2 filter RAII 化 / M3 pullBlock | 领域 #1/3/4/5/12 + 函数式 P1 + M2/M3 | ~1 周 | 新增单测（纯核心）+ 全量 | ✅ **已完成**（2026-10-02，836a435…；nxunit 235 检查 + 50 属性 + 9 GUI。volumeset 的 select_group 拆分顺延批次 3（单测壳就绪后一并接入），其余全量落地） |
 | **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | 待排期 |
 | **3 可测性** | PromptSink / MemorySource / 单测壳接入（消毒器·密码链·分片分组·退出码·detect） | 领域 #7 + 测试性 | ~3d | C++ 单测首批入套件 | 待排期 |
 | **4 契约与所有权** | **先过 Alloy 验收门** → EntryToken 契约 + weak_ptr/KeepAlive + 视图合并（make_* 三工厂 + MeteredViewFactory）+ engines 拆分五文件 + szcom cache_ 预算驱逐 | 领域 #9/10/13 + Phase 1 + F5 | ~1.5 周 | S1-S3 哨兵全绿 + 全量 | 待排期（S1-S3 已随批次 0 落地） |

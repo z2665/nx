@@ -2,7 +2,7 @@
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
 重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷登记簿 D1–D8 已全部修复，2026-10-02）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0**。49/49 属性测试 + GUI 冒烟 9/9 通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1**。50/50 测试（unit_core 纯函数单测 235 项 + 49 属性）+ GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -194,6 +194,27 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   校准：带环旧实现 + 前置目录加密 zip → S3 案发现场 abort；修复后同输入静默。
   诊断构建：`build-diag.cmd`（→ `build-diag\nx.exe`，`NX_DIAG_LEAKS_MAIN=ON`）
 
+### 重构批次 1 —— 低风险速赢（2026-10-02，refactor-roadmap §8）
+
+批次 0 之后按"纯核心/效果壳分离 + 消灭平行重复"推进（行为语义零变化，nxunit 235 + 50/50 + 9/9）：
+
+- **M2**：filter.cpp 五解码器 RAII 化（ZlibDec/Bzip2Dec/LzmaDec/ZstdDec/Lz4Dec 适配器）+
+  `pump_members<Dec>` 模板合并 gzip/bzip2/xz·lzma 三段逐字重复的多成员循环——
+  20+ 处手工释放消失（含 zstd 初始化失败路径的原有泄漏）
+- **M3**：LaSeqReader 抽 `pullBlock()`（readEntryData/readEntryDirect 两路径 ~40 行
+  错误处理归一）
+- **纯函数抽离（可单测）**：`detect_from_bytes`（嗅探逻辑与 peek 壳分离）、
+  `eocd_from_window`/`parse_atom_header`（stego）、`render_report`（snapshot+render 分离，
+  src/report.cpp）、`derive_exit_code`（退出码 if 链 → outcome.hpp）、`sanitize_rel`
+  （dedupe 消毒半部）、`ascii_lower`（10 处手写循环统一）
+- **领域类型**：`kFormatTable`（classify/format_name 唯一事实源）、`NameCodec`
+  每读取器一份（原 g_nameCp 进程粘性跨包误判）、`AccessRecorder`（CbCtx 记录字段
+  私有状态机化）、`Detection::sfxOffset/display()`（SFX 偏移结构化）
+- **C++23 + Result**：`/std:c++23`；`Result<T> = std::expected<T, std::string>` 别名
+  （试点：D2 数值参数解析；跨线程/熔断控制流仍走异常）
+- **nxunit**：首个 C++ 单测目标（tests/unit_main.cpp，随主构建产出，run_tests.py
+  以 `unit_core` 用例自动调用）——235 项纯函数断言
+
 ## 测试
 
 ```bash
@@ -201,7 +222,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 49/49 属性测试
+python tests/run_tests.py        # 50/50（unit_core 单测 + 49 属性）
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）

@@ -2,8 +2,8 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++20，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷 D1-D8 + 泄漏哨兵 S1-S5 已完成，2026-10-02）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0，49/49 测试通过）。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷 D1-D8 + 哨兵 S1-S5、批次 1 速赢已完成，2026-10-02）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0/1，50/50 测试通过；C++23）。
 
 ## 构建与打包
 
@@ -26,7 +26,7 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 属性测试 49/49；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/run_tests.py        # 测试 50/50（unit_core 纯函数单测 + 49 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
 ```
