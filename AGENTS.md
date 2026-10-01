@@ -2,8 +2,8 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++20，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0/1/2 已完成，2026-10-02；下一步批次 3 可测性 / 批次 4 契约与所有权）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0/1/2，51/51 测试通过；C++23）。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0/1/2/3 已完成，2026-10-02；下一步批次 4 契约与所有权——前置 Alloy 验收门）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0/1/2/3，51/51 测试通过；C++23）。
 
 ## 构建与打包
 

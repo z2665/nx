@@ -2,7 +2,7 @@
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
 重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷登记簿 D1–D8 已全部修复，2026-10-02）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1/2**。51/51 测试（unit_core 纯函数单测 251 项 + 50 属性）+ GUI 冒烟 9/9 通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1/2/3**。51/51 测试（unit_core 纯函数与集成单测 298 项 + 50 属性）+ GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -228,6 +228,19 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **Walker 类**（run/runStego/fsDirectOpen）+ `resolve_runtime_options` 装配单点
   （spool RAM 自适应 + 溢出目录默认从 main 迁入）
 
+### 重构批次 3 —— 可测性（2026-10-02，refactor-roadmap §8）
+
+- **MemorySource**（bytesource.hpp）：内存字节流（零拷贝直通），管线测试免文件系统——
+  nxunit 现覆盖**真实路径集成**：多成员 gzip 经 filter_decode + BoundedQueue 背压解码、
+  尾零容忍/截断/垃圾 → CorruptError、SFX 超首扫窗的 4MiB 补拉
+- **PromptSink**（PasswordProvider::setPromptSink）：脚本化密码提示注入（携带层身份，
+  空串=无输入）——密码解析链全语义可单测：候选顺序/每层游标独立/reportSuccess 三效/
+  缓存先于候选/提示计数
+- **select_group 拆分**：group_filesystem 决策半部抽纯函数（批次 1 顺延项补齐），
+  文件系统接入只剩目录扫描 IO 壳；group_volumes/validate_set/select_group 三层单测
+  （四命名体系/顺序陷阱/缺口告警/单卷退化/首卷意图）
+- nxunit 达 **298 项检查**（批次 1 起 43 → 298），随主构建产出、run_tests.py 自动调用
+
 ## 测试
 
 ```bash
@@ -235,7 +248,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 51/51（unit_core 单测 + 50 属性）
+python tests/run_tests.py        # 51/51（unit_core 单测+集成 298 项 + 50 属性）
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）
