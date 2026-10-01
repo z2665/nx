@@ -132,6 +132,14 @@ def main():
     else:
         print("[run] 跳过 nxunit（未构建）")
 
+    # 所有权小模型（批次 4 前置验收门）：修复前语义必出泄漏反例、
+    # 仅 weak 无 KeepAlive 必出异步用后死亡、weak+KeepAlive 全序列无违例
+    r = add("ownership_model")
+    p = subprocess.run([sys.executable, os.path.join(HERE, "ownership_model.py")],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=120)
+    r.check(p.returncode == 0, "所有权模型验收门失败:\n" + (p.stdout or "")[-800:])
+
     # M1：zip/7z/rar 三主流格式（带密码参数）
     for case, entry, args, want in [
         ("rar5_plain", "data.rar", [], 0),
