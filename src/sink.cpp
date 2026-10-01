@@ -222,7 +222,12 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
 
     std::wstring tmp = finalPath + L".nxpart-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
                        std::to_wstring(GetTickCount64() & 0xFFFFFF);
-    HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+    // \\?\ 长路径前缀（与 ensure_dir_recursive 同一规范）：裸路径 >260 字符时
+    // CreateFileW/MoveFileExW 报的是 ERROR_PATH_NOT_FOUND 而非"路径过长"——
+    // 真实案例：251 字符最终路径 + .nxpart 后缀超限，目录全建成、文件全失败
+    std::wstring tmpL = win_long_path(tmp);
+    std::wstring finalL = win_long_path(finalPath);
+    HANDLE h = CreateFileW(tmpL.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE)
         throw Error("创建输出文件失败: " + wide_to_utf8(finalPath) + " " +
@@ -268,7 +273,7 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
         }
     } catch (...) {
         CloseHandle(h);
-        DeleteFileW(tmp.c_str());
+        DeleteFileW(tmpL.c_str());
         throw;
     }
     CloseHandle(h);
@@ -277,11 +282,11 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
         if (expectedSize != UINT64_MAX && written != expectedSize)
             throw CorruptError("条目大小不符: " + r + "（期望 " + std::to_string(expectedSize) +
                                "，实得 " + std::to_string(written) + "）");
-        if (!MoveFileExW(tmp.c_str(), finalPath.c_str(), MOVEFILE_REPLACE_EXISTING))
+        if (!MoveFileExW(tmpL.c_str(), finalL.c_str(), MOVEFILE_REPLACE_EXISTING))
             throw Error("落名失败: " + wide_to_utf8(finalPath) + " " +
                         wide_to_utf8(win32_last_error_text()));
     } catch (...) {
-        DeleteFileW(tmp.c_str());   // 校验/落名失败不留 .part
+        DeleteFileW(tmpL.c_str());   // 校验/落名失败不留 .part
         throw;
     }
     stats_.filesOut.fetch_add(1);

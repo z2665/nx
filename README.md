@@ -1,7 +1,7 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读**。45/45 属性测试 + GUI 冒烟 9/9 通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读**。46/46 属性测试 + GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -113,6 +113,18 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   载荷必须解压，语义上无区间
 
 ### 稳定性修复（真实语料案例）
+- **输出路径超 MAX_PATH（案例 L 15GB 隐写案例）**：最终路径 251 字符 + `.nxpart-`
+  临时名后缀超 260，`Sink::writeOne` 的 `CreateFileW`/`MoveFileExW`/`DeleteFileW`
+  用裸路径——超 260 的裸路径报 **ERROR_PATH_NOT_FOUND(3)** 而非"路径过长"，目录
+  （`ensure_dir_recursive` 内部有 `\?`）全建成、偏偏文件全失败。修复：三处调用统一
+  `win_long_path()`（与目录创建同一规范，支持 32767）。语料 long_path（rel 271 字符）
+  回归（构建前同构造已复现同错）。真实验证：15GB stego → 32 文件 13.84GiB exit 0，
+  此前失败的 267 字符深路径文件正常落盘
+- **spool 溢出临时文件残留**（同案例附带发现）：成功运行结束后 14.86GB `nx-{GUID}.tmp`
+  残留在输出目录——对象级泄漏（该链路上某 zip 读取器整体未析构，退出转储证实
+  spool 存活、2 个强引用）+ 强杀进程时 dtor 不会执行。修复：临时文件创建改
+  `FILE_FLAG_DELETE_ON_CLOSE`——句柄一关（正常/异常/被杀）内核即删，清理责任
+  不再依赖对象生命周期；验证同场景残留 0。读取器泄漏本身留待后续（影响仅内存壳）
 - **solid 7z 逐条目抽取 O(N²)**（案例 XJ 隐写案例）：内层 7z SFX
   为 solid（3692 文件 2.3GB，LZMA2+BCJ2+AES），szcom 逐条目单独 `Extract` = 每文件
   从 solid 块头重解码到目标位置，实测外推 8~12 小时。修复：**批量抽取**
@@ -165,7 +177,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 45/45 属性测试
+python tests/run_tests.py        # 46/46 属性测试
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）

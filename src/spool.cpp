@@ -8,15 +8,19 @@ SpoolBuffer::SpoolBuffer(size_t ramCap, const std::wstring& tempDir)
     : ramCap_(ramCap ? ramCap : (64 << 20)), tempDir_(tempDir) {}
 
 SpoolBuffer::~SpoolBuffer() {
-    if (hf_ != INVALID_HANDLE_VALUE) CloseHandle(hf_);
-    if (!tmpPath_.empty()) DeleteFileW(tmpPath_.c_str());   // 引用计数归零即删（设计 §4）
+    if (hf_ != INVALID_HANDLE_VALUE) CloseHandle(hf_);   // DELETE_ON_CLOSE：句柄关闭即删
 }
 
 void SpoolBuffer::flushToTemp() {
     if (overflowed_) return;
     tmpPath_ = make_temp_file_path(tempDir_);
+    // FILE_FLAG_DELETE_ON_CLOSE：句柄一关（正常析构/异常退出/进程被杀）OS 即删——
+    // 独占句柄天然满足"唯一持有者"；spool 读经同一句柄（不按路径重开），无冲突。
+    // （真实案例：15GB spool 在成功运行结束后残留——对象级泄漏/强杀时 DeleteFileW
+    // 永远没机会执行，DELETE_ON_CLOSE 把清理责任交给内核）
     HANDLE h = CreateFileW(tmpPath_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                           CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, nullptr);
+                           CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
     if (h == INVALID_HANDLE_VALUE)
         throw Error("创建临时文件失败: " + wide_to_utf8(win32_last_error_text()));
     hf_ = h;

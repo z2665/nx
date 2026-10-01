@@ -157,6 +157,7 @@ def main():
         ("multimember_gz", "data.tar.gz"),
         ("7z_nested", "outer.tar.gz"),
         ("zip_slip", "slip.zip"),
+        ("long_path", "longpath.zip"),
         ("bare_gz", "plain.txt.gz"),
         ("zspan", "data.zip"),
         ("mixed_filters", "mixed.tar.bz2"),

@@ -367,6 +367,20 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   "写临时文件失败: 操作成功完成 (Win32 0)"。M0 起潜伏（旧固定 64MiB 环从未越过
   4GiB；1.mp4 案例 2.5GB 亦侥幸）。修复：分块 ≤16MiB 落盘；全仓扫 DWORD 截断
   无同类。真实验证：解出 9.32GiB 双视频 exit 0（540s，含 8GB spool 往返）。
+- **【实施记录】输出路径超 MAX_PATH + spool 临时文件残留**（案例 L，15GB 隐写真实案例，2026-10-01）：链路=MP4 隐写窗口 →
+  zip（单条目 15GB 嵌套 zip，emoji+深中文路径）→ 内层 zip（32 条目 13.84GiB）。
+  病灶①：最终路径 251 字符 + `.nxpart-<pid>-<tick>` 后缀≈267 > 260，
+  Sink::writeOne 的 CreateFileW/MoveFileExW/DeleteFileW 裸路径调用——超 260 的
+  裸路径报 ERROR_PATH_NOT_FOUND(3)（非"路径过长"，最易误诊），目录因
+  ensure_dir_recursive 内部加 \?\ 前缀全部建成、仅文件失败。修复：三处统一
+  win_long_path()（与目录创建同规范）。合成复现：337 字符路径 zip 报同错；
+  语料 long_path（rel 271 字符，8×28 目录 + 40 文件名）回归。
+  病灶②（附带）：成功运行后输出目录残留 14.86GB nx-{GUID}.tmp——退出转储证实
+  spool 对象存活（LaSeqReader+SpoolSeekView 两强引用随 zip 读取器整体泄漏；
+  小规模同构合成无法复现，触发面未完全定位）且强杀进程时 dtor 必然不执行。
+  修复：溢出临时文件加 FILE_FLAG_DELETE_ON_CLOSE——句柄一关内核即删（独占句柄
+  = 唯一持有者，spool 读经同一句柄无冲突），清理与对象生命周期解耦；同场景
+  验证残留 0。读取器泄漏本体留待后续（影响仅内存壳，ram_ 溢出后已清空）。
 - **【实施记录】solid 7z 批量抽取（O(N²) 修复）**（案例 XJ，2.61GB 隐写 MP4 真实案例）：文件=MP4（尾部假 mdat + zip64 影子
   EOCD + 76B 诱饵，7-Zip 22.01 完全打不开）→ 隐写 zip（deflate 标记的不可压缩
   2.27GB 单条目 exe）→ 7z SFX（**Solid=+**，Delta+LZMA2:26+BCJ2+7zAES，3692 文件

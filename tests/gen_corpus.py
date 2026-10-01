@@ -206,6 +206,23 @@ def case_zip_slip():
                 "slip.zip/dir/__/dotdot.txt": sha256(b"dd\n")})
 
 
+def case_long_path():
+    """超长输出路径（MAX_PATH）：rel 271 字符 → 测试机输出根下最终路径 >320，
+    叠加 .nxpart- 临时名后缀稳超 260。Sink 的 CreateFileW/MoveFileExW 必须经
+    \\?\ 前缀——裸路径 >260 报 ERROR_PATH_NOT_FOUND 而非"路径过长"
+    （15GB 隐写 MP4 真实案例：目录全建成、仅最深文件落盘失败）"""
+    seg = "d" * 28
+    rel = "/".join([seg] * 8) + "/" + "f" * 36 + ".bin"
+    payload = b"deep path payload"
+    def build(d):
+        with zipfile.ZipFile(os.path.join(d, "longpath.zip"), "w", zipfile.ZIP_STORED) as zf:
+            zf.writestr(rel, payload)
+            zf.writestr("short.txt", b"ok\n")
+    write_case("long_path", build,
+               {f"longpath.zip/{rel}": sha256(payload),
+                "longpath.zip/short.txt": sha256(b"ok\n")})
+
+
 def case_bad_crc():
     """对抗：bad.txt 本地数据区精确破坏（good.txt 应存活）"""
     def build(d):
@@ -505,6 +522,7 @@ ALL = [
     case_two_passwords,
     case_7z_nested,
     case_zip_slip,
+    case_long_path,
     case_bad_crc,
     case_depth_bomb,
     case_missing_volume,
