@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <list>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #pragma comment(lib, "OleAut32.lib")
@@ -510,6 +512,10 @@ private:
     // （隔离坏点，其后条目触发从自身开始的新批——keepGoing 语义不变）
     void materializeBatch(uint32_t start);
     uint64_t batchBudget() const;
+    // cache_ 预算驱逐（F5）：LRU 触碰 / 带记账插入 / 预算驱逐（中读条目豁免）
+    void touchCached(uint32_t idx);
+    void insertCached(uint32_t idx, std::shared_ptr<SpoolBuffer> spool);
+    void evictForBudget(uint64_t want, uint64_t budget);
 
     Format fmt_;
     std::map<std::wstring, VolumeSource> volumes_;   // 键小写
@@ -533,6 +539,12 @@ private:
         uint64_t pos = 0;
     };
     std::map<uint32_t, Cached> cache_;
+    // cache_ 预算驱逐（F5，批次 4）：与 materializeBatch 共享 batchBudget() 的 LRU。
+    // 只驱逐未开始读（pos==0）或已读完（pos>=size）的条目——中读条目被驱逐会在
+    // 重物化时 pos 归零导致内容错乱；全为中读时允许暂时超预算（写出完成后回落）
+    std::list<uint32_t> lru_;    // 头 = 最近读；尾 = 驱逐对象
+    std::unordered_map<uint32_t, std::list<uint32_t>::iterator> lruPos_;
+    uint64_t cacheBytes_ = 0;
     // Sink 写出线程池并发调 EntrySource::read → readEntry：Extract 与 cache_
     // （及 7z.dll IInArchive/InStreamImpl 单线程约定）必须整体串行
     std::mutex mx_;
@@ -760,6 +772,36 @@ uint64_t SevenZipReader::batchBudget() const {
     return b;
 }
 
+void SevenZipReader::touchCached(uint32_t idx) {
+    auto lp = lruPos_.find(idx);
+    if (lp != lruPos_.end()) {
+        lru_.erase(lp->second);
+        lru_.push_front(idx);
+        lp->second = lru_.begin();
+    }
+}
+
+void SevenZipReader::insertCached(uint32_t idx, std::shared_ptr<SpoolBuffer> spool) {
+    cacheBytes_ += spool->size();
+    lru_.push_front(idx);
+    lruPos_[idx] = lru_.begin();
+    cache_.emplace(idx, Cached{std::move(spool), 0});
+}
+
+// 驱逐到 cacheBytes_ + want ≤ budget（或无可驱逐者：全为中读）
+void SevenZipReader::evictForBudget(uint64_t want, uint64_t budget) {
+    while (cacheBytes_ + want > budget && !lru_.empty()) {
+        uint32_t victim = lru_.back();
+        const Cached& c = cache_[victim];
+        if (c.pos != 0 && c.pos < c.spool->size())
+            break;   // 尾部是中读条目：宁超预算不冒内容错乱
+        cacheBytes_ -= c.spool->size();
+        cache_.erase(victim);
+        lruPos_.erase(victim);
+        lru_.pop_back();
+    }
+}
+
 void SevenZipReader::materializeBatch(uint32_t start) {
     constexpr size_t kMaxEntriesPerBatch = 4096;   // 防巨量小文件一批（索引/回调开销）
     const uint64_t budget = batchBudget();
@@ -793,9 +835,10 @@ void SevenZipReader::materializeBatch(uint32_t start) {
         }
     }
     if (allOk) {
+        evictForBudget(bytes, budget);
         for (size_t k = 0; k < idxs.size(); ++k) {
             hold[k]->finish();
-            cache_.emplace(idxs[k], Cached{std::move(hold[k]), 0});
+            insertCached(idxs[k], std::move(hold[k]));
         }
         return;
     }
@@ -805,7 +848,9 @@ void SevenZipReader::materializeBatch(uint32_t start) {
     if (!items_[start].isDir) {
         auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
         extractOne(start, sp.get());
-        cache_.emplace(start, Cached{std::move(sp), 0});
+        uint64_t sz = items_[start].size == UINT64_MAX ? sp->size() : items_[start].size;
+        evictForBudget(sz, batchBudget());
+        insertCached(start, std::move(sp));
     }
 }
 
@@ -838,6 +883,7 @@ size_t SevenZipReader::readEntry(uint32_t idx, std::span<byte> buf) {
     if (c.pos >= c.spool->size()) return 0;
     size_t n = c.spool->read_at(c.pos, buf);
     c.pos += n;
+    touchCached(idx);
     return n;
 }
 
