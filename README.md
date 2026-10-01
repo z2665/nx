@@ -192,7 +192,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **哨兵 S1–S5**（`src/diag.hpp`，`NX_DIAG_LEAKS`，fuzz 常开）：spool/读取器活性注册表
   （fuzz 每迭代 + main atexit 全灭断言）、try_open 失败出口守卫、~ThreadPool/~Sink 析构纪律。
   校准：带环旧实现 + 前置目录加密 zip → S3 案发现场 abort；修复后同输入静默。
-  诊断构建：`tmp/build_diag.cmd`（`-DNX_DIAG_LEAKS_MAIN=ON` → `build-diag/nx.exe`）
+  诊断构建：`build-diag.cmd`（→ `build-diag\nx.exe`，`NX_DIAG_LEAKS_MAIN=ON`）
 
 ## 测试
 
