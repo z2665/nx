@@ -10,6 +10,7 @@
 #include "log.hpp"
 #include <windows.h>
 #include <shellapi.h>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -155,6 +156,24 @@ bool console_attached() {
     return GetConsoleWindow() != nullptr;
 }
 
+// 数值参数解析（D2）：from_chars + 全量消费校验——非法/越界输入抛 nx::Error →
+// 退出码 64（原 stoi/stoull 抛标准异常未被捕获 → std::terminate，违反退出码契约）
+int parse_int_arg(std::string_view v, const char* opt) {
+    int out = 0;
+    auto [p, ec] = std::from_chars(v.data(), v.data() + v.size(), out);
+    if (ec != std::errc{} || p != v.data() + v.size())
+        throw Error(std::string(opt) + " 需要整数: " + std::string(v));
+    return out;
+}
+
+uint64_t parse_uint_arg(std::string_view v, const char* opt) {
+    uint64_t out = 0;
+    auto [p, ec] = std::from_chars(v.data(), v.data() + v.size(), out);
+    if (ec != std::errc{} || p != v.data() + v.size())
+        throw Error(std::string(opt) + " 需要非负整数: " + std::string(v));
+    return out;
+}
+
 } // namespace
 
 int main() {
@@ -227,9 +246,9 @@ int main() {
             else if (a == "--gui") { s.pw.setGuiPrompt(true); s.opt.guiPrompt = true; }
             else if (a == "--stego") s.opt.stegoMode = true;
             else if (a == "--no-root") s.opt.noRoot = true;
-            else if (a == "--depth") s.opt.maxDepth = std::stoi(need("--depth"));
+            else if (a == "--depth") s.opt.maxDepth = parse_int_arg(need("--depth"), "--depth");
             else if (a == "--max-bytes") s.opt.maxBytes = parse_size(need("--max-bytes"));
-            else if (a == "--max-ratio") s.opt.maxRatio = std::stoull(need("--max-ratio"));
+            else if (a == "--max-ratio") s.opt.maxRatio = parse_uint_arg(need("--max-ratio"), "--max-ratio");
             else if (a == "--keep-going") s.opt.keepGoing = true;
             else if (a == "--spool-ram") s.opt.spoolRam = static_cast<size_t>(parse_size(need("--spool-ram")));
             else if (a == "--buffer") s.opt.pipeBytes = static_cast<size_t>(parse_size(need("--buffer")));
