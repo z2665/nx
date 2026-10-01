@@ -44,21 +44,6 @@ struct FileReader {
     }
 };
 
-uint32_t be32(const byte* p) {
-    return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
-           (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
-}
-
-// EOCD 各字段是小端（zip 结构约定）；MP4 atom 是大端——两个读法都常驻
-uint32_t le32(const byte* p) {
-    return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-           (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
-}
-
-uint64_t be64(const byte* p) {
-    return (static_cast<uint64_t>(be32(p)) << 32) | be32(p + 4);
-}
-
 bool printable4(const byte* p) {
     for (int i = 0; i < 4; ++i)
         if (p[i] < 0x20 || p[i] > 0x7E) return false;
@@ -77,35 +62,34 @@ std::optional<uint64_t> mp4_walk(FileReader& f, uint64_t size) {
         if (pos == size) return std::nullopt;          // 原子精确吃完文件 → 干净
         if (pos + 8 > size) return std::nullopt;       // 残尾 <8B → 不足承载魔数
         if (f.read_at(pos, hdr, 8) != 8) return std::nullopt;
-        uint64_t hdrSize = 8, sz = be32(hdr);
-        if (sz == 1) {
+        AtomExtent ax;
+        if (be32(hdr) == 1) {
             if (pos + 16 > size) return pos;           // 扩展长度头都放不下 → 隐写点
             byte ext[8];
             if (f.read_at(pos + 8, ext, 8) != 8) return std::nullopt;
-            sz = be64(ext);
-            hdrSize = 16;
-        } else if (sz == 0) {
-            return std::nullopt;                       // 该原子延伸到 EOF → 无尾部
+            ax = parse_atom_header(hdr, ext);
+        } else {
+            ax = parse_atom_header(hdr);
         }
-        if (sz < hdrSize) return pos;                  // 非法头 → 隐写点
+        if (ax.toEof) return std::nullopt;             // 该原子延伸到 EOF → 无尾部
+        if (ax.atomSize < ax.hdrSize) return pos;      // 非法头 → 隐写点
         if (!printable4(hdr + 4)) return pos;          // 类型不可打印 → 隐写点
-        if (pos + sz > size) return pos;               // 溢出文件 → 隐写点（或截断）
-        pos += sz;
+        if (pos + ax.atomSize > size) return pos;      // 溢出文件 → 隐写点（或截断）
+        pos += ax.atomSize;
     }
     return std::nullopt;   // 原子数异常多（防御上限）
 }
 
+// EOCD 反向扫描（壳）：读窗口 → 纯解析（eocd_from_window）→ CD 自证（4B 文件读）。
+// 不要求精确到 EOF——真实隐写样本在 EOCD 后拖伪装数据（含末尾假 mdat 原子）。
+// ⚠ 自证不可省：zip64 档（D:\…\1.mp4 实测）的经典 EOCD 是影子值（cdOffset/cdSize
+// 与真实目录不符，真值在 EOCD64），数学结果会偏移——自证不匹配则判定不可信
+// （调用方回退魔数锚点窗口，libarchive 自会用 EOCD64 真值定位）。
 struct EocdExtent {
     uint64_t base;
     uint64_t len;
 };
 
-// EOCD 反向扫描：末 64KiB+22 窗口内从后往前找 "PK\x05\x06"。
-// 不要求精确到 EOF——真实隐写样本在 EOCD 后拖伪装数据（含末尾假 mdat 原子）。
-// ⚠ 自证不可省：zip64 档（D:\…\1.mp4 实测）的经典 EOCD 是影子值（cdOffset/cdSize
-// 与真实目录不符，真值在 EOCD64），数学结果会偏移——须在算出的 CD 位置验证
-// PK\x01\x02 签名，不匹配则判定不可信（调用方回退魔数锚点窗口，libarchive 自会
-// 用 EOCD64 真值定位）。
 std::optional<EocdExtent> scan_eocd(FileReader& f, uint64_t size) {
     if (size < 22) return std::nullopt;
     const uint64_t win = 65535ull + 22 + 1;
@@ -113,31 +97,53 @@ std::optional<EocdExtent> scan_eocd(FileReader& f, uint64_t size) {
     size_t len = static_cast<size_t>(size - start);
     std::vector<byte> buf(len);
     if (f.read_at(start, buf.data(), len) != len) return std::nullopt;
-    for (size_t off = len - 22 + 1; off-- > 0;) {   // 从尾往前（最近的 EOCD 优先）
-        if (!(buf[off] == 0x50 && buf[off + 1] == 0x4B && buf[off + 2] == 0x05 &&
-              buf[off + 3] == 0x06))
-            continue;
-        uint16_t commentLen =
-            static_cast<uint16_t>(buf[off + 20] | (buf[off + 21] << 8));
-        uint64_t eocdAbs = start + off;
-        uint64_t eocdEnd = eocdAbs + 22 + commentLen;
-        if (eocdEnd > size) continue;                   // 注释越界 = 非法
-        uint32_t cdSize = le32(&buf[off + 12]);         // 小端！
-        uint32_t cdOff = le32(&buf[off + 16]);
-        if (cdOff == 0xFFFFFFFF) return std::nullopt;   // zip64 标记：基址不可反推
-        uint64_t cdEnd = static_cast<uint64_t>(cdOff) + cdSize;
-        if (cdEnd > eocdAbs) continue;                  // CD 必须在 EOCD 之前
-        uint64_t base = eocdAbs - cdEnd;
-        byte sig[4];                                    // 自证：CD 首条目签名
-        if (cdSize == 0 || f.read_at(eocdAbs - cdSize, sig, 4) != 4 ||
-            std::memcmp(sig, "PK\x01\x02", 4) != 0)
-            return std::nullopt;   // 影子值/空目录 → 不信任数学，交由调用方回退
-        return EocdExtent{base, eocdEnd - base};
-    }
-    return std::nullopt;
+    EocdScanResult r = eocd_from_window(std::span<const byte>(buf), start, size);
+    if (r.kind != EocdScanResult::Kind::Candidate) return std::nullopt;
+    byte sig[4];   // 自证：CD 末条目签名（读失败/不匹配 = 影子值 → 不信任数学）
+    if (f.read_at(r.cand.cdVerifyPos, sig, 4) != 4 ||
+        std::memcmp(sig, "PK\x01\x02", 4) != 0)
+        return std::nullopt;
+    return EocdExtent{r.cand.base, r.cand.len};
 }
 
 } // namespace
+
+// 纯核心：EOCD 反扫解析（窗口内从后往前，最近优先；字段小端）。
+// None = 窗口无合法 EOCD；Candidate = 数学成立（自证由壳层读文件完成）；
+// Distrust = zip64 标记 / 空目录——数学不可信，调用方应整体放弃
+EocdScanResult eocd_from_window(std::span<const byte> win, uint64_t winStart,
+                                uint64_t fileSize) {
+    EocdScanResult r;
+    if (win.size() < 22) return r;
+    for (size_t off = win.size() - 22 + 1; off-- > 0;) {
+        if (!(win[off] == 0x50 && win[off + 1] == 0x4B && win[off + 2] == 0x05 &&
+              win[off + 3] == 0x06))
+            continue;
+        uint16_t commentLen =
+            static_cast<uint16_t>(win[off + 20] | (win[off + 21] << 8));
+        uint64_t eocdAbs = winStart + off;
+        uint64_t eocdEnd = eocdAbs + 22 + commentLen;
+        if (eocdEnd > fileSize) continue;                // 注释越界 = 非法
+        uint32_t cdSize = le32(&win[off + 12]);          // 小端！
+        uint32_t cdOff = le32(&win[off + 16]);
+        if (cdOff == 0xFFFFFFFF) {                       // zip64 标记：基址不可反推
+            r.kind = EocdScanResult::Kind::Distrust;
+            return r;
+        }
+        uint64_t cdEnd = static_cast<uint64_t>(cdOff) + cdSize;
+        if (cdEnd > eocdAbs) continue;                   // CD 必须在 EOCD 之前
+        if (cdSize == 0) {                               // 空目录 → 不信任数学
+            r.kind = EocdScanResult::Kind::Distrust;
+            return r;
+        }
+        r.kind = EocdScanResult::Kind::Candidate;
+        r.cand.base = eocdAbs - cdEnd;
+        r.cand.len = eocdEnd - r.cand.base;
+        r.cand.cdVerifyPos = eocdAbs - cdSize;
+        return r;
+    }
+    return r;
+}
 
 std::optional<Hit> scan(const std::wstring& path) {
     FileReader f(path);

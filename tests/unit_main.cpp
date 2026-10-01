@@ -6,6 +6,7 @@
 #include "format.hpp"
 #include "detect.hpp"
 #include "sink.hpp"
+#include "stego.hpp"
 #include "volumeset.hpp"
 
 #include <cstdio>
@@ -183,6 +184,85 @@ void test_detect_from_bytes() {
     CHECK(det(iso, 100).fmt == Format::Unknown);   // 提示小于 0x8006 → 不判 iso
 }
 
+// ---- eocd_from_window / parse_atom_header（stego 纯核心）----
+namespace {
+// 构造 EOCD（小端字段）：cdSize/cdOff/commentLen
+std::vector<byte> make_eocd(uint32_t cdSize, uint32_t cdOff, uint16_t commentLen) {
+    std::vector<byte> e(22);
+    e[0] = 'P'; e[1] = 'K'; e[2] = 5; e[3] = 6;
+    for (int i = 0; i < 4; ++i) {
+        e[12 + i] = static_cast<byte>((cdSize >> (8 * i)) & 0xFF);
+        e[16 + i] = static_cast<byte>((cdOff >> (8 * i)) & 0xFF);
+    }
+    e[20] = static_cast<byte>(commentLen & 0xFF);
+    e[21] = static_cast<byte>(commentLen >> 8);
+    return e;
+}
+} // namespace
+
+void test_eocd_from_window() {
+    using namespace stego;
+    // 布局：[100B 前缀][CD 40B @100][EOCD @140]，cdOff=100、cdSize=40 → base=0
+    std::vector<byte> win(100);
+    win.insert(win.end(), 40, byte(0));              // CD 区
+    auto e = make_eocd(40, 100, 0);
+    win.insert(win.end(), e.begin(), e.end());       // EOCD 收尾
+    uint64_t fileSize = win.size();
+    auto r = eocd_from_window(win, 0, fileSize);
+    CHECK(r.kind == stego::EocdScanResult::Kind::Candidate);
+    CHECK(r.cand.base == 0);
+    CHECK(r.cand.len == 140 + 22);
+    CHECK(r.cand.cdVerifyPos == 140 - 40);
+
+    // 带注释 + 窗口起点偏移：base = (winStart + EOCD 窗内偏移) - cdOff - cdSize
+    std::vector<byte> w2(4997, byte(0));
+    auto e2 = make_eocd(30, 70, 3);
+    w2.insert(w2.end(), e2.begin(), e2.end());
+    w2.insert(w2.end(), 3, byte(0x41));              // 3 字节注释
+    r = eocd_from_window(w2, 900, 900 + w2.size());
+    CHECK(r.kind == stego::EocdScanResult::Kind::Candidate);
+    CHECK(r.cand.base == 900 + 4997 - 100);
+
+    // zip64 影子标记 → Distrust（整体放弃）
+    auto e3 = make_eocd(40, 0xFFFFFFFFu, 0);
+    std::vector<byte> w3(e3.begin(), e3.end());
+    r = eocd_from_window(w3, 0, w3.size());
+    CHECK(r.kind == stego::EocdScanResult::Kind::Distrust);
+
+    // 空目录 → Distrust；注释越界 → 跳过；CD 越过 EOCD → 跳过；无 EOCD → None
+    auto e4 = make_eocd(0, 0, 0);
+    std::vector<byte> w4(e4.begin(), e4.end());
+    r = eocd_from_window(w4, 0, w4.size());
+    CHECK(r.kind == stego::EocdScanResult::Kind::Distrust);
+
+    auto e5 = make_eocd(10, 0, 100);                 // 注释 100B 但只留 0B
+    std::vector<byte> w5(e5.begin(), e5.end());
+    CHECK(eocd_from_window(w5, 0, w5.size()).kind == stego::EocdScanResult::Kind::None);
+
+    auto e6 = make_eocd(500, 0, 0);                  // cdEnd > eocdAbs
+    std::vector<byte> w6(e6.begin(), e6.end());
+    CHECK(eocd_from_window(w6, 0, w6.size()).kind == stego::EocdScanResult::Kind::None);
+
+    std::vector<byte> w7(64, byte(0));
+    CHECK(eocd_from_window(w7, 0, w7.size()).kind == stego::EocdScanResult::Kind::None);
+    CHECK(eocd_from_window({}, 0, 0).kind == stego::EocdScanResult::Kind::None);
+}
+
+void test_parse_atom_header() {
+    byte hdr[8] = {0, 0, 0, 16, 'm', 'd', 'a', 't'};   // size=16
+    auto a = stego::parse_atom_header(hdr);
+    CHECK(!a.toEof && a.hdrSize == 8 && a.atomSize == 16);
+    byte hdr0[8] = {0, 0, 0, 0, 'm', 'd', 'a', 't'};   // size=0 → 延伸到 EOF
+    a = stego::parse_atom_header(hdr0);
+    CHECK(a.toEof);
+    byte hdr1[8] = {0, 0, 0, 1, 'm', 'd', 'a', 't'};   // size=1 → 扩展长度
+    byte ext[8] = {0, 0, 0, 0, 0, 0, 1, 0};           // be64 = 256
+    a = stego::parse_atom_header(hdr1, ext);
+    CHECK(!a.toEof && a.hdrSize == 16 && a.atomSize == 256);
+    a = stego::parse_atom_header(hdr1);                 // ext 缺失 → 非法（atomSize < hdrSize）
+    CHECK(!a.toEof && a.atomSize < a.hdrSize);
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -215,6 +295,8 @@ int main() {
     test_match_split_name();
     test_format_info();
     test_detect_from_bytes();
+    test_eocd_from_window();
+    test_parse_atom_header();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
