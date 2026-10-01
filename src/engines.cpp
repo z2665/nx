@@ -413,6 +413,19 @@ public:
 
 private:
     bool nextInternal(ContainerEntry& out);
+    // 拉取下一数据块（M3：readEntryData/readEntryDirect 两路径 ~40 行错误处理
+    // 逐字重复 → 一处）。EOF 返回空 span；CRC 告警/密码/损坏统一在此抛
+    std::span<const byte> pullBlock();
+    // 首次数据访问激活视图访问记录（区间推导前提）
+    void activateDataPhase() {
+        if (dataPhase_) return;
+        dataPhase_ = true;
+        if (view_) {
+            ctx_.recActive = true;
+            ctx_.recMin = UINT64_MAX;
+            ctx_.recMax = 0;
+        }
+    }
 public:
 
     size_t readEntryData(int idx, std::span<byte> buf);
@@ -558,38 +571,12 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
 std::span<const byte> LaSeqReader::readEntryDirect(int idx, size_t maxN) {
     if (idx != curIdx_ || maxN == 0) return {};
     if (!probeFront_.empty()) return {};
-    if (!dataPhase_) {   // 首次数据访问：激活视图访问记录（区间推导前提）
-        dataPhase_ = true;
-        if (view_) {
-            ctx_.recActive = true;
-            ctx_.recMin = UINT64_MAX;
-            ctx_.recMax = 0;
-        }
-    }
+    activateDataPhase();   // 首次数据访问：激活视图访问记录（区间推导前提）
     if (blockOff_ >= laBlock_.size()) {
-        const void* p = nullptr;
-        size_t sz = 0;
-        la_int64_t off = 0;
-        int r = archive_read_data_block(a_, &p, &sz, &off);
-        if (r == ARCHIVE_EOF) return {};
-        const char* emsg = archive_error_string(a_);
-        if (r == ARCHIVE_WARN) {
-            std::string low = ascii_lower(emsg ? emsg : "");
-            if (low.find("crc") != std::string::npos)
-                throw CorruptError(std::string("条目数据损坏(CRC): ") + (emsg ? emsg : ""));
-        } else if (r != ARCHIVE_OK) {
-            FailKind fk = classify_msg(emsg);
-            if (fk == FailKind::Password)
-                throw PasswordExhausted("", std::string("条目密码错误: ") + (emsg ? emsg : ""));
-            throw CorruptError(std::string("条目数据损坏: ") + (emsg ? emsg : ""));
-        }
-        if (off != static_cast<la_int64_t>(entryPos_))
-            throw CorruptError("条目数据偏移不连续");
-        laBlock_ = std::span<const byte>(static_cast<const byte*>(p), sz);
+        laBlock_ = pullBlock();
         blockOff_ = 0;
-        entryPos_ += sz;
+        if (laBlock_.empty()) return {};
     }
-    if (blockOff_ >= laBlock_.size()) return {};
     size_t n = std::min(maxN, laBlock_.size() - blockOff_);
     auto v = laBlock_.subspan(blockOff_, n);
     blockOff_ += n;
@@ -599,14 +586,7 @@ std::span<const byte> LaSeqReader::readEntryDirect(int idx, size_t maxN) {
 size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
     if (idx != curIdx_) throw Error("条目流已失效（迭代已前进）");
     if (buf.empty()) return 0;
-    if (!dataPhase_ && probeFront_.empty()) {   // 首次数据访问：激活视图访问记录
-        dataPhase_ = true;
-        if (view_) {
-            ctx_.recActive = true;
-            ctx_.recMin = UINT64_MAX;
-            ctx_.recMax = 0;
-        }
-    }
+    if (!dataPhase_ && probeFront_.empty()) activateDataPhase();
     if (!probeFront_.empty()) {   // probe 预读字节优先交付
         size_t n = std::min(buf.size(), probeFront_.size());
         std::memcpy(buf.data(), probeFront_.data(), n);
@@ -619,13 +599,25 @@ size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
         blockOff_ += n;
         return n;
     }
+    laBlock_ = pullBlock();
+    blockOff_ = 0;
+    if (laBlock_.empty()) return 0;
+    size_t n = std::min(buf.size(), laBlock_.size());
+    std::memcpy(buf.data(), laBlock_.data(), n);
+    blockOff_ = n;
+    return n;
+}
+
+// 拉取下一数据块（M3：readEntryData/readEntryDirect 两路径 ~40 行错误处理
+// 逐字重复 → 一处）。EOF 返回空 span；CRC 告警/密码/损坏统一在此抛
+std::span<const byte> LaSeqReader::pullBlock() {
     const void* p = nullptr;
     size_t sz = 0;
     la_int64_t off = 0;
     int r = archive_read_data_block(a_, &p, &sz, &off);
-    if (r == ARCHIVE_EOF) return 0;
+    if (r == ARCHIVE_EOF) return {};
     const char* emsg = archive_error_string(a_);
-    if (r == ARCHIVE_WARN) {
+    if (r == ARCHIVE_WARN) {   // 告警但数据可用：CRC 失败须上报，其余容忍
         std::string low = ascii_lower(emsg ? emsg : "");
         if (low.find("crc") != std::string::npos)
             throw CorruptError(std::string("条目数据损坏(CRC): ") + (emsg ? emsg : ""));
@@ -637,13 +629,8 @@ size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
     }
     if (off != static_cast<la_int64_t>(entryPos_))
         throw CorruptError("条目数据偏移不连续");
-    laBlock_ = std::span<const byte>(static_cast<const byte*>(p), sz);
-    blockOff_ = 0;
     entryPos_ += sz;
-    size_t n = std::min(buf.size(), laBlock_.size());
-    std::memcpy(buf.data(), laBlock_.data(), n);
-    blockOff_ = n;
-    return n;
+    return std::span<const byte>(static_cast<const byte*>(p), sz);
 }
 
 // ---- 构造 helper ----
