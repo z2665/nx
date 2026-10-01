@@ -1,4 +1,5 @@
 #include "pipes.hpp"
+#include "diag.hpp"
 #include <atomic>
 
 namespace nx {
@@ -18,6 +19,10 @@ ThreadPool::~ThreadPool() {
     }
     cv_.notify_all();
     for (auto& t : threads_) if (t.joinable()) t.join();
+    // S4：join 后队列必空、无在跑任务（worker 只在 stop&&空 时退出）——
+    // 若未来改动退出逻辑破坏此不变式，哨兵在此 abort
+    diag::assert_true(q_.empty() && running_ == 0,
+                      "S4 ~ThreadPool：join 后队列非空或任务仍在执行");
 }
 
 void ThreadPool::submit(std::function<void()> f) {

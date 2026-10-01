@@ -7,6 +7,7 @@
 #include "password.hpp"
 #include "menu.hpp"
 #include "gui.hpp"
+#include "diag.hpp"
 #include "log.hpp"
 #include <windows.h>
 #include <shellapi.h>
@@ -184,6 +185,7 @@ int main() {
     int argc = 0;
     auto args = get_args(argc);
     log_open(argc, nullptr);   // 默认日志（M3 需求 6）：始终开启
+    std::atexit(nx::diag::exit_check);   // S1/S2 退出哨兵（宏关闭时 no-op）：main 栈对象析构后运行
     if (argc < 2) { usage(); return 64; }
     std::string cmd = args[1];
     if (cmd == "--help" || cmd == "-h" || cmd == "help") { usage(); return 0; }

@@ -1,4 +1,5 @@
 #include "engines.hpp"
+#include "diag.hpp"
 #include "log.hpp"
 // ContainerReader/EngineOptions 契约见 container.hpp
 #include <windows.h>
@@ -691,6 +692,7 @@ OpenOutcome try_open(Format fmt,
                      const std::shared_ptr<SeekView>& view = nullptr,
                      const char* zipCharset = nullptr) {
     OpenOutcome oc;
+    diag::TryOpenGuard tog;   // S3：失败出口的读取器必须当场析构（D6 环的案发现场检查）
     archive* a = nullptr;
     try {
         a = make_arch(fmt);
@@ -733,6 +735,7 @@ OpenOutcome try_open(Format fmt,
         }
         if (!spool && !v) r->adoptStream(std::move(streamingSrc));   // 成功：过继
         oc.reader = std::move(r);
+        tog.escaped = true;   // 成功路径 reader 存活合法
         return oc;
     } catch (std::exception& e) {
         if (a) archive_read_free(a);   // r 未建立所有权时

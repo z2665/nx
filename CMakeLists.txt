@@ -48,6 +48,7 @@ set(NX_CORE_SOURCES
   src/bytesource.cpp
   src/pipes.cpp
   src/spool.cpp
+  src/diag.cpp
   src/detect.cpp
   src/stego.cpp
   src/password.cpp
@@ -87,6 +88,12 @@ target_link_libraries(nx PRIVATE
   comctl32
 )
 
+# 泄漏哨兵 S1-S5（roadmap §7.2）对主程序开放（诊断构建用；fuzz 目标始终开启）
+option(NX_DIAG_LEAKS_MAIN "nx 主程序编译泄漏哨兵（诊断用）" OFF)
+if(NX_DIAG_LEAKS_MAIN)
+  target_compile_definitions(nx PRIVATE NX_DIAG_LEAKS)
+endif()
+
 # ---- libFuzzer 全管线目标（tests/fuzz_run.py 自动配置构建；见 README「Fuzz 安全护城河」）----
 # vcpkg 依赖为非插桩静态库：仅本仓代码带 ASan/覆盖率，依赖库内崩溃仍可被捕获。
 option(NX_FUZZ "构建 libFuzzer+ASan 目标 nxfuzz（需 VS 的 AddressSanitizer 组件）" OFF)
@@ -108,6 +115,8 @@ if(NX_FUZZ)
   # 注意：不能开 /GL（与 sanitizer 不兼容）；MSVC libFuzzer 同时提供驱动 main
   target_compile_options(nxfuzz PRIVATE /fsanitize=address /fsanitize=fuzzer)
   target_link_options(nxfuzz PRIVATE /fsanitize=address /fsanitize=fuzzer)
+  # 泄漏哨兵常开（S1-S5，src/diag.hpp）：泄漏回归 = abort = fuzz 崩溃
+  target_compile_definitions(nxfuzz PRIVATE NX_DIAG_LEAKS)
   # 动态 ASan 运行时随构建复制到 exe 旁——否则脱离 VS 环境启动报 0xC0000141
   get_filename_component(NX_CXX_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
   add_custom_command(TARGET nxfuzz POST_BUILD

@@ -1,5 +1,6 @@
 #include "log.hpp"
 #include "sink.hpp"
+#include "diag.hpp"
 #include "gui.hpp"
 #include <windows.h>
 #include <bcrypt.h>
@@ -113,6 +114,12 @@ Sink::Sink(std::wstring outRoot, const Options& opt, Stats& stats, bool dryRun)
     // D4：写出线程池 min(8, cores/2)；dryRun 不需要
     if (!dryRun_)
         pool_ = std::make_unique<ThreadPool>(ThreadPool::defaultWorkers());
+}
+
+Sink::~Sink() {
+    // S5 INV-SINK：destroyed 仅可自 draining 迁入——有线程池却没 waitAll 过，
+    // 异步写还在跑就析构 = 任务悬垂（宏关闭零开销）
+    diag::assert_true(!pool_ || waited_, "S5 ~Sink：未 waitAll 即析构（INV-SINK 违反）");
 }
 
 void Sink::note(const std::string& line, int depth) {
@@ -299,6 +306,7 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
 
 void Sink::waitAll() {
     if (pool_) {
+        waited_ = true;   // S5：draining 迁入标记（异常路径同样算已等待）
         try {
             pool_->waitAll();
         } catch (std::exception& e) {

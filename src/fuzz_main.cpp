@@ -10,6 +10,7 @@
 //   变异改变尺寸即自然覆盖两条路径）；
 // - 不调用 log_open（无 nx.log）+ log_set_quiet 抑制控制台；密码候选固定三枚且不交互。
 #include "walker.hpp"
+#include "diag.hpp"
 #include "log.hpp"
 
 #include <atomic>
@@ -56,30 +57,35 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     fs::remove_all(out, ec);
     fs::create_directories(out, ec);
 
-    nx::Session s;
-    s.opt.maxDepth = 3;
-    s.opt.maxBytes = 2ull << 20;
-    s.opt.maxRatio = 50;
-    s.opt.spoolRam = 1ull << 20;      // 小 RAM：促发 spool 磁盘溢出分支
-    s.opt.histCap = 512ull << 10;
-    s.opt.pipeBytes = 64ull << 10;
-    s.opt.keepGoing = true;
-    s.opt.stegoMode = (size % 2) == 0;    // 尺寸派生：隐写路径
-    s.opt.noRoot = ((size / 2) % 2) == 0;
-    s.pw.addCandidate("infected");
-    s.pw.addCandidate("a");
-    s.pw.addCandidate("123456");
-    s.pw.setNoPrompt(true);
-    s.tempDir = (g_root / L"tmp").wstring();
-    s.sink = std::make_unique<nx::Sink>(out.wstring(), s.opt, s.stats, false);
+    {
+        nx::Session s;
+        s.opt.maxDepth = 3;
+        s.opt.maxBytes = 2ull << 20;
+        s.opt.maxRatio = 50;
+        s.opt.spoolRam = 1ull << 20;      // 小 RAM：促发 spool 磁盘溢出分支
+        s.opt.histCap = 512ull << 10;
+        s.opt.pipeBytes = 64ull << 10;
+        s.opt.keepGoing = true;
+        s.opt.stegoMode = (size % 2) == 0;    // 尺寸派生：隐写路径
+        s.opt.noRoot = ((size / 2) % 2) == 0;
+        s.pw.addCandidate("infected");
+        s.pw.addCandidate("a");
+        s.pw.addCandidate("123456");
+        s.pw.setNoPrompt(true);
+        s.tempDir = (g_root / L"tmp").wstring();
+        s.sink = std::make_unique<nx::Sink>(out.wstring(), s.opt, s.stats, false);
 
-    try {
-        nx::run_input(s, in.wstring());
-    } catch (...) {   // 业务错误（Corrupt/Limit/PasswordExhausted/MissingVolumes…）都是合法结局
+        try {
+            nx::run_input(s, in.wstring());
+        } catch (...) {   // 业务错误（Corrupt/Limit/PasswordExhausted/MissingVolumes…）都是合法结局
+        }
+        try {
+            s.sink->waitAll();
+        } catch (...) {
+        }
     }
-    try {
-        s.sink->waitAll();
-    } catch (...) {
-    }
+    // S1/S2 哨兵（fuzz 常开）：每迭代断言 spool/读取器全灭——任何泄漏形态
+    // （含 D6 两触发族）在此 abort，libFuzzer 当崩溃收
+    nx::diag::check_all_destroyed("fuzz-iteration");
     return 0;
 }

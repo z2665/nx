@@ -1,13 +1,17 @@
 #include "spool.hpp"
+#include "diag.hpp"
 #include <algorithm>
 #include <cstring>
 
 namespace nx {
 
 SpoolBuffer::SpoolBuffer(size_t ramCap, const std::wstring& tempDir)
-    : ramCap_(ramCap ? ramCap : (64 << 20)), tempDir_(tempDir) {}
+    : ramCap_(ramCap ? ramCap : (64 << 20)), tempDir_(tempDir) {
+    diag::track_spool(this);   // S1 哨兵：活性登记
+}
 
 SpoolBuffer::~SpoolBuffer() {
+    diag::untrack_spool(this);
     if (hf_ != INVALID_HANDLE_VALUE) CloseHandle(hf_);   // DELETE_ON_CLOSE：句柄关闭即删
 }
 

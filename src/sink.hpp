@@ -21,6 +21,7 @@ struct VerifiedFile {
 class Sink {
 public:
     Sink(std::wstring outRoot, const Options& opt, Stats& stats, bool dryRun);
+    ~Sink();
 
     // rel：逻辑相对路径（'/' 分隔，多段）；返回实际使用的相对路径（重名可能改写）。
     // src 所有权转入（异步任务需持有）。independent=true 时提交线程池异步写
@@ -48,6 +49,7 @@ private:
     bool dryRun_;
     bool verify_;
     std::unique_ptr<ThreadPool> pool_;   // D4：写出线程池 min(8, cores/2)
+    bool waited_ = false;                // S5：waitAll 已调用（INV-SINK 析构前置）
     std::mutex m_;                       // 重名登记/校验列表（firstHardError 的锁在 HardErrorSlot 内）
     std::set<std::string> usedLower_;    // 大小写不敏感重名登记
     std::vector<VerifiedFile> verified_;

@@ -1,6 +1,7 @@
 // container.hpp：容器读取器公共契约（engines 与 szcom 共用）
 #pragma once
 #include "bytesource.hpp"
+#include "diag.hpp"
 #include "format.hpp"
 #include "password.hpp"
 #include <memory>
@@ -20,7 +21,9 @@ struct ContainerEntry {
 
 class ContainerReader {
 public:
-    virtual ~ContainerReader() = default;
+    // S2 哨兵：活性登记在基类一处覆盖全部读取器（LaSeq/SevenZip…），宏关闭零开销
+    ContainerReader() { diag::track_reader(this); }
+    virtual ~ContainerReader() { diag::untrack_reader(this); }
     // false = 迭代结束。CorruptError（数据坏）/ PasswordExhausted（密码耗尽）经异常抛出。
     virtual bool next(ContainerEntry& out) = 0;
 };
