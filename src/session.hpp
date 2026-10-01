@@ -8,7 +8,7 @@
 namespace nx {
 
 struct Options {
-    int maxDepth = 8;
+    int maxDepth = 10;   // 容器嵌套深度与每容器段内过滤器链长的共用上限（决策 D-1）
     uint64_t maxBytes = 512ull << 30;   // 累计输出上限
     uint64_t maxRatio = 1000;           // 压缩比熔断（产出/输入）
     size_t spoolRam = 0;             // 0 = 自动（main 探测空闲物理内存 50%，64MiB–8GiB）

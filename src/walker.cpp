@@ -106,7 +106,7 @@ void process_entry(Session& s, ContainerEntry& e, const std::string& sub,
                                            : chain + " → " + format_name(d.fmt);
     if (fc == FormatClass::Filter || fc == FormatClass::SeqContainer ||
         fc == FormatClass::TailContainer || fc == FormatClass::RandContainer) {
-        walk(s, std::move(pb), sub, e.name, entryChain, depth, false, region);
+        walk(s, std::move(pb), sub, e.name, entryChain, depth, false, 0, region);
     } else {
         // 普通文件（独立源 → 线程池异步写，D4）
         pb->setHistoryEnabled(false);   // D5：落盘路径无需回看
@@ -273,7 +273,7 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
     }
     layer_note(s, parentDepth, ps.key + " → 分片 x" + std::to_string(parts.size()));
     walk(s, std::make_unique<ConcatSource>(std::move(parts)), parentSub, ps.key,
-         parentChain.empty() ? "分片" : parentChain, parentDepth, false);
+         parentChain.empty() ? "分片" : parentChain, parentDepth, false, 0);
 }
 
 } // namespace
@@ -314,14 +314,24 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
 // ---- walk：策略核心 ----
 // region：父视图区间（免 spool 直读；经 detect peek 后由流侧 seekRegion() 提供；
 // 过滤器链会剥离——解压后的字节无区间语义）
+// filterChain：当前容器段内过滤器链长（决策 D-1，与 --depth 同限；容器分支重置 0）
 void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
           const std::string& origin, const std::string& chain, int depth, bool throughFilter,
-          const std::shared_ptr<RegionSource>& region) {
+          int filterChain, const std::shared_ptr<RegionSource>& region) {
     auto pb = std::make_unique<PushbackSource>(std::move(src), s.opt.histCap);
     Detection d = detect(*pb, origin);
     FormatClass fc = classify(d.fmt);
 
     if (fc == FormatClass::Filter) {
+        // 决策 D-1：过滤器链纳入 --depth 约束——对抗性嵌套 gzip（4MiB 输入可构造
+        // 数千层）原本只在容器分支查深度，过滤器分支同 depth 无限递归 → 栈溢出/
+        // 线程耗尽（DoS）。链长按"当前容器段"计，进容器重置
+        int newChain = filterChain + 1;
+        if (newChain > s.opt.maxDepth) {
+            s.stats.limitTripped = true;
+            throw LimitError("过滤器链深度超过上限 " + std::to_string(s.opt.maxDepth) +
+                             "（" + origin + "）");
+        }
         pb->setHistoryEnabled(false);   // D5：多成员窥探用解码器自有缓冲，不需回看
         s.stats.filters.fetch_add(1);
         std::string ch2 = chain.empty() ? format_name(d.fmt) : chain + " → " + format_name(d.fmt);
@@ -345,7 +355,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
             filter_decode(d.fmt, *pb, *q, pumpErr, lim);
         });
         // 过滤输出：无区间；qs 随 walk 栈析构（正常/异常皆然）→ abandon → 泵解阻塞
-        walk(s, std::move(qs), sub, origin, ch2, depth, true);
+        walk(s, std::move(qs), sub, origin, ch2, depth, true, newChain);
         pump.join();   // 先 join 再读 pumpErr（避免竞态）
         if (pumpErr) std::rethrow_exception(pumpErr);
         return;
@@ -493,7 +503,7 @@ void run_input(Session& s, const std::wstring& inputPath) {
             return;
         }
         layer_note(s, 0, rootName + " → 分片 x" + std::to_string(parts.size()));
-        walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "分片", 0, false);
+        walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "分片", 0, false, 0);
     } else {
         if (!volErr.empty()) throw MissingVolumes(volErr);
         rootName = wide_to_utf8(p.filename().wstring());
@@ -501,7 +511,7 @@ void run_input(Session& s, const std::wstring& inputPath) {
         if (fs_direct_open(s, inputPath, rootName))
             return;
         parts.push_back(std::make_shared<FileSource>(inputPath, &s.meter));
-        walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "", 0, false);
+        walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "", 0, false, 0);
     }
 }
 

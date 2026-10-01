@@ -29,9 +29,11 @@ public:
 void run_input(Session& s, const std::wstring& inputPath);
 
 // 内部：walk 一条流（供递归；depth = 容器深度）。
+// filterChain = 当前容器段内已叠套的过滤器层数（决策 D-1：过滤器链同样受 --depth
+// 约束，进容器即重置——不能直接计入 depth，否则破坏 tar.gz 根的 noRoot 语义与层编号）。
 // region：父视图区间（免 spool 直读；过滤器链剥离——解压后的字节无区间语义）
 void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
           const std::string& origin, const std::string& chain, int depth, bool throughFilter,
-          const std::shared_ptr<RegionSource>& region = nullptr);
+          int filterChain, const std::shared_ptr<RegionSource>& region = nullptr);
 
 } // namespace nx
