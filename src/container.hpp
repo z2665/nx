@@ -19,6 +19,16 @@ struct ContainerEntry {
     std::shared_ptr<ByteSource> data;   // 顺序条目流：independent=false 时 next() 前有效
 };
 
+// 迭代位置令牌（领域 #10，批次 4）：条目在读取器内的身份 = 单调迭代序号。
+// 契约（replayQ_ 环修复后的形态）：
+//   · 预取/重放只携带 {token, meta}，绝不携带条目源——源在 next() 现场按 token 重建
+//   · 条目源经 token 显式索取数据（readEntryData/readEntry），token 失效
+//     （迭代已前进 / 读取器已销毁，weak_ptr 空）由读取器或源拒绝
+//   · 读取器成员容器不得持有条目源（INV-3，所有权模型 NoLeak 的类型面）
+struct EntryToken {
+    uint64_t seq = 0;
+};
+
 class ContainerReader {
 public:
     // S2 哨兵：活性登记在基类一处覆盖全部读取器（LaSeq/SevenZip…），宏关闭零开销

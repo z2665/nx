@@ -508,26 +508,28 @@ private:
 // 强所有权图从此无环；异步存活由 Sink 任务经 keepAlive() 令牌配套保活）
 class LaEntrySource : public ByteSource {
 public:
-    LaEntrySource(std::shared_ptr<LaSeqReader> r, int idx) : r_(r), idx_(idx) {}
+    // token = 迭代位置（领域 #10 契约：源经 token 显式索取，失效由读取器拒绝）
+    LaEntrySource(std::shared_ptr<LaSeqReader> r, EntryToken token)
+        : r_(r), token_(token) {}
     size_t read(std::span<byte> buf) override {
         auto r = r_.lock();
         if (!r) throw Error("条目流已失效（读取器已销毁）");
-        return r->readEntryData(idx_, buf);
+        return r->readEntryData(static_cast<int>(token_.seq), buf);
     }
     // D5：libarchive 块视图直借，省一次 memcpy
     std::span<const byte> read_direct(size_t maxN) override {
         auto r = r_.lock();
         if (!r) throw Error("条目流已失效（读取器已销毁）");
-        return r->readEntryDirect(idx_, maxN);
+        return r->readEntryDirect(static_cast<int>(token_.seq), maxN);
     }
     std::optional<uint64_t> sizeHint() const override {
         auto r = r_.lock();
         if (!r) return {};
-        return r->entrySize(idx_);
+        return r->entrySize(static_cast<int>(token_.seq));
     }
     std::shared_ptr<RegionSource> seekRegion() const override {
         auto r = r_.lock();
-        return r ? r->regionOf(idx_) : nullptr;
+        return r ? r->regionOf(static_cast<int>(token_.seq)) : nullptr;
     }
     std::shared_ptr<void> keepAlive() const override {
         auto r = r_.lock();
@@ -535,7 +537,7 @@ public:
     }
 private:
     std::weak_ptr<LaSeqReader> r_;
-    int idx_;
+    EntryToken token_;
 };
 
 bool LaSeqReader::next(ContainerEntry& out) {
@@ -552,7 +554,8 @@ bool LaSeqReader::next(ContainerEntry& out) {
         // idx == curIdx_（readEntryData 的失效校验依赖它），与 probe 前行为等价
         out.data = rec.nullSrc
                        ? std::shared_ptr<ByteSource>(std::make_shared<NullSource>())
-                       : std::make_shared<LaEntrySource>(shared_from_this(), rec.idx);
+                       : std::make_shared<LaEntrySource>(
+                             shared_from_this(), EntryToken{static_cast<uint64_t>(rec.idx)});
         return true;
     }
     return nextInternal(out);
@@ -592,7 +595,8 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
                    ? static_cast<uint64_t>(archive_entry_size(e_.get()))
                    : UINT64_MAX;
     sizes_.push_back(out.size);
-    out.data = std::make_shared<LaEntrySource>(shared_from_this(), curIdx_);
+    out.data = std::make_shared<LaEntrySource>(shared_from_this(),
+                                               EntryToken{static_cast<uint64_t>(curIdx_)});
     return true;
 }
 

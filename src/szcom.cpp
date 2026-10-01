@@ -542,16 +542,17 @@ class EntrySource : public ByteSource {
 public:
     // 批次 4（所有权模型 fixed 变体）：对读取器只持弱引用——异步写出的存活由
     // Sink 任务经 keepAlive() 令牌配套保活
-    EntrySource(std::shared_ptr<SevenZipReader> r, uint32_t idx) : r_(r), idx_(idx) {}
+    EntrySource(std::shared_ptr<SevenZipReader> r, EntryToken token)
+        : r_(r), token_(token) {}
     size_t read(std::span<byte> buf) override {
         auto r = r_.lock();
         if (!r) throw Error("条目流已失效（读取器已销毁）");
-        return r->readEntry(idx_, buf);
+        return r->readEntry(static_cast<uint32_t>(token_.seq), buf);
     }
     std::optional<uint64_t> sizeHint() const override {
         auto r = r_.lock();
         if (!r) return {};
-        uint64_t s = r->entrySize(idx_);
+        uint64_t s = r->entrySize(static_cast<uint32_t>(token_.seq));
         return s == UINT64_MAX ? std::optional<uint64_t>{} : s;
     }
     std::shared_ptr<void> keepAlive() const override {
@@ -560,7 +561,7 @@ public:
     }
 private:
     std::weak_ptr<SevenZipReader> r_;
-    uint32_t idx_;
+    EntryToken token_;
 };
 
 SevenZipReader::SevenZipReader(Format fmt, std::map<std::wstring, VolumeSource> volumes,
@@ -818,7 +819,8 @@ bool SevenZipReader::next(ContainerEntry& out) {
     out.isSymlink = false;
     out.independentData = true;   // 每条目独立 spool 支撑 → 可异步写出（D4）
     out.size = it.size;
-    out.data = std::make_shared<EntrySource>(shared_from_this(), cursor_);
+    out.data = std::make_shared<EntrySource>(shared_from_this(),
+                                   EntryToken{cursor_});
     ++cursor_;
     return true;
 }
