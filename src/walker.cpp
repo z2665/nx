@@ -21,6 +21,13 @@ void layer_note(Session& s, int depth, const std::string& line) {
         std::printf("%*s%s\n", depth * 2, "", line.c_str());
 }
 
+// 容器逻辑路径（密码缓存键，批次 2/领域 #2）：父输出前缀 + 本层名——条目名自带
+// 容器内目录（"dir1/vault.zip"），故兄弟分支天然区分；过滤器层不延伸（非密码层）；
+// noRoot 只改输出布局不改层身份（同进程缓存一致性不受影响）
+std::string join_layer(const std::string& parent, const std::string& name) {
+    return parent.empty() ? name : parent + "/" + name;
+}
+
 // 名字按最后一个 '.' 拆分（无扩展名返回 false）
 bool split_name_ext(const std::string& name, std::string* base, std::string* ext) {
     size_t pos = name.find_last_of('.');
@@ -249,10 +256,11 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
             s.stats.limitTripped = true;
             throw LimitError("递归深度超过上限 " + std::to_string(s.opt.maxDepth));
         }
-        std::string layerId = "第 " + std::to_string(newDepth) + " 层 " + ps.canonical + " (rar)";
+        LayerId layer{join_layer(parentSub, ps.canonical),
+                      "第 " + std::to_string(newDepth) + " 层 " + ps.canonical + " (rar)"};
         layer_note(s, parentDepth,
                    ps.canonical + " → rar 分卷 x" + std::to_string(ps.members.size()));
-        auto reader = open_container_volumes(Format::Rar, vols, firstVol, layerId, s.pw,
+        auto reader = open_container_volumes(Format::Rar, vols, firstVol, layer, s.pw,
                                              s.engineOpt());
         s.stats.containers.fetch_add(1);
         std::string newSub = parentSub.empty() ? ps.canonical : parentSub + "/" + ps.canonical;
@@ -285,19 +293,19 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
         s.stats.limitTripped = true;
         throw LimitError("递归深度上限为 0");
     }
-    std::string layerId = "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")";
+    LayerId layer{rootName, "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")"};
     layer_note(s, 0, rootName + " → " + d.display() + " [直读]");
     gui::progress_stage("展开 " + rootName + "（" + format_name(d.fmt) + "）");
     std::shared_ptr<ContainerReader> reader;
     if (d.fmt == Format::Zip) {
         // Zip 根：中央目录模式 + 码表探测（§3.2 文件名修复），文件可 seek 免 spool
-        reader = open_zip_file(path, layerId, s.pw, s.engineOpt());
+        reader = open_zip_file(path, layer, s.pw, s.engineOpt());
     } else {
         std::map<std::wstring, sz::VolumeSource> vols;
         sz::VolumeSource v;
         v.fsPath = path;
         vols[utf8_to_wide(rootName)] = std::move(v);
-        reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layerId, s.pw, s.engineOpt());
+        reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layer, s.pw, s.engineOpt());
     }
     s.stats.containers.fetch_add(1);
     iterate_container(s, std::move(reader), s.opt.noRoot ? "" : rootName,
@@ -363,11 +371,12 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
             throw LimitError("递归深度超过上限 " + std::to_string(s.opt.maxDepth) +
                              "（" + origin + "）");
         }
-        std::string layerId = "第 " + std::to_string(newDepth) + " 层 " + origin +
-                              " (" + format_name(d.fmt) + ")";
+        LayerId layer{join_layer(sub, origin),
+                      "第 " + std::to_string(newDepth) + " 层 " + origin +
+                          " (" + format_name(d.fmt) + ")"};
         layer_note(s, depth, origin + " → " + d.display());
         gui::progress_stage("展开 " + origin + "（" + format_name(d.fmt) + "）");
-        auto reader = open_container(std::move(pb), d.fmt, layerId, s.pw, s.engineOpt(),
+        auto reader = open_container(std::move(pb), d.fmt, layer, s.pw, s.engineOpt(),
                                      region);
         s.stats.containers.fetch_add(1);
         // 仅根容器（depth==0）的目录层受 --no-root 抑制；嵌套层照常镜像
@@ -412,7 +421,7 @@ static void run_stego(Session& s, const std::wstring& inputPath) {
         throw LimitError("递归深度上限为 0");
     }
     std::string fmtName = format_name(hit->fmt);
-    std::string layerId = "第 1 层 " + rootName + " 隐写 (" + fmtName + ")";
+    LayerId layer{rootName, "第 1 层 " + rootName + " 隐写 (" + fmtName + ")"};
     layer_note(s, 0, rootName + " → 隐写 " + fmtName + " @+" + std::to_string(hit->offset) +
                           " [" + hit->desc + "]");
     gui::progress_stage("展开隐写 " + rootName + "（" + fmtName + "）");
@@ -420,7 +429,7 @@ static void run_stego(Session& s, const std::wstring& inputPath) {
     try {
         if (hit->fmt == Format::Zip) {
             // 尾接 zip：EOCD 精确窗口（基址反推 + 尾部伪装排除）；无区间时整文件直开
-            reader = open_zip_file(inputPath, layerId, s.pw, s.engineOpt(),
+            reader = open_zip_file(inputPath, layer, s.pw, s.engineOpt(),
                                    hit->offset, hit->length);
         } else {
             if (!sz::dll_available())
@@ -429,7 +438,7 @@ static void run_stego(Session& s, const std::wstring& inputPath) {
             v.fsPath = inputPath;
             v.fsBase = hit->offset;   // [offset, EOF) 窗口 = 干净 7z/rar 流
             std::map<std::wstring, sz::VolumeSource> vols{{L"", std::move(v)}};
-            reader = sz::open_archive(hit->fmt, vols, L"", layerId, s.pw, s.engineOpt());
+            reader = sz::open_archive(hit->fmt, vols, L"", layer, s.pw, s.engineOpt());
         }
     } catch (CorruptError& e) {
         // EOCD/原子头假阳性：按未检测到反馈（密码耗尽等仍照常上抛）
@@ -488,8 +497,8 @@ void run_input(Session& s, const std::wstring& inputPath) {
             }
             if (s.opt.maxDepth < 1) throw LimitError("递归深度上限为 0");
             layer_note(s, 0, rootName + " → rar 分卷 x" + std::to_string(set->ordered.size()));
-            std::string layerId = "第 1 层 " + rootName + " (rar)";
-            auto reader = open_container_volumes(Format::Rar, vols, firstVol, layerId, s.pw,
+            LayerId layer{rootName, "第 1 层 " + rootName + " (rar)"};
+            auto reader = open_container_volumes(Format::Rar, vols, firstVol, layer, s.pw,
                                                  s.engineOpt());
             s.stats.containers.fetch_add(1);
             iterate_container(s, std::move(reader), rootName, "rar", 1);

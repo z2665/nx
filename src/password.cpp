@@ -30,16 +30,16 @@ bool PasswordProvider::promptAvailable() {
     return !noPrompt_;
 }
 
-std::optional<SecureStr> PasswordProvider::promptInteractive(const std::string& layerId) {
+std::optional<SecureStr> PasswordProvider::promptInteractive(const LayerId& layer) {
     // GUI 优先（M3 需求 4）：--gui 或无控制台（资源管理器右键启动）→ 弹窗；
     // 每个需要密码的层各弹一窗（§6.2 顺序链的 GUI 形态）；X/取消 → Cancelled 整体退出
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
     DWORD mode = 0;
     bool consoleOk = h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode) != 0;
     if (guiPrompt_ || !consoleOk) {
-        auto pw = gui::ask_password(layerId + " 的密码：");
+        auto pw = gui::ask_password(layer.display + " 的密码：");
         if (!pw)
-            throw Cancelled("用户取消了密码输入（" + layerId + "）");
+            throw Cancelled("用户取消了密码输入（" + layer.display + "）");
         std::wstring wiped = *pw;   // 尽力擦除
         SecureStr out(wide_to_utf8(*pw));
         SecureZeroMemory(wiped.data(), wiped.size() * sizeof(wchar_t));
@@ -50,7 +50,7 @@ std::optional<SecureStr> PasswordProvider::promptInteractive(const std::string& 
     if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &oldMode)) return std::nullopt;
     // 回显关闭（§6.2 第 4 步）
     SetConsoleMode(h, oldMode & ~static_cast<DWORD>(ENABLE_ECHO_INPUT));
-    std::printf("%s 的密码：", layerId.c_str());
+    std::printf("%s 的密码：", layer.display.c_str());
     std::fflush(stdout);
     wchar_t wbuf[1024];
     DWORD n = 0;
@@ -67,12 +67,12 @@ std::optional<SecureStr> PasswordProvider::promptInteractive(const std::string& 
 }
 
 // 解析链（§6.2）：缓存 → 上次成功 → 候选列表 → 交互
-// 游标 = 该层已尝试次数；reportSuccess 会清零重新命中缓存
-std::optional<SecureStr> PasswordProvider::nextAttempt(const std::string& layerId) {
+// 游标 = 该层已尝试次数（键 = LayerId::key）；reportSuccess 会清零重新命中缓存
+std::optional<SecureStr> PasswordProvider::nextAttempt(const LayerId& layer) {
     {
         std::lock_guard<std::mutex> lk(m_);
         std::vector<SecureStr> prefix;
-        auto lc = layerCache_.find(layerId);
+        auto lc = layerCache_.find(layer.key);
         if (lc != layerCache_.end())
             prefix.emplace_back(lc->second.view());
         if (lastSuccess_ &&
@@ -80,22 +80,22 @@ std::optional<SecureStr> PasswordProvider::nextAttempt(const std::string& layerI
             prefix.emplace_back(lastSuccess_->view());
         for (auto& c : candidates_)
             prefix.emplace_back(c.view());
-        size_t idx = cursor_[layerId]++;
+        size_t idx = cursor_[layer.key]++;
         if (idx < prefix.size()) return std::move(prefix[idx]);
     }
     // 不持锁进入交互（阻塞在控制台）
     if (promptAvailable()) {
-        if (auto pw = promptInteractive(layerId); pw && !pw->empty())
+        if (auto pw = promptInteractive(layer); pw && !pw->empty())
             return pw;
     }
     return std::nullopt;   // 耗尽（非交互场景自动跳过询问，§6.2 第 5 步）
 }
 
-void PasswordProvider::reportSuccess(const std::string& layerId, const SecureStr& pw) {
+void PasswordProvider::reportSuccess(const LayerId& layer, const SecureStr& pw) {
     std::lock_guard<std::mutex> lk(m_);
-    layerCache_[layerId] = SecureStr(pw.view());
+    layerCache_[layer.key] = SecureStr(pw.view());
     lastSuccess_ = SecureStr(pw.view());
-    cursor_[layerId] = 0;
+    cursor_[layer.key] = 0;
 }
 
 } // namespace nx

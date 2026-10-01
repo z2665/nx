@@ -314,6 +314,46 @@ def case_pw_retry_nested():
     write_case("pw_retry_nested", build, expected)
 
 
+def case_sibling_pw_cache():
+    """密码缓存键语义（批次 2 / 领域 #2）：不同父容器下的同名分片组——a.tar.gz 与
+    b.tar.gz 各含 data.zip.001+（异密码，候选只给 b 的）。修复前缓存键 = 深度+名
+    （"第 3 层 data.zip"），a 组耗尽候选把共享游标推过界 → b 组连候选都不试即假性
+    PasswordExhausted（实测 0 文件解出）；逻辑路径键（outer/a.tar.gz/data.zip 与
+    …/b.tar.gz/…）区分兄弟分支后 b 组正常解开、a 组如常报缺密码（退出码 2）。
+    依赖 7z CLI（AES zip）。"""
+    if not sevenz_available():
+        print("[gen] 跳过 sibling_pw_cache（无 7z CLI）")
+        return
+
+    def tarz(files):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tf:
+            for name, data in files.items():
+                ti = tarfile.TarInfo(name)
+                ti.size = len(data)
+                tf.addfile(ti, io.BytesIO(data))
+        return gzip.compress(buf.getvalue())
+
+    def build(d):
+        inner = {}
+        for parent, pw in (("a.tar.gz", "SibA@2026"), ("b.tar.gz", "SibB@2026")):
+            stage = build_staging(d, {"deep.txt": b"payload\n" * 400}, "_spc_" + parent)
+            zp = os.path.abspath(os.path.join(d, "_spc.zip"))
+            subprocess.run([SEVEN_ZIP, "a", "-tzip", "-mem=AES256", "-p" + pw, zp, "."],
+                           check=True, capture_output=True, cwd=stage)
+            z = open(zp, "rb").read()
+            os.remove(zp)
+            part = 32 * 1024
+            parts = [z[i:i + part] for i in range(0, len(z), part)]
+            inner[parent] = tarz({f"data.zip.{i+1:03d}": p for i, p in enumerate(parts)})
+        with open(os.path.join(d, "outer.tar.gz"), "wb") as f:
+            f.write(tarz(inner))
+    # 候选只给 b 的密码：a 组如常缺密码（exit 2），b 组必须解开
+    write_case("sibling_pw_cache", build,
+               {"outer.tar.gz/b.tar.gz/data.zip/deep.txt":
+                    sha256(b"payload\n" * 400)})
+
+
 def case_bare_gz():
     """裸过滤器根：plain.txt.gz → outDir/plain.txt"""
     content = b"just a gzipped file\n" * 500
@@ -568,6 +608,7 @@ ALL = [
     case_depth_bomb,
     case_filter_depth_bomb,
     case_pw_retry_nested,
+    case_sibling_pw_cache,
     case_missing_volume,
     case_bare_gz,
     case_zspan,

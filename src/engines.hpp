@@ -16,10 +16,10 @@ namespace nx {
 // - 加密层：候选密码迭代（§6.2）；zip 流式失败/SFX → D2 回退 spool+seek 重试
 // region：可选——父视图中的连续 stored 区间（免 spool 窗口直读，见 bytesource.hpp
 // RegionSource）；zip/R 类命中时直接在区间上开，失败自动回退 spool 原路径
-// 层身份 layerId 用于密码提示与缓存（如 "data.zip#inner.7z"）
+// 层身份 layer（LayerId：key = 逻辑路径缓存键，display = 提示文本；批次 2）
 std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> src,
                                                 Format fmt,
-                                                const std::string& layerId,
+                                                const LayerId& layer,
                                                 PasswordProvider& pw,
                                                 const EngineOptions& opt,
                                                 const std::shared_ptr<RegionSource>& region = nullptr);
@@ -28,14 +28,14 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
 // 走 7z.dll 卷回调路径（§3.3：原生卷型不拼接）。
 std::shared_ptr<ContainerReader> open_container_volumes(
     Format fmt, const std::map<std::wstring, sz::VolumeSource>& volumes,
-    const std::wstring& firstVol, const std::string& layerId, PasswordProvider& pw,
+    const std::wstring& firstVol, const LayerId& layer, PasswordProvider& pw,
     const EngineOptions& opt);
 
 
 // Zip 根文件直读（中央目录 + 码表探测，免 spool）。
 // base/length：隐写窗口（EOCD 精确区间，排除尾部伪装）；默认 0 = 整文件。
 std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
-                                               const std::string& layerId,
+                                               const LayerId& layer,
                                                PasswordProvider& pw,
                                                const EngineOptions& opt,
                                                uint64_t base = 0,

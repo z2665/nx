@@ -45,6 +45,17 @@ private:
     size_t len_ = 0;
 };
 
+// 层身份（批次 2，领域 #2）：key 与 display 职责分离——
+//   key     = 密码缓存/游标键：容器逻辑路径（"outer.tar.gz/a.tar.gz/data.zip"），
+//             兄弟分支（不同父容器下的同名同深）不再共享缓存与游标；
+//   display = 交互提示与错误消息（"第 3 层 data.zip (zip)"）。
+// 原实现两者混用 depth+name 字符串：a/b 两父容器各含 data.zip 分片组时，
+// a 组耗尽候选会把共享 cursor 推过界，b 组连候选都不试即假性 PasswordExhausted
+struct LayerId {
+    std::string key;
+    std::string display;
+};
+
 // 每层独立解析链：缓存 → 上次成功 → 候选列表 → 交互询问（§6.2）
 class PasswordProvider {
 public:
@@ -57,11 +68,10 @@ public:
     void setGuiPrompt(bool v) { guiPrompt_ = v; }
 
     // 引擎逐次取候选（每次调用推进游标；耗尽后进入交互；再耗尽返回空）
-    // layerId：层身份（逻辑路径 + 格式），用于提示与缓存
-    std::optional<SecureStr> nextAttempt(const std::string& layerId);
+    std::optional<SecureStr> nextAttempt(const LayerId& layer);
 
     // 某层验证成功：写缓存 + 全局 LRU
-    void reportSuccess(const std::string& layerId, const SecureStr& pw);
+    void reportSuccess(const LayerId& layer, const SecureStr& pw);
 
     // 交互提示是否可用（TTY 且未 --no-prompt）
     bool promptAvailable();
@@ -69,16 +79,15 @@ public:
     uint64_t promptCount() const { return prompts_; }
 
 private:
-    std::optional<SecureStr> promptInteractive(const std::string& layerId);
+    std::optional<SecureStr> promptInteractive(const LayerId& layer);
 
     std::mutex m_;
     std::vector<SecureStr> candidates_;
     bool noPrompt_ = false;
     bool guiPrompt_ = false;
-    std::map<std::string, SecureStr> layerCache_;        // 层缓存
+    std::map<std::string, SecureStr> layerCache_;        // 层缓存（键 = LayerId::key）
     std::optional<SecureStr> lastSuccess_;               // 全局上次成功（LRU 简化）
-    std::map<std::string, size_t> cursor_;               // 每层候选游标
-    std::map<std::string, bool> promptOpened_;           // 每层交互是否已开启
+    std::map<std::string, size_t> cursor_;               // 每层候选游标（键 = LayerId::key）
     uint64_t prompts_ = 0;
 };
 

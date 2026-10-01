@@ -269,6 +269,15 @@ def main():
                                    "--temp-dir", tmp, "--no-prompt"])
         r.check(code == 2, f"无密码场景退出码 {code}（期望 2）")
 
+    # 密码缓存键语义（批次 2 / 领域 #2）：不同父容器下的同名分片组——逻辑路径键
+    # 区分兄弟分支（修复前 a 组耗尽候选污染共享游标，b 组假性耗尽 → 0 文件）
+    d = os.path.join(CASES, "sibling_pw_cache")
+    if os.path.isdir(d):
+        r = add("sibling_pw_cache")
+        run_extract_and_compare(
+            r, "sibling_pw_cache", find_input(d, "outer.tar.gz"),
+            ["-p", "SibB@2026", "--no-prompt"], 2)   # a 组缺密码 → 2；b 组必须解开
+
     # 非法数值参数（D2）：from_chars 全量校验 → 退出码 64（原 std::terminate）
     r = add("arg_validation")
     d = os.path.join(CASES, "plain_zip")

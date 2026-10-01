@@ -755,17 +755,17 @@ std::shared_ptr<SpoolBuffer> spool_all(PushbackSource& src, const EngineOptions&
 // 返回成功 reader；耗尽抛 PasswordExhausted；损坏抛 CorruptError
 std::shared_ptr<LaSeqReader> password_loop(Format fmt,
                                            const std::shared_ptr<SpoolBuffer>& spool,
-                                           const std::string& layerId,
+                                           const LayerId& layer,
                                            PasswordProvider& pw,
                                            const char* zipCharset = nullptr) {
     for (;;) {
-        auto cand = pw.nextAttempt(layerId);
+        auto cand = pw.nextAttempt(layer);
         if (!cand)
-            throw PasswordExhausted(layerId, "密码缺失或已耗尽: " + layerId);
+            throw PasswordExhausted(layer.display, "密码缺失或已耗尽: " + layer.display);
         std::unique_ptr<PushbackSource> nullSrc{};
         auto oc = try_open(fmt, nullSrc, spool, &*cand, nullptr, zipCharset);
         if (oc.reader) {
-            pw.reportSuccess(layerId, *cand);
+            pw.reportSuccess(layer, *cand);
             return std::move(oc.reader);
         }
         if (oc.fail != FailKind::Password)
@@ -778,17 +778,17 @@ std::shared_ptr<LaSeqReader> password_loop(Format fmt,
 // 原生多卷入口（RAR）：直接走 7z.dll（§3.3 原生卷型不拼接）
 std::shared_ptr<ContainerReader> open_container_volumes(
     Format fmt, const std::map<std::wstring, sz::VolumeSource>& volumes,
-    const std::wstring& firstVol, const std::string& layerId, PasswordProvider& pw,
+    const std::wstring& firstVol, const LayerId& layer, PasswordProvider& pw,
     const EngineOptions& opt) {
     if (!sz::dll_available())
         throw Error(wide_to_utf8(sz::dll_error()) + "（原生多卷需要 7z.dll）");
-    return sz::open_archive(fmt, volumes, firstVol, layerId, pw, opt);
+    return sz::open_archive(fmt, volumes, firstVol, layer, pw, opt);
 }
 
 // Zip 根文件直读（中央目录模式 + 码表探测；文件本身可 seek，免 spool）。
 // base/length：隐写窗口（EOCD 精确区间，排除尾部伪装数据）；默认整文件。
 std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
-                                               const std::string& layerId,
+                                               const LayerId& layer,
                                                PasswordProvider& pw,
                                                const EngineOptions& opt,
                                                uint64_t base, uint64_t length) {
@@ -802,13 +802,13 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
     if (oc.fail == FailKind::Password) {
         // 密码迭代需要重开：在文件视图上直接重试（无需 spool）
         for (;;) {
-            auto cand = pw.nextAttempt(layerId);
+            auto cand = pw.nextAttempt(layer);
             if (!cand)
-                throw PasswordExhausted(layerId, "密码缺失或已耗尽: " + layerId);
+                throw PasswordExhausted(layer.display, "密码缺失或已耗尽: " + layer.display);
             auto v2 = std::make_shared<FileSeekView>(path, opt.meter, base, length);
             auto oc2 = try_open(Format::Zip, nullSrc, nullptr, &*cand, v2, cs.c_str());
             if (oc2.reader) {
-                pw.reportSuccess(layerId, *cand);
+                pw.reportSuccess(layer, *cand);
                 return std::move(oc2.reader);
             }
             if (oc2.fail != FailKind::Password)
@@ -820,7 +820,7 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
 
 std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> src,
                                                 Format fmt,
-                                                const std::string& layerId,
+                                                const LayerId& layer,
                                                 PasswordProvider& pw,
                                                 const EngineOptions& opt,
                                                 const std::shared_ptr<RegionSource>& region) {
@@ -842,13 +842,13 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
                 auto oc = try_open(fmt, nullSrc, nullptr, nullptr, regionAsView,
                                    cs.c_str());
                 while (!oc.reader && oc.fail == FailKind::Password) {
-                    auto cand = pw.nextAttempt(layerId);
+                    auto cand = pw.nextAttempt(layer);
                     if (!cand)
-                        throw PasswordExhausted(layerId,
-                                                "密码缺失或已耗尽: " + layerId);
+                        throw PasswordExhausted(layer.display,
+                                                "密码缺失或已耗尽: " + layer.display);
                     oc = try_open(fmt, nullSrc, nullptr, &*cand, regionAsView,
                                   cs.c_str());
-                    if (oc.reader) pw.reportSuccess(layerId, *cand);
+                    if (oc.reader) pw.reportSuccess(layer, *cand);
                 }
                 if (oc.reader) {
                     src.reset();   // 区间打开成功：丢弃未消费的流（子经区间读取）
@@ -871,7 +871,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         auto oc = try_open(fmt, nullSrc, spool, nullptr, nullptr, cs.c_str());
         if (oc.reader) return std::move(oc.reader);
         if (oc.fail == FailKind::Password)
-            return password_loop(fmt, spool, layerId, pw, cs.c_str());
+            return password_loop(fmt, spool, layer, pw, cs.c_str());
         throw CorruptError(oc.failMsg);
     }
 
@@ -883,7 +883,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
                 sz::VolumeSource v;
                 v.region = region;
                 vols[L""] = std::move(v);
-                auto r = sz::open_archive(fmt, vols, L"", layerId, pw, opt);
+                auto r = sz::open_archive(fmt, vols, L"", layer, pw, opt);
                 src.reset();
                 return r;
             } catch (PasswordExhausted&) {
@@ -904,7 +904,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
                 v.winStart = 0;
                 v.winLen = spool->size();
                 vols[L""] = std::move(v);
-                return sz::open_archive(fmt, vols, L"", layerId, pw, opt);
+                return sz::open_archive(fmt, vols, L"", layer, pw, opt);
             } catch (PasswordExhausted&) {
                 throw;
             } catch (Error&) {
@@ -915,7 +915,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         auto oc = try_open(fmt, nullSrc, spool, nullptr);
         if (oc.reader) return std::move(oc.reader);
         if (oc.fail == FailKind::Password) {
-            auto r = password_loop(fmt, spool, layerId, pw);
+            auto r = password_loop(fmt, spool, layer, pw);
             return std::move(r);
         }
         throw CorruptError(oc.failMsg);
@@ -930,7 +930,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         src->rewindTo(0);
         auto spool = spool_all(*src, opt);
         src.reset();
-        return password_loop(fmt, spool, layerId, pw);
+        return password_loop(fmt, spool, layer, pw);
     }
     if (oc.fail == FailKind::Corrupt) {
         // SFX / 追加修改 / 本地头流式盲区 → D2 回退 spool + 中央目录模式
@@ -945,7 +945,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         auto oc2 = try_open(fmt, nullSrc, spool, nullptr);
         if (oc2.reader) return std::move(oc2.reader);
         if (oc2.fail == FailKind::Password) {
-            return password_loop(fmt, spool, layerId, pw);
+            return password_loop(fmt, spool, layer, pw);
         }
         throw CorruptError(oc2.failMsg);
     }

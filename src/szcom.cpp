@@ -482,7 +482,7 @@ class SevenZipReader : public ContainerReader,
                        public std::enable_shared_from_this<SevenZipReader> {
 public:
     SevenZipReader(Format fmt, std::map<std::wstring, VolumeSource> volumes,
-                   const std::wstring& firstVol, const std::string& layerId,
+                   const std::wstring& firstVol, const LayerId& layer,
                    PasswordProvider& pw, const EngineOptions& opt);
     ~SevenZipReader() override;
 
@@ -514,7 +514,7 @@ private:
     Format fmt_;
     std::map<std::wstring, VolumeSource> volumes_;   // 键小写
     std::wstring firstVol_;
-    std::string layerId_;
+    LayerId layer_;                    // key = 缓存/游标键，display = 提示（批次 2）
     PasswordProvider& pw_;
     EngineOptions opt_;
 
@@ -552,9 +552,9 @@ private:
 };
 
 SevenZipReader::SevenZipReader(Format fmt, std::map<std::wstring, VolumeSource> volumes,
-                               const std::wstring& firstVol, const std::string& layerId,
+                               const std::wstring& firstVol, const LayerId& layer,
                                PasswordProvider& pw, const EngineOptions& opt)
-    : fmt_(fmt), volumes_(std::move(volumes)), firstVol_(firstVol), layerId_(layerId),
+    : fmt_(fmt), volumes_(std::move(volumes)), firstVol_(firstVol), layer_(layer),
       pw_(pw), opt_(opt) {
     if (!dll_available()) throw Error(wide_to_utf8(dll_error()));
     // 卷键规范化（大小写不敏感匹配）
@@ -571,9 +571,10 @@ SevenZipReader::SevenZipReader(Format fmt, std::map<std::wstring, VolumeSource> 
         if (!triedNoPw_) {
             triedNoPw_ = true;   // 第一轮：无密码
         } else {
-            auto a = pw_.nextAttempt(layerId_);
+            auto a = pw_.nextAttempt(layer_);
             if (!a)
-                throw PasswordExhausted(layerId_, "密码缺失或已耗尽: " + layerId_);
+                throw PasswordExhausted(layer_.display,
+                                        "密码缺失或已耗尽: " + layer_.display);
             held = std::move(*a);
             cand = &held;
         }
@@ -607,7 +608,7 @@ SevenZipReader::SevenZipReader(Format fmt, std::map<std::wstring, VolumeSource> 
                 throw;   // 非密码损坏：报损坏
             }
         }
-        if (cand) pw_.reportSuccess(layerId_, *cand);
+        if (cand) pw_.reportSuccess(layer_, *cand);
         break;
     }
 }
@@ -732,7 +733,8 @@ void SevenZipReader::extractOne(uint32_t idx, SpoolBuffer* dst) {
     I32 r = (hr == S_OK && it != res.end()) ? it->second : kOpDataError;
     if (r == kOpOK) return;
     if (r == kOpWrongPassword || (anyEncrypted_ && (r == kOpCRCError || r == kOpDataError)))
-        throw PasswordExhausted(layerId_, "条目密码错误 (op=" + std::to_string(r) + ")");
+        throw PasswordExhausted(layer_.display,
+                                "条目密码错误 (op=" + std::to_string(r) + ")");
     throw CorruptError("条目数据损坏 (op=" + std::to_string(r) + ")");
 }
 
@@ -830,10 +832,10 @@ size_t SevenZipReader::readEntry(uint32_t idx, std::span<byte> buf) {
 std::shared_ptr<ContainerReader> open_archive(Format fmt,
                                               const std::map<std::wstring, VolumeSource>& volumes,
                                               const std::wstring& firstVol,
-                                              const std::string& layerId,
+                                              const LayerId& layer,
                                               PasswordProvider& pw,
                                               const EngineOptions& opt) {
-    return std::make_shared<SevenZipReader>(fmt, volumes, firstVol, layerId, pw, opt);
+    return std::make_shared<SevenZipReader>(fmt, volumes, firstVol, layer, pw, opt);
 }
 
 } // namespace nx::sz

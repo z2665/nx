@@ -32,7 +32,7 @@ struct VolumeSource {
 std::shared_ptr<ContainerReader> open_archive(Format fmt,
                                               const std::map<std::wstring, VolumeSource>& volumes,
                                               const std::wstring& firstVol,
-                                              const std::string& layerId,
+                                              const LayerId& layer,
                                               PasswordProvider& pw,
                                               const EngineOptions& opt);
 
