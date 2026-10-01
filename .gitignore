@@ -27,5 +27,6 @@ tmp/
 
 # fuzz（libFuzzer 目标与语料）
 build-fuzz/
+build-diag/
 tests/fuzz-corpus/
 tests/fuzz-corpus-seeds/
