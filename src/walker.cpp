@@ -30,11 +30,6 @@ bool split_name_ext(const std::string& name, std::string* base, std::string* ext
     return true;
 }
 
-std::string tolower_str(std::string s) {
-    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 // 每层错误语义（设计 §5 D6 + §8）：
 //  LimitError → 直接上抛（全局熔断）
 //  PasswordExhausted → 分支失败，继续（keep-going 语义对密码默认生效）
@@ -186,7 +181,7 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
         {
             std::string base, ext;
             if (e.name.size() > 4 && split_name_ext(e.name, &base, &ext) &&
-                tolower_str(ext) == "rar") {
+                ascii_lower(ext) == "rar") {
                 flushAll();   // 与此前组无关联
                 pending.emplace_back();
                 PendingSet& ps = pending.back();

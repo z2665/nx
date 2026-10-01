@@ -41,14 +41,12 @@ std::optional<NameMatch> match_split_name(const std::string& name) {
         for (char c : ext.substr(1)) idx = idx * 10 + static_cast<unsigned>(c - '0');
         if (idx >= 1) return NameMatch{base, idx, true};
     }
-    std::string elow = ext;
-    for (auto& c : elow) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string elow = ascii_lower(ext);
     // .partN.rar：RAR 新式分卷（part1 为首卷）
     if (elow == "rar") {
         std::string pbase, pext;
         if (split_ext(base, &pbase, &pext)) {
-            std::string plow = pext;
-            for (auto& c : plow) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            std::string plow = ascii_lower(pext);
             if (plow.size() >= 5 && plow.compare(0, 4, "part") == 0 && all_digits(plow.substr(4))) {
                 unsigned idx = 0;
                 for (char c : plow.substr(4)) idx = idx * 10 + static_cast<unsigned>(c - '0');
@@ -164,8 +162,7 @@ void validate_set(const VolumeSet& s, std::string* errOut, std::vector<std::stri
             if (m && (m->nativeRar || m->nativeOldRar)) { idx.push_back(m->index); continue; }
             std::string b, e;   // 旧式首卷 .rar → 卷 1
             if (split_ext(mem.name, &b, &e)) {
-                std::string el2 = e;
-                for (auto& c : el2) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                std::string el2 = ascii_lower(e);
                 if (el2 == "rar") { idx.push_back(1); continue; }
             }
             idx.push_back(0);
@@ -251,8 +248,7 @@ std::optional<VolumeSet> group_filesystem(const std::wstring& inputPath, std::st
     } else {
         std::string base, ext;
         if (!split_ext(fname, &base, &ext)) return std::nullopt;
-        std::string elow = ext;
-        for (auto& c : elow) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        std::string elow = ascii_lower(ext);
         if (elow == "zip") {
             key = base;
             wantSpanTerminal = true;

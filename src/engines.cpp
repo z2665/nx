@@ -114,8 +114,7 @@ std::string fix_archive_name(const char* nm) {
 
 FailKind classify_msg(const char* m) {
     if (!m) return FailKind::Other;
-    std::string s(m);
-    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string s = ascii_lower(m);
     if (s.find("passphrase") != std::string::npos || s.find("password") != std::string::npos)
         return FailKind::Password;
     if (s.find("crc") != std::string::npos || s.find("damaged") != std::string::npos ||
@@ -575,9 +574,7 @@ std::span<const byte> LaSeqReader::readEntryDirect(int idx, size_t maxN) {
         if (r == ARCHIVE_EOF) return {};
         const char* emsg = archive_error_string(a_);
         if (r == ARCHIVE_WARN) {
-            std::string low = emsg ? emsg : "";
-            for (auto& c : low)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            std::string low = ascii_lower(emsg ? emsg : "");
             if (low.find("crc") != std::string::npos)
                 throw CorruptError(std::string("条目数据损坏(CRC): ") + (emsg ? emsg : ""));
         } else if (r != ARCHIVE_OK) {
@@ -629,8 +626,7 @@ size_t LaSeqReader::readEntryData(int idx, std::span<byte> buf) {
     if (r == ARCHIVE_EOF) return 0;
     const char* emsg = archive_error_string(a_);
     if (r == ARCHIVE_WARN) {
-        std::string low = emsg ? emsg : "";
-        for (auto& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        std::string low = ascii_lower(emsg ? emsg : "");
         if (low.find("crc") != std::string::npos)
             throw CorruptError(std::string("条目数据损坏(CRC): ") + (emsg ? emsg : ""));
     } else if (r != ARCHIVE_OK) {

@@ -17,11 +17,7 @@ namespace nx {
 namespace {
 
 bool is_reserved_name(const std::string& base) {
-    std::string b;
-    for (char c : base) {
-        if (c == '.') break;
-        b += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
+    std::string b = ascii_lower(base.substr(0, base.find('.')));
     if (b.empty()) return false;
     static const char* reserved[] = {
         "con", "prn", "aux", "nul",
@@ -31,12 +27,6 @@ bool is_reserved_name(const std::string& base) {
     for (const char* r : reserved)
         if (b == r) return true;
     return false;
-}
-
-std::string lower_ascii(const std::string& s) {
-    std::string r = s;
-    for (auto& c : r) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return r;
 }
 
 std::wstring join_rel(const std::wstring& root, const std::string& rel) {
@@ -148,7 +138,7 @@ std::string Sink::dedupe(const std::string& rel) {
     }
     std::string r = sanitized.empty() ? "_" : sanitized;
     std::lock_guard<std::mutex> lk(m_);
-    std::string low = lower_ascii(r);
+    std::string low = ascii_lower(r);
     if (usedLower_.insert(low).second) return r;   // 首用
     // 在最后扩展名前插入 " (n)"
     size_t slash = r.find_last_of('/');
@@ -159,7 +149,7 @@ std::string Sink::dedupe(const std::string& rel) {
     std::string ext = (dot == std::string::npos || dot == 0) ? "" : name.substr(dot);
     for (int n = 2;; ++n) {
         std::string cand = dir + base + " (" + std::to_string(n) + ")" + ext;
-        if (usedLower_.insert(lower_ascii(cand)).second) return cand;
+        if (usedLower_.insert(ascii_lower(cand)).second) return cand;
     }
 }
 

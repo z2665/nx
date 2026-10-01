@@ -126,6 +126,13 @@ uint64_t parse_size(std::string_view s) {
     return base * mult;
 }
 
+std::string ascii_lower(std::string_view s) {
+    std::string r(s);
+    for (auto& c : r)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return r;
+}
+
 std::string format_size(uint64_t n) {
     char buf[64];
     if (n >= (1ull << 30)) std::snprintf(buf, sizeof(buf), "%.2f GiB", n / 1073741824.0);

@@ -47,5 +47,8 @@ std::wstring make_temp_file_path(const std::wstring& tempDir);
 // ---- 其他 ----
 uint64_t parse_size(std::string_view s);              // "512G"/"64MiB"/"1048576"
 std::string format_size(uint64_t n);                  // 人类可读
+// ASCII 小写化（locale 无关）。仅用于扩展名/错误消息/保留名等程序侧判读，
+// 不得用于用户可见内容（CJK/非 ASCII 原样保留）
+std::string ascii_lower(std::string_view s);
 
 } // namespace nx
