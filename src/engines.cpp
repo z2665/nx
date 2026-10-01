@@ -424,24 +424,28 @@ public:
     }
 
     // 探测：前进到首个含数据的条目并读首块（验证密码）。失败经异常（密码/损坏）。
-    // 途经的目录/空文件条目进入 replayQ_ 由 next() 重放（顺序保持）；
+    // 途经的目录/空文件条目元数据进 replayQ_ 由 next() 重放（顺序保持）；
     // 停在的条目预读字节存 probeFront_ 重放给下游（否则条目流短 1 字节）。
     // 7z 等工具会把目录条目放在最前——只看首条目会漏掉密码验证。
     void probeFirst() {
         for (;;) {
             ContainerEntry tmp;
             if (!nextInternal(tmp)) return;   // 空容器：open 本身即验证
-            if (tmp.isSymlink) { replayQ_.push_back(tmp); continue; }
-            if (tmp.isDir) { replayQ_.push_back(tmp); continue; }
-            if (tmp.size == 0) {   // 空文件：无数据可验，换成空流重放
-                tmp.data = std::make_shared<NullSource>();
-                replayQ_.push_back(tmp);
+            ReplayRecord rec{curIdx_, std::move(tmp.name), tmp.size, tmp.isDir, tmp.isSymlink,
+                             false, std::move(tmp.symlinkTarget)};
+            if (tmp.isSymlink || tmp.isDir) {
+                replayQ_.push_back(std::move(rec));
+                continue;
+            }
+            if (tmp.size == 0) {   // 空文件：无数据可验，重放时换空流
+                rec.nullSrc = true;
+                replayQ_.push_back(std::move(rec));
                 continue;
             }
             byte b[1];
             size_t got = readEntryData(curIdx_, std::span<byte>(b, 1));
             probeFront_.assign(b, b + got);
-            replayQ_.push_back(tmp);
+            replayQ_.push_back(std::move(rec));
             return;
         }
     }
@@ -455,7 +459,18 @@ private:
     std::shared_ptr<SpoolBuffer> spool_;
     std::shared_ptr<SeekView> view_;          // seekable 模式（spool/文件）
     CbCtx ctx_;
-    std::deque<ContainerEntry> replayQ_;   // probe 预取条目重放队列
+    // probe 预取条目重放队列（D6 结构修复）：只存元数据 + 迭代序号，绝不持条目源——
+    // LaEntrySource 经 shared_from_this() 持回指读取器的强引用，存进读取器自己的
+    // 队列即构成自引用环（15GB 临时文件残留案例根因）：打开失败或中途弃置的读取器
+    // 永不析构，连带 spool 与视图泄漏。重放在 next() 现场按 idx 重建源
+    struct ReplayRecord {
+        int idx;
+        std::string name;
+        uint64_t size;
+        bool isDir, isSymlink, nullSrc;   // nullSrc：size==0 空文件，重放换 NullSource
+        std::string symlinkTarget;
+    };
+    std::deque<ReplayRecord> replayQ_;
     std::vector<byte> probeFront_;         // probe 预读待重放字节
     int curIdx_ = -1;
     std::span<const byte> laBlock_;   // 当前 libarchive 块视图（有效至下一次 data_block 调用）
@@ -482,8 +497,19 @@ private:
 
 bool LaSeqReader::next(ContainerEntry& out) {
     if (!replayQ_.empty()) {
-        out = replayQ_.front();   // probe 途经/停留的条目按序重放
+        ReplayRecord rec = std::move(replayQ_.front());
         replayQ_.pop_front();
+        out.name = std::move(rec.name);
+        out.size = rec.size;
+        out.isDir = rec.isDir;
+        out.isSymlink = rec.isSymlink;
+        out.symlinkTarget = std::move(rec.symlinkTarget);
+        out.independentData = false;
+        // 重放时重建条目源：目录/空文件本就无数据可读；含数据的停留条目
+        // idx == curIdx_（readEntryData 的失效校验依赖它），与 probe 前行为等价
+        out.data = rec.nullSrc
+                       ? std::shared_ptr<ByteSource>(std::make_shared<NullSource>())
+                       : std::make_shared<LaEntrySource>(shared_from_this(), rec.idx);
         return true;
     }
     return nextInternal(out);
