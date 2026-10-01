@@ -122,8 +122,7 @@ void Sink::recordHardError(const std::string& msg) {
     stats_.abortFlag.store(true);
 }
 
-std::string Sink::dedupe(const std::string& rel) {
-    // 逐段消毒（D6：..、绝对路径、保留名、ADS、尾部点/空格、控制字符）
+std::string sanitize_rel(const std::string& rel) {
     std::string sanitized;
     size_t start = 0;
     for (;;) {
@@ -136,7 +135,13 @@ std::string Sink::dedupe(const std::string& rel) {
         if (j == std::string::npos) break;
         start = j + 1;
     }
-    std::string r = sanitized.empty() ? "_" : sanitized;
+    return sanitized.empty() ? "_" : sanitized;
+}
+
+std::string Sink::dedupe(const std::string& rel) {
+    // 消毒（纯，sanitize_rel；D6：..、绝对路径、保留名、ADS、尾部点/空格、控制字符）
+    // + 大小写不敏感重名登记（状态在本对象，批次 1 两者分离）
+    std::string r = sanitize_rel(rel);
     std::lock_guard<std::mutex> lk(m_);
     std::string low = ascii_lower(r);
     if (usedLower_.insert(low).second) return r;   // 首用

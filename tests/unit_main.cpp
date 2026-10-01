@@ -292,6 +292,17 @@ void test_render_report() {
     CHECK(j.find("\"sha256\": \"cafe\"") != std::string::npos);
 }
 
+// ---- sanitize_rel：多段路径消毒（dedupe 的纯半部）----
+void test_sanitize_rel() {
+    CHECK_EQ(sanitize_rel("dir/file.txt"), std::string("dir/file.txt"));
+    CHECK_EQ(sanitize_rel("a/../b"), std::string("a/__/b"));      // .. 段改写
+    CHECK_EQ(sanitize_rel("con/x.txt"), std::string("_con/x.txt"));
+    CHECK_EQ(sanitize_rel("/abs/path"), std::string("abs/path")); // 空首段跳过
+    CHECK_EQ(sanitize_rel("//x//y"), std::string("x/y"));
+    CHECK_EQ(sanitize_rel(""), std::string("_"));                 // 全空回退
+    CHECK_EQ(sanitize_rel("d./t.. .txt"), std::string("d/t.. .txt"));  // 非整段 .. 不改写
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -327,6 +338,7 @@ int main() {
     test_eocd_from_window();
     test_parse_atom_header();
     test_render_report();
+    test_sanitize_rel();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
