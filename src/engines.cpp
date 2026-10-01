@@ -340,7 +340,6 @@ public:
     LaSeqReader(archive* a, archive_entry* e,
                 PushbackSource* borrowed,
                 std::shared_ptr<SpoolBuffer> spool,
-                std::shared_ptr<SpoolBuffer::Reader> reader,
                 std::shared_ptr<SeekView> view = nullptr)
         : a_(a), e_(e, &archive_entry_free), borrowed_(borrowed),
           spool_(std::move(spool)), view_(std::move(view)) {
@@ -349,8 +348,7 @@ public:
             ctx_.viewPos = 0;
             ctx_.src = nullptr;
         } else {
-            ctx_.src = reader ? static_cast<ByteSource*>(reader.get())
-                              : static_cast<ByteSource*>(borrowed_);
+            ctx_.src = borrowed_;
         }
         (void)spool_;
         ctx_.buf.assign(256 << 10, 0);
@@ -680,7 +678,7 @@ OpenOutcome try_open(Format fmt,
         if (!v && spool) v = std::make_shared<SpoolSeekView>(spool);
         auto r = std::make_shared<LaSeqReader>(a, archive_entry_new(),
                                                (!spool && !v) ? streamingSrc.get() : nullptr,
-                                               spool, nullptr, v);
+                                               spool, v);
         archive_read_set_read_callback(a, la_read_cb);
         archive_read_set_close_callback(a, [](archive*, void*) { return ARCHIVE_OK; });
         if (r->ctx().view) archive_read_set_seek_callback(a, la_seek_cb);

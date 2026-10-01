@@ -338,13 +338,14 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         if (auto h = pb->sizeHint()) lim.inputFloor = *h;
         lim.maxRatio = s.opt.maxRatio;
         lim.limitTripped = &s.stats.limitTripped;
+        // F4：QueueSource 必须先于泵线程构造——若 make_unique 抛出（OOM 窗口），
+        // 泵已阻塞在 q.push 且永远等不到消费者，jthread 析构 join 即死锁
+        auto qs = std::make_unique<QueueSource>(*q);
         std::jthread pump([&](std::stop_token) {
             filter_decode(d.fmt, *pb, *q, pumpErr, lim);
         });
-        {
-            auto qs = std::make_unique<QueueSource>(*q);
-            walk(s, std::move(qs), sub, origin, ch2, depth, true);   // 过滤输出：无区间
-        }   // qs 析构 → abandon → 泵解阻塞
+        // 过滤输出：无区间；qs 随 walk 栈析构（正常/异常皆然）→ abandon → 泵解阻塞
+        walk(s, std::move(qs), sub, origin, ch2, depth, true);
         pump.join();   // 先 join 再读 pumpErr（避免竞态）
         if (pumpErr) std::rethrow_exception(pumpErr);
         return;

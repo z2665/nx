@@ -116,7 +116,8 @@ Sink::Sink(std::wstring outRoot, const Options& opt, Stats& stats, bool dryRun)
 }
 
 void Sink::note(const std::string& line, int depth) {
-    std::printf("%*s%s\n", depth * 2, "", line.c_str());
+    // M7：统一走 log_out（尊重 quiet + 进 nx.log）——原直写 printf 绕过日志体系
+    log_out("%*s%s\n", depth * 2, "", line.c_str());
 }
 
 void Sink::recordHardError(const std::string& msg) {

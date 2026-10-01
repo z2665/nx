@@ -93,15 +93,4 @@ size_t SpoolBuffer::readAt(uint64_t pos, std::span<byte> buf) {
     return got;
 }
 
-void SpoolBuffer::Reader::seek(uint64_t abs) {
-    if (abs > s_->size()) throw Error("seek 越界");
-    pos_ = abs;
-}
-
-size_t SpoolBuffer::Reader::read(std::span<byte> buf) {
-    size_t n = s_->readAt(pos_, buf);
-    pos_ += n;
-    return n;
-}
-
 } // namespace nx

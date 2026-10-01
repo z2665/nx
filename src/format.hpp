@@ -60,7 +60,8 @@ inline const char* format_name(Format f) {
 inline std::string strip_filter_suffixes(const std::string& name) {
     static const char* suffixes[] = {
         ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz", ".tar.zst", ".tar.lz4",
-        ".gz", ".bz2", ".xz", ".zst", ".lz4", ".Z", ".lzma",
+        ".gz", ".bz2", ".xz", ".zst", ".lz4", ".z", ".lzma",
+        // ↑ .Z 须以小写登记（L4）：比较前名字已统一小写，大写条目永不匹配
     };
     std::string low = name;
     for (auto& c : low) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');

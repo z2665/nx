@@ -25,19 +25,7 @@ public:
     bool overflowed() const { return overflowed_; }
     uint64_t tempBytes() const { return overflowed_ ? total_ : 0; }
 
-    // 独立随机访问读视图；持有 SpoolBuffer 引用，最后一个释放时清理临时文件
-    class Reader : public ByteSource {
-    public:
-        explicit Reader(std::shared_ptr<SpoolBuffer> s) : s_(std::move(s)) {}
-        size_t read(std::span<byte> buf) override;
-        std::optional<uint64_t> sizeHint() const override { return s_->size(); }
-        void seek(uint64_t abs);
-        uint64_t pos() const { return pos_; }
-    private:
-        std::shared_ptr<SpoolBuffer> s_;
-        uint64_t pos_ = 0;
-    };
-    std::shared_ptr<Reader> reader() { return std::make_shared<Reader>(shared_from_this()); }
+    // 独立随机访问读视图已删（F3 死代码：全仓零调用，引擎侧统一走 SeekView 体系）
 
     // 子窗口视图：[start, start+len) 的独立顺序流（条目级分片组暂存用）
     class Window : public ByteSource {
@@ -61,7 +49,6 @@ public:
     };
 
 private:
-    friend class Reader;
     void flushToTemp();
     size_t readAt(uint64_t pos, std::span<byte> buf);
 
