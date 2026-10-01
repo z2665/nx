@@ -1,6 +1,7 @@
 // nx - 流式嵌套压缩包解压工具（M0）
 // util.hpp：通用工具 —— 转换、路径、错误类型
 #pragma once
+#include <expected>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -9,6 +10,11 @@
 namespace nx {
 
 using byte = unsigned char;
+
+// 值错误二元表达（批次 1 试点，roadmap §6.3）：std::expected 别名隔离——
+// 纯解析/冷路径优先；跨线程 exception_ptr、中止/熔断/密码耗尽控制流仍走异常
+template <class T>
+using Result = std::expected<T, std::string>;
 
 // ---- 错误类型（决定退出码语义，见设计 §8）----
 struct Error : std::runtime_error {
