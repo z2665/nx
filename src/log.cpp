@@ -64,7 +64,8 @@ void log_open(int argc, char** utf8ArgsDummy) {
     _wfopen_s(&g_logFile, g_logPath.c_str(), L"ab");   // 之后始终 append
     if (!g_logFile) return;
 
-    // 运行头：时间戳 + 完整命令行
+    // 运行头：时间戳 + 完整命令行（密码红线过滤，D1：-p/--password/--password-file
+    // 的值以 *** 替换——密码绝不入日志是项目第一安全纪律）
     SYSTEMTIME st;
     GetLocalTime(&st);
     int nArgs = 0;
@@ -75,8 +76,21 @@ void log_open(int argc, char** utf8ArgsDummy) {
                   GetCurrentProcessId());
     std::string line = head;
     if (argv) {
-        for (int i = 0; i < nArgs; ++i)
-            line += i ? " " + wide_to_utf8(argv[i]) : " " + wide_to_utf8(argv[i]);
+        auto isPwFlag = [](const std::string& a) {
+            return a == "-p" || a == "--password" || a == "--password-file";
+        };
+        bool redactNext = false;
+        for (int i = 0; i < nArgs; ++i) {
+            line += " ";
+            if (redactNext) {   // 上一记是密码开关：本记即密码值 → 脱敏
+                line += "***";
+                redactNext = false;
+            } else {
+                std::string tok = wide_to_utf8(argv[i]);
+                redactNext = isPwFlag(tok);
+                line += tok;
+            }
+        }
         LocalFree(argv);
     }
     line += "\n";
