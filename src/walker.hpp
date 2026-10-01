@@ -1,6 +1,8 @@
 // walker.hpp：递归策略引擎（设计 §4 Walker：分支语义 + Limiter + 密码约束）
+// 批次 2（领域 #11）：递归主干收敛为 Walker 类；运行期选项装配单点 resolve_runtime_options
 #pragma once
 #include "engines.hpp"
+#include "layer.hpp"
 #include "password.hpp"
 #include "session.hpp"
 #include "sink.hpp"
@@ -25,15 +27,29 @@ public:
     }
 };
 
-// 处理一个根输入（自动感知文件系统级分片）
+// 递归策略引擎（分片感知 + stego 分派 + 免 spool 直读快路径）。
+// 递归主干（walk/iterate/process/flush，LayerCtx 传递）是 walker.cpp 内部自由函数——
+// PendingSet 为其匿名命名空间实现细节，不入头文件
+class Walker {
+public:
+    explicit Walker(Session& s) : s_(s) {}
+
+    // 处理一个根输入（自动感知文件系统级分片；stegoMode 分派到隐写路径）
+    void run(const std::wstring& inputPath);
+
+private:
+    bool fsDirectOpen(const std::wstring& path, const std::string& rootName);
+    void runStego(const std::wstring& inputPath);
+
+    Session& s_;
+};
+
+// 兼容自由入口（main / fuzz 调用形态不变）
 void run_input(Session& s, const std::wstring& inputPath);
 
-// 内部：walk 一条流（供递归；depth = 容器深度）。
-// filterChain = 当前容器段内已叠套的过滤器层数（决策 D-1：过滤器链同样受 --depth
-// 约束，进容器即重置——不能直接计入 depth，否则破坏 tar.gz 根的 noRoot 语义与层编号）。
-// region：父视图区间（免 spool 直读；过滤器链剥离——解压后的字节无区间语义）
-void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
-          const std::string& origin, const std::string& chain, int depth, bool throughFilter,
-          int filterChain, const std::shared_ptr<RegionSource>& region = nullptr);
+// 运行期选项装配单点（批次 2）：spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）
+// + 溢出临时目录默认=输出目录（tree 无输出目录 → 系统临时目录）
+void resolve_runtime_options(Options& opt, std::wstring& tempDir,
+                             const std::wstring& outDir, bool dryRun);
 
 } // namespace nx

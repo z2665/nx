@@ -5,6 +5,7 @@
 #include "util.hpp"
 #include "format.hpp"
 #include "detect.hpp"
+#include "layer.hpp"
 #include "report.hpp"
 #include "sink.hpp"
 #include "stego.hpp"
@@ -303,6 +304,49 @@ void test_sanitize_rel() {
     CHECK_EQ(sanitize_rel("d./t.. .txt"), std::string("d/t.. .txt"));  // 非整段 .. 不改写
 }
 
+// ---- LayerCtx / 层身份派生（领域 #2，批次 2）----
+void test_layer_ctx() {
+    // join_logical：空父 = 根；逐层延伸
+    CHECK_EQ(join_logical("", "outer.zip"), std::string("outer.zip"));
+    CHECK_EQ(join_logical("outer.tar.gz/a.tar.gz", "data.zip"),
+             std::string("outer.tar.gz/a.tar.gz/data.zip"));
+
+    // 兄弟分支键区分（批次 2 语义修正的核心性质）
+    LayerId a = make_layer_id("o.tar.gz/a.tar.gz", "data.zip", 3, "zip");
+    LayerId b = make_layer_id("o.tar.gz/b.tar.gz", "data.zip", 3, "zip");
+    CHECK(a.key != b.key);
+    CHECK_EQ(a.display, std::string("第 3 层 data.zip (zip)"));   // 展示同形（键异）
+
+    // 根层：空逻辑父 → key = origin
+    LayerId root = make_layer_id("", "root.zip", 1, "zip");
+    CHECK_EQ(root.key, std::string("root.zip"));
+
+    // forEntry：换 origin/链、回新容器段（链清零、非过滤器）；sub/logical 不动
+    LayerCtx parent;
+    parent.sub = "o.tar.gz";
+    parent.origin = "o.tar.gz";
+    parent.chain = "gzip → tar";
+    parent.logical = "o.tar.gz";
+    parent.depth = 1;
+    parent.filterChain = 2;
+    parent.throughFilter = true;
+    LayerCtx entry = parent.forEntry("dir1/a.zip", "gzip → tar → zip");
+    CHECK_EQ(entry.origin, std::string("dir1/a.zip"));
+    CHECK_EQ(entry.chain, std::string("gzip → tar → zip"));
+    CHECK_EQ(entry.filterChain, 0);
+    CHECK(!entry.throughFilter);
+    CHECK_EQ(entry.sub, std::string("o.tar.gz"));      // 输出前缀随父
+    CHECK_EQ(entry.logical, std::string("o.tar.gz"));  // 逻辑路径随父（容器打开时才延伸）
+    CHECK_EQ(entry.depth, 1);
+
+    // forFilter：链+1、深度/逻辑路径不变
+    LayerCtx flt = parent.forFilter("gzip → gzip", 3);
+    CHECK_EQ(flt.filterChain, 3);
+    CHECK_EQ(flt.depth, 1);
+    CHECK_EQ(flt.logical, std::string("o.tar.gz"));
+    CHECK(flt.throughFilter);
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -339,6 +383,7 @@ int main() {
     test_parse_atom_header();
     test_render_report();
     test_sanitize_rel();
+    test_layer_ctx();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

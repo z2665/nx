@@ -354,22 +354,8 @@ int main() {
     s.sink = std::make_unique<Sink>(outDir, s.opt, s.stats, dryRun);
 
     // ---- spool 资源策略 ----
-    // RAM 自适应：空闲物理内存的 50%（下限 64M / 上限 8G；--spool-ram 显式覆盖）。
-    // 溢出临时目录默认=输出目录（同盘：FILE_ATTRIBUTE_TEMPORARY 延迟写回全程驻留
-    // 系统缓存，写回/清理零跨盘 I/O）；tree 无输出目录 → 系统临时目录。
-    if (s.opt.spoolRam == 0) {
-        MEMORYSTATUSEX ms{};
-        ms.dwLength = sizeof(ms);
-        GlobalMemoryStatusEx(&ms);
-        uint64_t avail = ms.ullAvailPhys / 2;
-        s.opt.spoolRam = static_cast<size_t>(
-            avail < (64ull << 20) ? (64ull << 20)
-                                  : (avail > (8ull << 30) ? (8ull << 30) : avail));
-    }
-    if (s.tempDir.empty() && !outDir.empty() && !dryRun)
-        s.tempDir = outDir;
-    log_out("[nx] spool RAM %s · 溢出临时目录 %s\n", format_size(s.opt.spoolRam).c_str(),
-            (s.tempDir.empty() ? "(系统临时目录)" : wide_to_utf8(s.tempDir)).c_str());
+    // 运行期选项装配单点（批次 2 / 领域 #11）：spool RAM 自适应 + 溢出目录默认
+    resolve_runtime_options(s.opt, s.tempDir, outDir, dryRun);
 
     // ---- 进度窗（待办 #1）：GUI 模式（--gui 或 Explorer/右键启动）且非 tree 时显示 ----
     // 判据与完成弹窗一致；explorerLaunched 已在输出目录创建前判定

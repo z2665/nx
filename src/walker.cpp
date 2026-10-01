@@ -21,13 +21,6 @@ void layer_note(Session& s, int depth, const std::string& line) {
         std::printf("%*s%s\n", depth * 2, "", line.c_str());
 }
 
-// 容器逻辑路径（密码缓存键，批次 2/领域 #2）：父输出前缀 + 本层名——条目名自带
-// 容器内目录（"dir1/vault.zip"），故兄弟分支天然区分；过滤器层不延伸（非密码层）；
-// noRoot 只改输出布局不改层身份（同进程缓存一致性不受影响）
-std::string join_layer(const std::string& parent, const std::string& name) {
-    return parent.empty() ? name : parent + "/" + name;
-}
-
 // 名字按最后一个 '.' 拆分（无扩展名返回 false）
 bool split_name_ext(const std::string& name, std::string* base, std::string* ext) {
     size_t pos = name.find_last_of('.');
@@ -84,12 +77,12 @@ struct PendingSet {
     std::vector<Member> members;
 };
 
-void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth,
-                       const std::string& parentChain, PendingSet& ps);
+void flush_pending_set(Session& s, const LayerCtx& ctx, PendingSet& ps);
+void walk(Session& s, std::unique_ptr<ByteSource> src, LayerCtx ctx,
+          const std::shared_ptr<RegionSource>& region = nullptr);
 
 // ---- 单条目处理 ----
-void process_entry(Session& s, ContainerEntry& e, const std::string& sub,
-                   const std::string& chain, int depth) {
+void process_entry(Session& s, ContainerEntry& e, const LayerCtx& ctx) {
     // e.data 的生命周期：本函数内
     auto view = std::make_unique<SharedView>(e.data);
     auto pb = std::make_unique<PushbackSource>(std::move(view), s.opt.histCap);
@@ -104,28 +97,29 @@ void process_entry(Session& s, ContainerEntry& e, const std::string& sub,
         pb->peek(1 << 20);
         region = pb->seekRegion();
     }
-    std::string entryChain = chain.empty() ? format_name(d.fmt)
-                                           : chain + " → " + format_name(d.fmt);
+    std::string entryChain = ctx.chain.empty()
+                                 ? format_name(d.fmt)
+                                 : ctx.chain + " → " + format_name(d.fmt);
     if (fc == FormatClass::Filter || fc == FormatClass::SeqContainer ||
         fc == FormatClass::TailContainer || fc == FormatClass::RandContainer) {
-        walk(s, std::move(pb), sub, e.name, entryChain, depth, false, 0, region);
+        walk(s, std::move(pb), ctx.forEntry(e.name, std::move(entryChain)), region);
     } else {
         // 普通文件（独立源 → 线程池异步写，D4）
         pb->setHistoryEnabled(false);   // D5：落盘路径无需回看
-        std::string rel = sub.empty() ? e.name : sub + "/" + e.name;
-        s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), e.size, depth + 1,
-                         e.independentData);
+        std::string rel = ctx.sub.empty() ? e.name : ctx.sub + "/" + e.name;
+        s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), e.size,
+                         ctx.depth + 1, e.independentData);
     }
 }
 
 // ---- 容器迭代（含条目级分片分组） ----
 void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
-                       const std::string& sub, const std::string& chain, int depth) {
+                       const LayerCtx& ctx) {
     std::vector<PendingSet> pending;
     auto flushAll = [&]() {
         for (auto& ps : pending) {
             try {
-                flush_pending_set(s, sub, depth, chain, ps);
+                flush_pending_set(s, ctx, ps);
             } catch (...) {
                 handle_branch_error(s, "分片组 " + ps.key);
             }
@@ -151,8 +145,8 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
             throw Error(s.stats.firstHardError.get());
         }
         if (e.isDir) {
-            std::string rel = sub.empty() ? e.name : sub + "/" + e.name;
-            s.sink->emitDir(rel, depth + 1);
+            std::string rel = ctx.sub.empty() ? e.name : ctx.sub + "/" + e.name;
+            s.sink->emitDir(rel, ctx.depth + 1);
             continue;
         }
         if (e.isSymlink) {
@@ -203,7 +197,7 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
         // 普通条目：先冲刷未封组
         flushAll();
         try {
-            process_entry(s, e, sub, chain, depth);
+            process_entry(s, e, ctx);
         } catch (...) {
             handle_branch_error(s, "条目 " + e.name);
         }
@@ -211,8 +205,7 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
     flushAll();
 }
 
-void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth,
-                       const std::string& parentChain, PendingSet& ps) {
+void flush_pending_set(Session& s, const LayerCtx& ctx, PendingSet& ps) {
     ps.spool->finish();
     // 排序：zspan 时 z01..zNN + 终卷(.zip=UINT_MAX)最后；numbered 按 .001..N
     std::sort(ps.members.begin(), ps.members.end(),
@@ -251,21 +244,23 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
             vols[utf8_to_wide(base)] = std::move(v);
             if (firstVol.empty()) firstVol = utf8_to_wide(base);
         }
-        int newDepth = parentDepth + 1;
+        int newDepth = ctx.depth + 1;
         if (newDepth > s.opt.maxDepth) {
             s.stats.limitTripped = true;
             throw LimitError("递归深度超过上限 " + std::to_string(s.opt.maxDepth));
         }
-        LayerId layer{join_layer(parentSub, ps.canonical),
-                      "第 " + std::to_string(newDepth) + " 层 " + ps.canonical + " (rar)"};
-        layer_note(s, parentDepth,
+        LayerId layer = make_layer_id(ctx.logical, ps.canonical, newDepth, "rar");
+        layer_note(s, ctx.depth,
                    ps.canonical + " → rar 分卷 x" + std::to_string(ps.members.size()));
         auto reader = open_container_volumes(Format::Rar, vols, firstVol, layer, s.pw,
                                              s.engineOpt());
         s.stats.containers.fetch_add(1);
-        std::string newSub = parentSub.empty() ? ps.canonical : parentSub + "/" + ps.canonical;
-        iterate_container(s, std::move(reader), newSub,
-                          parentChain.empty() ? "rar" : parentChain, newDepth);
+        LayerCtx child = ctx.forEntry(ps.canonical,
+                                      ctx.chain.empty() ? "rar" : ctx.chain);
+        child.sub = ctx.sub.empty() ? ps.canonical : ctx.sub + "/" + ps.canonical;
+        child.logical = join_logical(ctx.logical, ps.canonical);
+        child.depth = newDepth;
+        iterate_container(s, std::move(reader), child);
         return;
     }
 
@@ -274,52 +269,17 @@ void flush_pending_set(Session& s, const std::string& parentSub, int parentDepth
     for (auto& mem : ps.members) {
         parts.push_back(std::make_shared<SpoolBuffer::Window>(ps.spool, mem.start, mem.len));
     }
-    layer_note(s, parentDepth, ps.key + " → 分片 x" + std::to_string(parts.size()));
-    walk(s, std::make_unique<ConcatSource>(std::move(parts)), parentSub, ps.key,
-         parentChain.empty() ? "分片" : parentChain, parentDepth, false, 0);
-}
-
-} // namespace
-
-// M2/M3：根文件免 spool 直读——7z/rar 走 7z.dll；zip 走中央目录 + 码表探测
-bool fs_direct_open(Session& s, const std::wstring& path, const std::string& rootName) {
-    auto fsSrc = std::make_shared<FileSource>(path, &s.meter);
-    auto pb = std::make_unique<PushbackSource>(std::make_unique<SharedView>(fsSrc), 64 << 10);
-    Detection d = detect(*pb, rootName);
-    if (d.fmt != Format::SevenZip && d.fmt != Format::Rar && d.fmt != Format::Zip) return false;
-    if (d.fmt != Format::Zip && !sz::dll_available())
-        return false;   // 惰性：tar 等输入不触发 7z.dll 加载
-    if (s.opt.maxDepth < 1) {
-        s.stats.limitTripped = true;
-        throw LimitError("递归深度上限为 0");
-    }
-    LayerId layer{rootName, "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")"};
-    layer_note(s, 0, rootName + " → " + d.display() + " [直读]");
-    gui::progress_stage("展开 " + rootName + "（" + format_name(d.fmt) + "）");
-    std::shared_ptr<ContainerReader> reader;
-    if (d.fmt == Format::Zip) {
-        // Zip 根：中央目录模式 + 码表探测（§3.2 文件名修复），文件可 seek 免 spool
-        reader = open_zip_file(path, layer, s.pw, s.engineOpt());
-    } else {
-        std::map<std::wstring, sz::VolumeSource> vols;
-        sz::VolumeSource v;
-        v.fsPath = path;
-        vols[utf8_to_wide(rootName)] = std::move(v);
-        reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layer, s.pw, s.engineOpt());
-    }
-    s.stats.containers.fetch_add(1);
-    iterate_container(s, std::move(reader), s.opt.noRoot ? "" : rootName,
-                      format_name(d.fmt), 1);
-    return true;
+    layer_note(s, ctx.depth, ps.key + " → 分片 x" + std::to_string(parts.size()));
+    walk(s, std::make_unique<ConcatSource>(std::move(parts)),
+         ctx.forEntry(ps.key, ctx.chain.empty() ? "分片" : ctx.chain));
 }
 
 // ---- walk：策略核心 ----
 // region：父视图区间（免 spool 直读；经 detect peek 后由流侧 seekRegion() 提供；
 // 过滤器链会剥离——解压后的字节无区间语义）
-// filterChain：当前容器段内过滤器链长（决策 D-1，与 --depth 同限；容器分支重置 0）
-void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
-          const std::string& origin, const std::string& chain, int depth, bool throughFilter,
-          int filterChain, const std::shared_ptr<RegionSource>& region) {
+void walk(Session& s, std::unique_ptr<ByteSource> src, LayerCtx ctx,
+          const std::shared_ptr<RegionSource>& region) {
+    const std::string& origin = ctx.origin;
     auto pb = std::make_unique<PushbackSource>(std::move(src), s.opt.histCap);
     Detection d = detect(*pb, origin);
     FormatClass fc = classify(d.fmt);
@@ -328,7 +288,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         // 决策 D-1：过滤器链纳入 --depth 约束——对抗性嵌套 gzip（4MiB 输入可构造
         // 数千层）原本只在容器分支查深度，过滤器分支同 depth 无限递归 → 栈溢出/
         // 线程耗尽（DoS）。链长按"当前容器段"计，进容器重置
-        int newChain = filterChain + 1;
+        int newChain = ctx.filterChain + 1;
         if (newChain > s.opt.maxDepth) {
             s.stats.limitTripped = true;
             throw LimitError("过滤器链深度超过上限 " + std::to_string(s.opt.maxDepth) +
@@ -336,8 +296,9 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         }
         pb->setHistoryEnabled(false);   // D5：多成员窥探用解码器自有缓冲，不需回看
         s.stats.filters.fetch_add(1);
-        std::string ch2 = chain.empty() ? format_name(d.fmt) : chain + " → " + format_name(d.fmt);
-        layer_note(s, depth, origin + " → " + format_name(d.fmt));
+        std::string ch2 = ctx.chain.empty() ? format_name(d.fmt)
+                                           : ctx.chain + " → " + format_name(d.fmt);
+        layer_note(s, ctx.depth, origin + " → " + d.display());
         gui::progress_stage("解码 " + origin + "（" + format_name(d.fmt) + "）");
         size_t blocks = std::max<size_t>(2, s.opt.pipeBytes / (256 << 10));
         auto q = std::make_unique<BoundedQueue<std::vector<byte>>>(blocks);
@@ -357,7 +318,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
             filter_decode(d.fmt, *pb, *q, pumpErr, lim);
         });
         // 过滤输出：无区间；qs 随 walk 栈析构（正常/异常皆然）→ abandon → 泵解阻塞
-        walk(s, std::move(qs), sub, origin, ch2, depth, true, newChain);
+        walk(s, std::move(qs), ctx.forFilter(std::move(ch2), newChain));
         pump.join();   // 先 join 再读 pumpErr（避免竞态）
         if (pumpErr) std::rethrow_exception(pumpErr);
         return;
@@ -365,45 +326,88 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
 
     if (fc == FormatClass::SeqContainer || fc == FormatClass::TailContainer ||
         fc == FormatClass::RandContainer) {
-        int newDepth = depth + 1;
+        int newDepth = ctx.depth + 1;
         if (newDepth > s.opt.maxDepth) {
             s.stats.limitTripped = true;
             throw LimitError("递归深度超过上限 " + std::to_string(s.opt.maxDepth) +
                              "（" + origin + "）");
         }
-        LayerId layer{join_layer(sub, origin),
-                      "第 " + std::to_string(newDepth) + " 层 " + origin +
-                          " (" + format_name(d.fmt) + ")"};
-        layer_note(s, depth, origin + " → " + d.display());
+        LayerId layer = make_layer_id(ctx.logical, origin, newDepth, format_name(d.fmt));
+        layer_note(s, ctx.depth, origin + " → " + d.display());
         gui::progress_stage("展开 " + origin + "（" + format_name(d.fmt) + "）");
         auto reader = open_container(std::move(pb), d.fmt, layer, s.pw, s.engineOpt(),
                                      region);
         s.stats.containers.fetch_add(1);
+        LayerCtx child = ctx;
+        child.origin = origin;
+        child.depth = newDepth;
+        child.filterChain = 0;
+        child.logical = join_logical(ctx.logical, origin);
         // 仅根容器（depth==0）的目录层受 --no-root 抑制；嵌套层照常镜像
-        std::string newSub;
-        if (depth == 0 && sub.empty() && s.opt.noRoot)
-            newSub = "";
+        if (ctx.depth == 0 && ctx.sub.empty() && s.opt.noRoot)
+            child.sub = "";
         else
-            newSub = sub.empty() ? origin : sub + "/" + origin;
-        iterate_container(s, std::move(reader), newSub, chain.empty() ? format_name(d.fmt) : chain,
-                          newDepth);
+            child.sub = ctx.sub.empty() ? origin : ctx.sub + "/" + origin;
+        iterate_container(s, std::move(reader), child);
         return;
     }
 
     // Unknown
-    if (depth == 0 && !throughFilter) {
+    if (ctx.depth == 0 && !ctx.throughFilter) {
         throw Error("无法识别输入格式: " + origin + "（内容嗅探与结构校验均未命中）");
     }
     // 裸过滤器载荷（如 xxx.gz 直接包一个文件）：以剥离过滤后缀的名字落盘
     pb->setHistoryEnabled(false);   // D5
-    std::string name = throughFilter ? strip_filter_suffixes(origin) : origin;
-    std::string rel = sub.empty() ? name : sub + "/" + name;
-    s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), UINT64_MAX, depth, false);
+    std::string name = ctx.throughFilter ? strip_filter_suffixes(origin) : origin;
+    std::string rel = ctx.sub.empty() ? name : ctx.sub + "/" + name;
+    s.sink->emitFile(rel, std::shared_ptr<ByteSource>(std::move(pb)), UINT64_MAX, ctx.depth,
+                     false);
+}
+
+} // namespace
+
+// M2/M3：根文件免 spool 直读——7z/rar 走 7z.dll；zip 走中央目录 + 码表探测
+bool Walker::fsDirectOpen(const std::wstring& path, const std::string& rootName) {
+    Session& s = s_;
+    auto fsSrc = std::make_shared<FileSource>(path, &s.meter);
+    auto pb = std::make_unique<PushbackSource>(std::make_unique<SharedView>(fsSrc), 64 << 10);
+    Detection d = detect(*pb, rootName);
+    if (d.fmt != Format::SevenZip && d.fmt != Format::Rar && d.fmt != Format::Zip) return false;
+    if (d.fmt != Format::Zip && !sz::dll_available())
+        return false;   // 惰性：tar 等输入不触发 7z.dll 加载
+    if (s.opt.maxDepth < 1) {
+        s.stats.limitTripped = true;
+        throw LimitError("递归深度上限为 0");
+    }
+    LayerId layer = make_layer_id("", rootName, 1, format_name(d.fmt));
+    layer_note(s, 0, rootName + " → " + d.display() + " [直读]");
+    gui::progress_stage("展开 " + rootName + "（" + format_name(d.fmt) + "）");
+    std::shared_ptr<ContainerReader> reader;
+    if (d.fmt == Format::Zip) {
+        // Zip 根：中央目录模式 + 码表探测（§3.2 文件名修复），文件可 seek 免 spool
+        reader = open_zip_file(path, layer, s.pw, s.engineOpt());
+    } else {
+        std::map<std::wstring, sz::VolumeSource> vols;
+        sz::VolumeSource v;
+        v.fsPath = path;
+        vols[utf8_to_wide(rootName)] = std::move(v);
+        reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layer, s.pw, s.engineOpt());
+    }
+    s.stats.containers.fetch_add(1);
+    LayerCtx ctx;
+    ctx.sub = s.opt.noRoot ? "" : rootName;
+    ctx.origin = rootName;
+    ctx.chain = format_name(d.fmt);
+    ctx.logical = rootName;
+    ctx.depth = 1;
+    iterate_container(s, std::move(reader), ctx);
+    return true;
 }
 
 // ---- 隐写模式（extract-stego / --stego）：只解根文件内藏归档，根文件本体不落盘 ----
 // 检测仅限根 FS 层（stego::scan 需 seek 跳过 GB 级 mdat；嵌套流不查）。
-static void run_stego(Session& s, const std::wstring& inputPath) {
+void Walker::runStego(const std::wstring& inputPath) {
+    Session& s = s_;
     namespace fs = std::filesystem;
     std::error_code ec;
     if (!fs::exists(inputPath, ec) || ec)
@@ -447,13 +451,20 @@ static void run_stego(Session& s, const std::wstring& inputPath) {
         return;
     }
     s.stats.containers.fetch_add(1);
-    iterate_container(s, std::move(reader), s.opt.noRoot ? "" : rootName, fmtName, 1);
+    LayerCtx ctx;
+    ctx.sub = s.opt.noRoot ? "" : rootName;
+    ctx.origin = rootName;
+    ctx.chain = fmtName;
+    ctx.logical = rootName;
+    ctx.depth = 1;
+    iterate_container(s, std::move(reader), ctx);
 }
 
 // ---- 根输入 ----
-void run_input(Session& s, const std::wstring& inputPath) {
+void Walker::run(const std::wstring& inputPath) {
+    Session& s = s_;
     if (s.opt.stegoMode) {
-        run_stego(s, inputPath);
+        runStego(inputPath);
         return;
     }
     // 文件系统级分片感知（D3）
@@ -497,24 +508,59 @@ void run_input(Session& s, const std::wstring& inputPath) {
             }
             if (s.opt.maxDepth < 1) throw LimitError("递归深度上限为 0");
             layer_note(s, 0, rootName + " → rar 分卷 x" + std::to_string(set->ordered.size()));
-            LayerId layer{rootName, "第 1 层 " + rootName + " (rar)"};
+            LayerId layer = make_layer_id("", rootName, 1, "rar");
             auto reader = open_container_volumes(Format::Rar, vols, firstVol, layer, s.pw,
                                                  s.engineOpt());
             s.stats.containers.fetch_add(1);
-            iterate_container(s, std::move(reader), rootName, "rar", 1);
+            LayerCtx ctx;
+            ctx.sub = rootName;
+            ctx.origin = rootName;
+            ctx.chain = "rar";
+            ctx.logical = rootName;
+            ctx.depth = 1;
+            iterate_container(s, std::move(reader), ctx);
             return;
         }
         layer_note(s, 0, rootName + " → 分片 x" + std::to_string(parts.size()));
-        walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "分片", 0, false, 0);
+        LayerCtx ctx;
+        ctx.origin = rootName;
+        ctx.chain = "分片";
+        walk(s, std::make_unique<ConcatSource>(std::move(parts)), std::move(ctx));
     } else {
         if (!volErr.empty()) throw MissingVolumes(volErr);
         rootName = wide_to_utf8(p.filename().wstring());
         // M2 快路径：根文件是 7z/rar 且 7z.dll 可用 → 免 spool 直读（IInStream over 文件）
-        if (fs_direct_open(s, inputPath, rootName))
+        if (fsDirectOpen(inputPath, rootName))
             return;
         parts.push_back(std::make_shared<FileSource>(inputPath, &s.meter));
-        walk(s, std::make_unique<ConcatSource>(std::move(parts)), "", rootName, "", 0, false, 0);
+        LayerCtx ctx;
+        ctx.origin = rootName;
+        walk(s, std::make_unique<ConcatSource>(std::move(parts)), std::move(ctx));
     }
+}
+
+// 运行期选项装配单点（批次 2 / 领域 #11）：从 main 内联块迁入——spool RAM 自适应
+// （空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（tree → 系统临时）
+void resolve_runtime_options(Options& opt, std::wstring& tempDir,
+                             const std::wstring& outDir, bool dryRun) {
+    if (opt.spoolRam == 0) {
+        MEMORYSTATUSEX ms{};
+        ms.dwLength = sizeof(ms);
+        GlobalMemoryStatusEx(&ms);
+        uint64_t avail = ms.ullAvailPhys / 2;
+        opt.spoolRam = static_cast<size_t>(
+            avail < (64ull << 20) ? (64ull << 20)
+                                  : (avail > (8ull << 30) ? (8ull << 30) : avail));
+    }
+    if (tempDir.empty() && !outDir.empty() && !dryRun)
+        tempDir = outDir;
+    log_out("[nx] spool RAM %s · 溢出临时目录 %s\n", format_size(opt.spoolRam).c_str(),
+            (tempDir.empty() ? "(系统临时目录)" : wide_to_utf8(tempDir)).c_str());
+}
+
+// 兼容自由入口（main / fuzz 调用形态不变）
+void run_input(Session& s, const std::wstring& inputPath) {
+    Walker(s).run(inputPath);
 }
 
 } // namespace nx
