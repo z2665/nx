@@ -94,6 +94,22 @@ if(NX_DIAG_LEAKS_MAIN)
   target_compile_definitions(nx PRIVATE NX_DIAG_LEAKS)
 endif()
 
+# ---- 纯核心单元测试目标（批次 1 起；run_tests.py 自动调用，非 EXCLUDE 保持随主构建产出）----
+add_executable(nxunit
+  tests/unit_main.cpp
+  ${NX_CORE_SOURCES}
+)
+target_include_directories(nxunit PRIVATE src)
+target_link_libraries(nxunit PRIVATE
+  LibArchive::LibArchive
+  ZLIB::ZLIB
+  BZip2::BZip2
+  LibLZMA::LibLZMA
+  ${NX_ZSTD}
+  ${NX_LZ4}
+  comctl32
+)
+
 # ---- libFuzzer 全管线目标（tests/fuzz_run.py 自动配置构建；见 README「Fuzz 安全护城河」）----
 # vcpkg 依赖为非插桩静态库：仅本仓代码带 ASan/覆盖率，依赖库内崩溃仍可被捕获。
 option(NX_FUZZ "构建 libFuzzer+ASan 目标 nxfuzz（需 VS 的 AddressSanitizer 组件）" OFF)

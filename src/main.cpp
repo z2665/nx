@@ -9,6 +9,7 @@
 #include "gui.hpp"
 #include "diag.hpp"
 #include "log.hpp"
+#include "outcome.hpp"
 #include <windows.h>
 #include <shellapi.h>
 #include <charconv>
@@ -473,19 +474,15 @@ int main() {
     }
     log_out("  耗时 %.2fs\n", elapsedMs / 1000.0);
 
-    int exitCode;
-    if (cancelled)
-        exitCode = 2;
-    else if (s.stats.limitTripped.load())
-        exitCode = 3;
-    else if (s.stats.sawPasswordFail.load())
-        exitCode = 2;
-    else if (s.stats.sawMissingVol.load())
-        exitCode = 4;
-    else if (s.stats.sawCorrupt.load() || s.stats.branchesFailed.load())
-        exitCode = 1;
-    else
-        exitCode = 0;
+    // 退出码推导（领域 #4）：纯函数 + Stats 终态快照——原 main 内 if 链，无类型无测试
+    OutcomeFlags outcome;
+    outcome.cancelled = cancelled;
+    outcome.limitTripped = s.stats.limitTripped.load();
+    outcome.passwordFail = s.stats.sawPasswordFail.load();
+    outcome.missingVolume = s.stats.sawMissingVol.load();
+    outcome.corrupt = s.stats.sawCorrupt.load();
+    outcome.branchesFailed = s.stats.branchesFailed.load();
+    int exitCode = derive_exit_code(outcome);
 
     // 仅资源管理器/右键启动（无标准句柄）→ GUI 完成反馈；取消则不弹（用户已决定）。
     // 管道/重定向（脚本、CLI）不弹框——有输出通道。

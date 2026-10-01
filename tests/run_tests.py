@@ -122,6 +122,16 @@ def main():
         results.append(r)
         return r
 
+    # C++ 纯核心单元测试（批次 1 起：退出码推导/消毒/分片命名/单位解析等纯函数）
+    unit_exe = os.path.join(os.path.dirname(os.path.abspath(NX_EXE)), "nxunit.exe")
+    if os.path.exists(unit_exe):
+        r = add("unit_core")
+        p = subprocess.run([unit_exe], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120)
+        r.check(p.returncode == 0, "nxunit 失败:\n" + (p.stdout or "")[-800:])
+    else:
+        print("[run] 跳过 nxunit（未构建）")
+
     # M1：zip/7z/rar 三主流格式（带密码参数）
     for case, entry, args, want in [
         ("rar5_plain", "data.rar", [], 0),
