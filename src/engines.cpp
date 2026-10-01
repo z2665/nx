@@ -1,5 +1,6 @@
 #include "engines.hpp"
 #include "diag.hpp"
+#include "views.hpp"
 #include "log.hpp"
 // ContainerReader/EngineOptions 契约见 container.hpp
 #include <windows.h>
@@ -127,89 +128,6 @@ FailKind classify_msg(const char* m) {
         return FailKind::Corrupt;
     return FailKind::Other;
 }
-
-// ---- 随机访问视图（zip 中央目录模式：spool 或根文件，M3 文件名修复）----
-class SeekView : public RegionSource {
-public:
-    virtual ~SeekView() = default;
-    virtual size_t read_at(uint64_t pos, std::span<byte> buf) = 0;
-    virtual uint64_t size() const = 0;
-};
-
-class SpoolSeekView : public SeekView {
-public:
-    explicit SpoolSeekView(std::shared_ptr<SpoolBuffer> s) : s_(std::move(s)) {}
-    size_t read_at(uint64_t pos, std::span<byte> buf) override { return s_->read_at(pos, buf); }
-    uint64_t size() const override { return s_->size(); }
-private:
-    std::shared_ptr<SpoolBuffer> s_;
-};
-
-class FileSeekView : public SeekView {
-public:
-    // meter：根输入计量（进度窗分子；null = 码表探测等不计量的临时视图）
-    // base/length：窗口（隐写 zip——EOCD 精确区间，排除尾部伪装数据）；length=0 = 到 EOF
-    explicit FileSeekView(const std::wstring& path, InputMeter* meter = nullptr,
-                          uint64_t base = 0, uint64_t length = 0)
-        : meter_(meter), base_(base) {
-        h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                         OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-        if (h_ == INVALID_HANDLE_VALUE)
-            throw Error("打开文件失败: " + wide_to_utf8(path));
-        LARGE_INTEGER sz{};
-        GetFileSizeEx(h_, &sz);
-        uint64_t total = static_cast<uint64_t>(sz.QuadPart);
-        if (base > total || base + (length ? length : (total - base)) > total)
-            throw Error("视图窗口越界: " + wide_to_utf8(path));
-        size_ = length ? length : (total - base);
-    }
-    ~FileSeekView() override {
-        if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
-    }
-    FileSeekView(const FileSeekView&) = delete;
-    FileSeekView& operator=(const FileSeekView&) = delete;
-    size_t read_at(uint64_t pos, std::span<byte> buf) override {
-        std::lock_guard<std::mutex> lk(m_);
-        LARGE_INTEGER li{};
-        li.QuadPart = static_cast<LONGLONG>(base_ + pos);
-        if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN)) throw Error("定位失败");
-        size_t got = 0;
-        while (got < buf.size()) {
-            DWORD r = 0;
-            if (!ReadFile(h_, buf.data() + got, static_cast<DWORD>(buf.size() - got), &r,
-                          nullptr) || r == 0)
-                break;
-            got += r;
-        }
-        if (meter_) meter_->bytes += got;   // 根消耗（重读会被 99% 封顶吸收）
-        return got;
-    }
-    uint64_t size() const override { return size_; }
-private:
-    HANDLE h_ = INVALID_HANDLE_VALUE;
-    uint64_t size_ = 0;
-    InputMeter* meter_ = nullptr;
-    uint64_t base_ = 0;
-    std::mutex m_;
-};
-
-// 区间窗口：父 RegionSource（文件视图/spool/另一区间）中 [base, base+len) 的只读视图。
-// 嵌套容器免 spool 直读的核心——子引擎把它当作本地小文件随机访问（可链式套窗口）。
-class RegionView : public SeekView {
-public:
-    RegionView(std::shared_ptr<RegionSource> parent, uint64_t base, uint64_t len)
-        : parent_(std::move(parent)), base_(base), len_(len) {}
-    size_t read_at(uint64_t pos, std::span<byte> buf) override {
-        if (pos >= len_) return 0;
-        uint64_t avail = len_ - pos;
-        size_t n = static_cast<size_t>(std::min<uint64_t>(buf.size(), avail));
-        return parent_->read_at(base_ + pos, std::span<byte>(buf.data(), n));
-    }
-    uint64_t size() const override { return len_; }
-private:
-    std::shared_ptr<RegionSource> parent_;
-    uint64_t base_, len_;
-};
 
 // 数据相位视图访问记录（领域 #3 / 免 spool 直读的区间推导依据）：私有状态机
 // idle → active（条目首次数据访问激活）→ 下一条目重置。read/seek 双记——
@@ -418,7 +336,7 @@ public:
             if (payload > first) continue;                     // 载荷须始于首读前
             if (first >= payload + esz) continue;              // 首读须落在载荷内
             if (payload + esz > view_->size()) continue;
-            return std::make_shared<RegionView>(view_, payload, esz);
+            return ViewFactory::region(view_, payload, esz);
         }
         return nullptr;
     }
@@ -720,7 +638,7 @@ OpenOutcome try_open(Format fmt,
             archive_read_set_options(a, opt.c_str());
         }
         std::shared_ptr<SeekView> v = view;
-        if (!v && spool) v = std::make_shared<SpoolSeekView>(spool);
+        if (!v && spool) v = ViewFactory::spool(spool);
         auto r = std::make_shared<LaSeqReader>(a, archive_entry_new(),
                                                (!spool && !v) ? streamingSrc.get() : nullptr,
                                                spool, v);
@@ -816,9 +734,10 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
                                                const EngineOptions& opt,
                                                uint64_t base, uint64_t length) {
     // 码表探测视图不挂 meter：多候选各重读一遍中央目录，会虚增根消耗计数
+    ViewFactory probe;   // 码表探测视图不挂 meter：多候选各重读一遍中央目录，会虚增根消耗
     std::string cs = detect_zip_charset(
-        [&] { return std::make_shared<FileSeekView>(path, nullptr, base, length); });
-    auto view = std::make_shared<FileSeekView>(path, opt.meter, base, length);
+        [&] { return probe.probeFile(path, base, length); });
+    auto view = ViewFactory{opt.meter}.rootFile(path, base, length);
     std::unique_ptr<PushbackSource> nullSrc{};
     auto oc = try_open(Format::Zip, nullSrc, nullptr, nullptr, view, cs.c_str());
     if (oc.reader) return std::move(oc.reader);
@@ -828,7 +747,7 @@ std::shared_ptr<ContainerReader> open_zip_file(const std::wstring& path,
             auto cand = pw.nextAttempt(layer);
             if (!cand)
                 throw PasswordExhausted(layer.display, "密码缺失或已耗尽: " + layer.display);
-            auto v2 = std::make_shared<FileSeekView>(path, opt.meter, base, length);
+            auto v2 = ViewFactory{opt.meter}.rootFile(path, base, length);
             auto oc2 = try_open(Format::Zip, nullSrc, nullptr, &*cand, v2, cs.c_str());
             if (oc2.reader) {
                 pw.reportSuccess(layer, *cand);
@@ -889,7 +808,7 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         auto spool = spool_all(*src, opt);
         src.reset();
         std::string cs = detect_zip_charset(
-            [&] { return std::make_shared<SpoolSeekView>(spool); });
+            [&] { return ViewFactory::spool(spool); });
         std::unique_ptr<PushbackSource> nullSrc{};
         auto oc = try_open(fmt, nullSrc, spool, nullptr, nullptr, cs.c_str());
         if (oc.reader) return std::move(oc.reader);

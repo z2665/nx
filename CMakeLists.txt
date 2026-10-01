@@ -56,6 +56,7 @@ set(NX_CORE_SOURCES
   src/filter.cpp
   src/engines.cpp
   src/szcom.cpp
+  src/views.cpp
   src/sink.cpp
   src/walker.cpp
   src/gui.cpp
