@@ -54,7 +54,9 @@ set(NX_CORE_SOURCES
   src/password.cpp
   src/volumeset.cpp
   src/filter.cpp
-  src/engines.cpp
+  src/namecodec.cpp
+  src/laseq.cpp
+  src/open.cpp
   src/szcom.cpp
   src/views.cpp
   src/sink.cpp
