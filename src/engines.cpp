@@ -23,9 +23,12 @@ enum class FailKind { Password, Corrupt, Other };
 // 无 EFS 标志的 zip/tar 条目名是本地码表（CP932/GBK…）原始字节；libarchive 按
 // CP437 兜底转成"合法但乱码"的 UTF-8（或漏转直接给原始字节），经 utf8_to_wide
 // 失败后消毒成 "_"。此处：反推 CP437 恢复原始字节 → 严格 UTF-8 → CJK 码表评分
-// 选择（假名加分=日文，系统 ACP 平手优先=中文），每进程粘性（同一包语言一致）。
-int g_nameCp = 0;
-
+// 选择（假名加分=日文，系统 ACP 平手优先=中文）。
+// NameCodec（领域 #5）：每读取器一份——同容器内码表粘性一致，跨容器各自判定
+// （原进程级全局 g_nameCp 会让多输入串包会话沿用首包语言，后续包判错）。
+struct NameCodec {
+    int stickyCp = 0;   // 本容器已确认的码表（0 = 未定）
+};
 bool strict_decode(const std::string& raw, int cp, std::wstring* out) {
     int n = MultiByteToWideChar(cp, MB_ERR_INVALID_CHARS, raw.data(),
                                 static_cast<int>(raw.size()), nullptr, 0);
@@ -52,7 +55,7 @@ int score_w(const std::wstring& w) {
     return kana * 4 + cjk - halfKana * 2 - weird * 8;
 }
 
-std::string fix_archive_name(const char* nm) {
+std::string fix_name(NameCodec& codec, const char* nm) {
     if (!nm) return "";
     std::string s(nm);
     bool high = false;
@@ -88,9 +91,9 @@ std::string fix_archive_name(const char* nm) {
     // CJK 码表选择：粘性优先，否则评分（候选顺序 = 平手优先级）
     int acp = GetACP();
     int cand[5] = {acp, 936, 950, 949, 932};
-    if (g_nameCp) {
+    if (codec.stickyCp) {
         std::wstring w;
-        if (strict_decode(raw, g_nameCp, &w))
+        if (strict_decode(raw, codec.stickyCp, &w))
             return wide_to_utf8(w);
     }
     int bestCp = 0, bestScore = INT_MIN;
@@ -106,7 +109,7 @@ std::string fix_archive_name(const char* nm) {
         }
     }
     if (bestCp) {
-        g_nameCp = bestCp;
+        codec.stickyCp = bestCp;
         return wide_to_utf8(bestW);
     }
     return s;   // 全部失败：保留 libarchive 原名（不再产生空名）
@@ -472,6 +475,7 @@ private:
     std::shared_ptr<SpoolBuffer> spool_;
     std::shared_ptr<SeekView> view_;          // seekable 模式（spool/文件）
     CbCtx ctx_;
+    NameCodec codec_;                   // §3.2 码表探测（每读取器粘性）
     // probe 预取条目重放队列（D6 结构修复）：只存元数据 + 迭代序号，绝不持条目源——
     // LaEntrySource 经 shared_from_this() 持回指读取器的强引用，存进读取器自己的
     // 队列即构成自引用环（15GB 临时文件残留案例根因）：打开失败或中途弃置的读取器
@@ -550,7 +554,7 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
         log_err("[nx] ! 条目 %d 名字无法解码（未知码表），已合成占位名\n", curIdx_);
         out.name = "__noname_" + std::to_string(curIdx_);
     } else {
-        out.name = fix_archive_name(nm);   // §3.2 文件名编码：无 EFS 标志的 CP437 乱码修复
+        out.name = fix_name(codec_, nm);   // §3.2 文件名编码：无 EFS 标志的 CP437 乱码修复
     }
     auto ft = archive_entry_filetype(e_.get());   // la_mode_t（MSVC 无 mode_t）
     out.isDir = (ft & AE_IFMT) == AE_IFDIR;
