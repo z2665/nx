@@ -540,14 +540,26 @@ private:
 
 class EntrySource : public ByteSource {
 public:
-    EntrySource(std::shared_ptr<SevenZipReader> r, uint32_t idx) : r_(std::move(r)), idx_(idx) {}
-    size_t read(std::span<byte> buf) override { return r_->readEntry(idx_, buf); }
+    // 批次 4（所有权模型 fixed 变体）：对读取器只持弱引用——异步写出的存活由
+    // Sink 任务经 keepAlive() 令牌配套保活
+    EntrySource(std::shared_ptr<SevenZipReader> r, uint32_t idx) : r_(r), idx_(idx) {}
+    size_t read(std::span<byte> buf) override {
+        auto r = r_.lock();
+        if (!r) throw Error("条目流已失效（读取器已销毁）");
+        return r->readEntry(idx_, buf);
+    }
     std::optional<uint64_t> sizeHint() const override {
-        uint64_t s = r_->entrySize(idx_);
+        auto r = r_.lock();
+        if (!r) return {};
+        uint64_t s = r->entrySize(idx_);
         return s == UINT64_MAX ? std::optional<uint64_t>{} : s;
     }
+    std::shared_ptr<void> keepAlive() const override {
+        auto r = r_.lock();
+        return r ? std::shared_ptr<void>(r) : nullptr;   // 别名构造令牌
+    }
 private:
-    std::shared_ptr<SevenZipReader> r_;
+    std::weak_ptr<SevenZipReader> r_;
     uint32_t idx_;
 };
 

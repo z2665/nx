@@ -36,6 +36,10 @@ public:
     // 可选：底层为可 seek 区间支撑时返回之（嵌套容器免 spool 直读）。
     // 仅在消费方已开始 read（如 detect 已 peek）后有意义——区间推导依赖读取位置记录。
     virtual std::shared_ptr<RegionSource> seekRegion() const { return nullptr; }
+    // KeepAlive 令牌（批次 4，所有权模型 fixed 变体）：条目源对读取器只持弱引用，
+    // 异步写出任务须在提交时捕获本令牌以延长底层读者生命周期（同步路径不需要
+    // ——调用栈天然持有）。无底层读者（文件/spool/内存）返回空
+    virtual std::shared_ptr<void> keepAlive() const { return nullptr; }
 };
 
 using SourcePtr = std::unique_ptr<ByteSource>;
@@ -108,6 +112,7 @@ public:
     std::span<const byte> read_direct(size_t maxN) override { return inner_->read_direct(maxN); }
     std::optional<uint64_t> sizeHint() const override { return inner_->sizeHint(); }
     std::shared_ptr<RegionSource> seekRegion() const override { return inner_->seekRegion(); }
+    std::shared_ptr<void> keepAlive() const override { return inner_->keepAlive(); }
 private:
     std::shared_ptr<ByteSource> inner_;
 };
@@ -147,6 +152,7 @@ public:
     uint64_t pos() const { return base_; }
     uint64_t histStart() const { return base_ - hist_.size(); }
     std::shared_ptr<RegionSource> seekRegion() const override { return src_->seekRegion(); }
+    std::shared_ptr<void> keepAlive() const override { return src_->keepAlive(); }
 
 private:
     void pull(size_t n);   // 从上游补充 pend 至少 n 字节（或 EOF）

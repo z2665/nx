@@ -504,18 +504,37 @@ private:
     bool dataPhase_ = false;     // 当前条目已开始数据读取（激活视图访问记录）
 };
 
+// 条目源：对读取器只持弱引用（批次 4，所有权模型 fixed 变体——父方向强边消除，
+// 强所有权图从此无环；异步存活由 Sink 任务经 keepAlive() 令牌配套保活）
 class LaEntrySource : public ByteSource {
 public:
-    LaEntrySource(std::shared_ptr<LaSeqReader> r, int idx) : r_(std::move(r)), idx_(idx) {}
-    size_t read(std::span<byte> buf) override { return r_->readEntryData(idx_, buf); }
+    LaEntrySource(std::shared_ptr<LaSeqReader> r, int idx) : r_(r), idx_(idx) {}
+    size_t read(std::span<byte> buf) override {
+        auto r = r_.lock();
+        if (!r) throw Error("条目流已失效（读取器已销毁）");
+        return r->readEntryData(idx_, buf);
+    }
     // D5：libarchive 块视图直借，省一次 memcpy
     std::span<const byte> read_direct(size_t maxN) override {
-        return r_->readEntryDirect(idx_, maxN);
+        auto r = r_.lock();
+        if (!r) throw Error("条目流已失效（读取器已销毁）");
+        return r->readEntryDirect(idx_, maxN);
     }
-    std::optional<uint64_t> sizeHint() const override { return r_->entrySize(idx_); }
-    std::shared_ptr<RegionSource> seekRegion() const override { return r_->regionOf(idx_); }
+    std::optional<uint64_t> sizeHint() const override {
+        auto r = r_.lock();
+        if (!r) return {};
+        return r->entrySize(idx_);
+    }
+    std::shared_ptr<RegionSource> seekRegion() const override {
+        auto r = r_.lock();
+        return r ? r->regionOf(idx_) : nullptr;
+    }
+    std::shared_ptr<void> keepAlive() const override {
+        auto r = r_.lock();
+        return r ? std::shared_ptr<void>(r) : nullptr;   // 别名构造令牌
+    }
 private:
-    std::shared_ptr<LaSeqReader> r_;
+    std::weak_ptr<LaSeqReader> r_;
     int idx_;
 };
 

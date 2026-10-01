@@ -187,10 +187,13 @@ std::string Sink::emitFile(const std::string& rel, std::shared_ptr<ByteSource> s
     std::wstring finalPath = join_rel(outRoot_, r);
 
     if (independent && pool_) {
-        // D4：独立源（spool/文件支撑，不受迭代前进影响）→ 线程池异步写
+        // D4：独立源（spool/文件支撑，不受迭代前进影响）→ 线程池异步写。
+        // KeepAlive（批次 4，所有权模型 fixed 变体）：条目源对读取器只持弱引用，
+        // 任务期保活令牌在此捕获——任务可超出 walker 栈帧存活，读者不可先亡
         Sink* self = this;
+        auto keepAlive = src->keepAlive();
         pool_->submit([self, r, finalPath, expectedSize, displayDepth,
-                       src = std::move(src)]() mutable {
+                       src = std::move(src), keepAlive = std::move(keepAlive)]() mutable {
             try {
                 self->writeOne(r, finalPath, expectedSize, *src, displayDepth);
             } catch (std::exception& e) {
