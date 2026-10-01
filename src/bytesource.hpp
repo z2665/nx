@@ -1,8 +1,10 @@
 // bytesource.hpp：唯一流抽象 + 各实现（设计 §4 核心抽象）
 #pragma once
 #include "util.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -73,6 +75,29 @@ private:
 class NullSource : public ByteSource {
 public:
     size_t read(std::span<byte>) override { return 0; }
+};
+
+// 内存字节流（批次 3 可测性）：持有字节副本——测试/管线内嵌免文件系统；
+// 零拷贝直通（read_direct）指向内部缓冲
+class MemorySource : public ByteSource {
+public:
+    explicit MemorySource(std::vector<byte> data) : data_(std::move(data)) {}
+    size_t read(std::span<byte> buf) override {
+        size_t n = std::min(buf.size(), data_.size() - pos_);
+        if (n) std::memcpy(buf.data(), data_.data() + pos_, n);
+        pos_ += n;
+        return n;
+    }
+    std::span<const byte> read_direct(size_t maxN) override {
+        size_t n = std::min(maxN, data_.size() - pos_);
+        auto v = std::span<const byte>(data_.data() + pos_, n);
+        pos_ += n;
+        return v;
+    }
+    std::optional<uint64_t> sizeHint() const override { return data_.size(); }
+private:
+    std::vector<byte> data_;
+    size_t pos_ = 0;
 };
 
 // 共享持有的包装（把 shared_ptr 适配成 unique 语义给 PushbackSource 用）

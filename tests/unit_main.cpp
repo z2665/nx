@@ -5,6 +5,7 @@
 #include "util.hpp"
 #include "format.hpp"
 #include "detect.hpp"
+#include "filter.hpp"
 #include "layer.hpp"
 #include "report.hpp"
 #include "sink.hpp"
@@ -16,7 +17,9 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
+#include <zlib.h>
 
 using namespace nx;
 
@@ -347,6 +350,108 @@ void test_layer_ctx() {
     CHECK(flt.throughFilter);
 }
 
+// ---- MemorySource + 过滤器泵/detect 壳集成（批次 3：免文件系统的管线内测试）----
+namespace {
+// 在本线程消费泵输出（真实 filter_decode + BoundedQueue 背压路径）
+std::string pump_filter(Format fmt, std::vector<byte> input, std::exception_ptr& err) {
+    BoundedQueue<std::vector<byte>> q(4);
+    std::string out;
+    {
+        PushbackSource pb(std::make_unique<MemorySource>(std::move(input)), 64 << 10);
+        std::jthread pump([&] { filter_decode(fmt, pb, q, err); });
+        for (;;) {
+            auto blk = q.pop();
+            if (!blk) break;
+            out.append(reinterpret_cast<const char*>(blk->data()), blk->size());
+        }
+    }   // pb 析构（异常路径亦然）
+    return out;
+}
+} // namespace
+
+void test_filter_pipeline() {
+    // 多成员 gzip 串联（§3.1）：两个成员拼接一次解码，经真实 filter_decode +
+    // BoundedQueue 背压路径（zlib 压缩，与产品同库）
+    const char* a = "hello ";
+    const char* b = "world";
+    std::vector<byte> gz;
+    {
+        z_stream s{};
+        deflateInit2(&s, 6, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY);
+        auto compressOne = [&](const char* p, size_t n) {
+            std::vector<byte> out(static_cast<size_t>(deflateBound(&s, static_cast<uLong>(n))) + 64);
+            s.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(p));
+            s.avail_in = static_cast<uInt>(n);
+            s.next_out = out.data();
+            s.avail_out = static_cast<uInt>(out.size());
+            deflate(&s, Z_FINISH);
+            out.resize(out.size() - s.avail_out);
+            deflateReset(&s);
+            gz.insert(gz.end(), out.begin(), out.end());
+        };
+        compressOne(a, 6);
+        compressOne(b, 5);
+        deflateEnd(&s);
+    }
+    std::exception_ptr err;
+    std::string out = pump_filter(Format::Gzip, gz, err);
+    CHECK(!err);
+    CHECK_EQ(out, std::string("hello world"));
+
+    // 截断流（在成员数据中段截断，非零填充区）→ CorruptError（经 err 传回）
+    err = nullptr;
+    std::vector<byte> trunc(gz.begin(), gz.begin() + (gz.size() / 2));
+    pump_filter(Format::Gzip, trunc, err);
+    bool corrupt = false;
+    if (err) {
+        try {
+            std::rethrow_exception(err);
+        } catch (CorruptError&) {
+            corrupt = true;
+        } catch (...) {
+        }
+    }
+    CHECK(corrupt);
+
+    // 尾部全零容忍（部分工具在 gzip 后补零）
+    err = nullptr;
+    std::vector<byte> gzZ(gz);
+    gzZ.insert(gzZ.end(), 64, byte(0));
+    out = pump_filter(Format::Gzip, gzZ, err);
+    CHECK(!err);
+    CHECK_EQ(out, std::string("hello world"));
+
+    // 尾部垃圾（非零）→ CorruptError
+    err = nullptr;
+    std::vector<byte> junk(gz);
+    junk.push_back(byte(0xEE));
+    junk.push_back(byte(0xFF));
+    pump_filter(Format::Gzip, junk, err);
+    corrupt = false;
+    if (err) {
+        try {
+            std::rethrow_exception(err);
+        } catch (CorruptError&) {
+            corrupt = true;
+        } catch (...) {
+        }
+    }
+    CHECK(corrupt);
+}
+
+void test_detect_shell() {
+    // detect() 壳的补拉路径：SFX zip 在 64KiB 窗口之外 → 4MiB 补拉命中
+    std::vector<byte> buf(100 << 10, byte(0));   // 100KiB 前缀 > 64KiB 首扫窗
+    std::vector<byte> lfh(34, 0);
+    lfh[0] = 'P'; lfh[1] = 'K'; lfh[2] = 3; lfh[3] = 4;
+    lfh[26] = 4;
+    std::memcpy(buf.data() + (buf.size() - 64), lfh.data(), lfh.size());
+    PushbackSource pb(std::make_unique<MemorySource>(std::move(buf)), 8 << 20);
+    Detection d = detect(pb, "");
+    CHECK(d.fmt == Format::Zip);
+    CHECK(d.sfxOffset && *d.sfxOffset == (100 << 10) - 64);
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -384,6 +489,8 @@ int main() {
     test_render_report();
     test_sanitize_rel();
     test_layer_ctx();
+    test_filter_pipeline();
+    test_detect_shell();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
