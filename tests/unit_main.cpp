@@ -5,6 +5,7 @@
 #include "util.hpp"
 #include "format.hpp"
 #include "detect.hpp"
+#include "report.hpp"
 #include "sink.hpp"
 #include "stego.hpp"
 #include "volumeset.hpp"
@@ -263,6 +264,34 @@ void test_parse_atom_header() {
     CHECK(!a.toEof && a.atomSize < a.hdrSize);
 }
 
+// ---- render_report（纯渲染）：结构、转义、verify 分支 ----
+void test_render_report() {
+    ReportData d;
+    d.tool = "nx";
+    d.inputs = {R"(D:\a "quoted".zip)", "plain.zip"};
+    d.files = 3;
+    d.bytes = 1024;
+    d.inputBytes = 512;
+    d.containers = 2;
+    d.durationMs = 42;
+    std::string j = render_report(d);
+    CHECK(j.find("\"tool\": \"nx\"") != std::string::npos);
+    // 引号与反斜杠转义
+    CHECK(j.find(R"(D:\\a \"quoted\".zip)") != std::string::npos);
+    CHECK(j.find("\"files\": 3") != std::string::npos);
+    CHECK(j.find("\"inputBytes\": 512") != std::string::npos);
+    CHECK(j.find("\"verify\": null") != std::string::npos);   // 未启用 verify
+    CHECK(j.find("password") == std::string::npos ||   // 无密码值（prompts 计数字段除外）
+          j.find("\"passwordPrompts\"") != std::string::npos);
+
+    d.verifyEnabled = true;
+    d.verified = {VerifiedFile{"a\nb.txt", 10, "cafe"}};
+    j = render_report(d);
+    CHECK(j.find("\"verify\": [") != std::string::npos);
+    CHECK(j.find(R"("a\nb.txt")") != std::string::npos);      // 控制字符 \u000a 转义
+    CHECK(j.find("\"sha256\": \"cafe\"") != std::string::npos);
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -297,6 +326,7 @@ int main() {
     test_detect_from_bytes();
     test_eocd_from_window();
     test_parse_atom_header();
+    test_render_report();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

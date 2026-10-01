@@ -61,6 +61,7 @@ set(NX_CORE_SOURCES
   src/gui.cpp
   src/log.cpp
   src/menu.cpp
+  src/report.cpp
 )
 
 add_executable(nx

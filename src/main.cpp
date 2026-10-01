@@ -10,6 +10,7 @@
 #include "diag.hpp"
 #include "log.hpp"
 #include "outcome.hpp"
+#include "report.hpp"
 #include <windows.h>
 #include <shellapi.h>
 #include <charconv>
@@ -59,70 +60,29 @@ void usage() {
         "退出码: 0 成功 | 1 部分失败 | 2 密码缺失或耗尽/用户取消 | 3 超限熔断 | 4 缺分片 | 64 用法错误\n");
 }
 
-std::string json_escape(const std::string& v) {
-    std::string r;
-    r.reserve(v.size() + 2);
-    r += '"';
-    for (unsigned char c : v) {
-        switch (c) {
-            case '"': r += "\\\""; break;
-            case '\\': r += "\\\\"; break;
-            case '\n': r += "\\n"; break;
-            case '\r': r += "\\r"; break;
-            case '\t': r += "\\t"; break;
-            default:
-                if (c < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    r += buf;
-                } else {
-                    r += static_cast<char>(c);
-                }
-        }
-    }
-    r += '"';
-    return r;
-}
-
-// --report 内容（D8）：统计/耗时/校验；不含任何密码信息。始终进日志（M3 需求 6）
+// --report 快照（D8）：统计/耗时/校验；不含任何密码信息。始终进日志（M3 需求 6）。
+// 渲染在 report.cpp 纯函数（批次 1：snapshot 与 render 分离，可单测）
 std::string build_report(Session& s, const std::vector<std::wstring>& inputs,
                          ULONGLONG elapsedMs, const std::string& tool) {
-    std::string j;
-    j += "{\n  \"tool\": " + json_escape(tool) + ",\n";
-    j += "  \"inputs\": [";
-    for (size_t i = 0; i < inputs.size(); ++i) {
-        if (i) j += ", ";
-        j += json_escape(wide_to_utf8(inputs[i]));
-    }
-    j += "],\n";
-    j += "  \"files\": " + std::to_string(s.stats.filesOut.load()) + ",\n";
-    j += "  \"bytes\": " + std::to_string(s.stats.bytesOut.load()) + ",\n";
-    j += "  \"inputBytes\": " + std::to_string(s.meter.bytes.load()) + ",\n";
-    double inB = static_cast<double>(s.meter.bytes.load());
-    j += "  \"expansionRatio\": " +
-         std::to_string(inB > 0 ? s.stats.bytesOut.load() / inB : 0.0) + ",\n";
-    j += "  \"containers\": " + std::to_string(s.stats.containers.load()) + ",\n";
-    j += "  \"filters\": " + std::to_string(s.stats.filters.load()) + ",\n";
-    j += "  \"durationMs\": " + std::to_string(elapsedMs) + ",\n";
-    j += "  \"corruptEntries\": " + std::to_string(s.stats.corrupt.load()) + ",\n";
-    j += "  \"failedBranches\": " + std::to_string(s.stats.branchesFailed.load()) + ",\n";
-    j += "  \"passwordPrompts\": " + std::to_string(s.pw.promptCount()) + ",\n";
-    j += "  \"verify\": ";
+    ReportData d;
+    d.tool = tool;
+    for (auto& in : inputs) d.inputs.push_back(wide_to_utf8(in));
+    d.files = s.stats.filesOut.load();
+    d.bytes = s.stats.bytesOut.load();
+    d.inputBytes = s.meter.bytes.load();
+    double inB = static_cast<double>(d.inputBytes);
+    d.expansionRatio = inB > 0 ? s.stats.bytesOut.load() / inB : 0.0;
+    d.containers = s.stats.containers.load();
+    d.filters = s.stats.filters.load();
+    d.durationMs = elapsedMs;
+    d.corruptEntries = s.stats.corrupt.load();
+    d.failedBranches = s.stats.branchesFailed.load();
+    d.passwordPrompts = s.pw.promptCount();
     if (s.sink && s.sink->verifyEnabled()) {
-        j += "[\n";
-        auto& files = s.sink->verified();
-        for (size_t i = 0; i < files.size(); ++i) {
-            j += "    {\"path\": " + json_escape(files[i].rel) +
-                 ", \"bytes\": " + std::to_string(files[i].bytes) +
-                 ", \"sha256\": \"" + files[i].sha256 + "\"}";
-            j += (i + 1 < files.size()) ? ",\n" : "\n";
-        }
-        j += "  ]\n";
-    } else {
-        j += "null\n";
+        d.verifyEnabled = true;
+        d.verified = s.sink->verified();
     }
-    j += "}\n";
-    return j;
+    return render_report(d);
 }
 
 void write_report_file(const std::wstring& path, const std::string& content) {
