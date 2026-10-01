@@ -1,12 +1,12 @@
 # nx 现代化重构路线图（refactor-roadmap）
 
-> **版本**：v2（2026-10-02 全文重排，替代 v1 草案）　**基线**：commit `f647037`
+> **版本**：v2.1（2026-10-02 批次 0 完成回填）　**基线**：commit `f647037`（行号引用）
 > **配套**：[README.md](README.md)（进度权威）· [AGENTS.md](AGENTS.md)（工作区纪律）·
 > [nested-extractor-design.md](nested-extractor-design.md)（设计权威）
 >
-> **阅读指南**：§1–3 看动机与原则；§4 是立即要修的缺陷登记簿；§5 目标架构；
-> §6 四路审计详录（材料库，按需查阅）；§7 形式化验证方案；§8 执行计划（单一批次制）；
-> §9 决策记录。全部行号为 f647037 基线。
+> **阅读指南**：§1–3 看动机与原则；§4 缺陷登记簿（**D1-D8 已全部修复**，含验收记录）；
+> §5 目标架构；§6 四路审计详录（材料库，按需查阅）；§7 形式化验证方案（S1-S5 已落地）；
+> §8 执行计划（单一批次制，批次 0 已完成）；§9 决策记录。全部行号为 f647037 基线。
 
 ---
 
@@ -100,18 +100,24 @@ LaSeqReader ─own→ replayQ_ ─own→ ContainerEntry.data ─own→ LaEntrySo
 
 | 编号 | 问题 | 位置 | 修复方案 | 量 | 状态 |
 |---|---|---|---|---|---|
-| D1 | **命令行密码明文写入 nx.log**（运行头记录完整命令行） | log.cpp:71-81 | 写前对 argv 红线过滤：`-p/--password/--password-file` 的值替换 `***` | 15 行 | 待修 |
-| D2 | `--depth abc` 等非法参数 → `std::terminate`（stoi 标准异常未被捕获，违反退出码契约应 64） | main.cpp:230-232 | `std::from_chars`，失败抛 nx::Error | 10 行 | 待修 |
-| D3 | `Stats::firstHardError`（std::string）跨线程无锁读写（写持锁 sink.cpp:122-128；读无锁 sink.cpp:176、walker.cpp:149） | session.hpp:40 | HardErrorSlot：锁内快照；或 atomic 标志+锁内取消息 | 15 行 | 待修 |
-| D4 | `win_long_path` 路径超 1040 字符时采纳**未初始化栈缓冲**（GetFullPathNameW 超长不写缓冲） | util.cpp:39-49 | 两次调用协议（先取所需长度再按需分配） | 20 行 | 待修 |
-| D5 | `g_quiet` 普通 bool 跨线程读写（fuzz/GUI/工作线程并发） | log.cpp:18 | `std::atomic<bool>` | 1 行 | 待修 |
-| D6 | **replayQ_ 自引用环**（§1.2，两个触发族） | engines.cpp:460 等 | replayQ_ 只存 `{idx,name,meta}`，重放时重建 LaEntrySource——环结构性不可再形成；dtor 断言 `replayQ_.empty()` | 半天 | 待修 |
-| D7 | **过滤器链递归深度无上界**（容器分支才查 maxDepth，过滤器分支同 depth 递归）——4MiB 输入可构造数千层嵌套 gzip → 栈溢出/线程耗尽（DoS） | walker.cpp:341-347 | **已决策（决策 D-1，§9）**：过滤器链纳入 `--depth` 约束（每容器段内链长 ≤ maxDepth，容器段重置），默认 8→10 | 半天 | 已决策待实施 |
-| D8 | 小项合集：F3 死代码（LaSeqReader `reader` 形参不存成员即悬空、`SpoolBuffer::reader()` 全仓无调用）；F4 jthread/qs 构造顺序 OOM 死锁窗口；L4 `.Z` 后缀永不匹配（已小写化）；M7 `Sink::note` 直写 printf 绕过 log/quiet | engines.cpp:343、spool.hpp:40、walker.cpp:341、format.hpp:60-73、sink.cpp:118 | 删除/顺序调整/统一小写/走 `log_out` | ~20 行 | 待修 |
+| D1 | **命令行密码明文写入 nx.log**（运行头记录完整命令行） | log.cpp:71-81 | 写前对 argv 红线过滤：`-p/--password/--password-file` 的值替换 `***` | 15 行 | **已修复**（36d04d1） |
+| D2 | `--depth abc` 等非法参数 → `std::terminate`（stoi 标准异常未被捕获，违反退出码契约应 64） | main.cpp:230-232 | `std::from_chars`，失败抛 nx::Error | 10 行 | **已修复**（029b8da） |
+| D3 | `Stats::firstHardError`（std::string）跨线程无锁读写（写持锁 sink.cpp:122-128；读无锁 sink.cpp:176、walker.cpp:149） | session.hpp:40 | HardErrorSlot：锁内快照；或 atomic 标志+锁内取消息 | 15 行 | **已修复**（1e90f08，HardErrorSlot 自带互斥） |
+| D4 | `win_long_path` 路径超 1040 字符时采纳**未初始化栈缓冲**（GetFullPathNameW 超长不写缓冲） | util.cpp:39-49 | 两次调用协议（先取所需长度再按需分配） | 20 行 | **已修复**（0f8e937，1248 字符实测） |
+| D5 | `g_quiet` 普通 bool 跨线程读写（fuzz/GUI/工作线程并发） | log.cpp:18 | `std::atomic<bool>` | 1 行 | **已修复**（33b4c8c） |
+| D6 | **replayQ_ 自引用环**（§1.2，两个触发族） | engines.cpp:460 等 | replayQ_ 只存 `{idx,name,meta}`，重放时重建 LaEntrySource——环结构性不可再形成；dtor 断言 `replayQ_.empty()` | 半天 | **已修复**（44503e3，ReplayRecord 重放重建；校准见下 S3） |
+| D7 | **过滤器链递归深度无上界**（容器分支才查 maxDepth，过滤器分支同 depth 递归）——4MiB 输入可构造数千层嵌套 gzip → 栈溢出/线程耗尽（DoS） | walker.cpp:341-347 | **已决策（决策 D-1，§9）**：过滤器链纳入 `--depth` 约束（每容器段内链长 ≤ maxDepth，容器段重置），默认 8→10 | 半天 | **已修复**（12ec147） |
+| D8 | 小项合集：F3 死代码（LaSeqReader `reader` 形参不存成员即悬空、`SpoolBuffer::reader()` 全仓无调用）；F4 jthread/qs 构造顺序 OOM 死锁窗口；L4 `.Z` 后缀永不匹配（已小写化）；M7 `Sink::note` 直写 printf 绕过 log/quiet | engines.cpp:343、spool.hpp:40、walker.cpp:341、format.hpp:60-73、sink.cpp:118 | 删除/顺序调整/统一小写/走 `log_out` | ~20 行 | **已修复**（09d8850） |
 
-**D 批验收门**：46 属性 + 9 GUI 全绿；新增回归：加密嵌套 zip 失败重试 + 中途弃置
-（D6 两触发族）、过滤器链深度（D7，30 层 gzip 期望退出码 3）、`--depth abc` 期望 64、
-nx.log 无密码残留（grep 断言）。
+**D 批验收门**：✅ 49 属性 + 9 GUI 全绿（46→49：filter_depth_bomb / pw_retry_nested /
+arg_validation）；新增回归全部落地：加密嵌套 zip 失败重试 + 中途弃置（pw_retry_nested
+两形态，D6 触发族 1）、过滤器链深度（filter_depth_bomb，30 层 gzip 期望退出码 3）、
+`--depth abc` 期望 64（arg_validation）、nx.log 无密码残留（logging 内 grep 断言）。
+触发族 2（中途弃置）由哨兵在 fuzz 下覆盖（maxBytes 熔断/取消路径高频触发弃置）。
+**哨兵 S1-S5 已随行落地**（8dfe638，diag 模块 + fuzz 常开 + NX_DIAG_LEAKS_MAIN 诊断构建），
+校准实验：带环旧实现 + 前置目录加密 zip 无密码 → S3 案发现场 abort（进 0 出 1）；
+修复后同输入 exit 2 静默。D6 的 dtor 断言（S6）未做：重放队列类型层面已不可能持条目源，
+编译期保证强于运行时断言（弃置场景队列合法非空，断言反会误报）。
 
 ---
 
@@ -292,17 +298,17 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 ## 8 执行计划（单一批次制）
 
 > v1 中 Phase 0-3 与审计批次 B1-B6 两套体系已合并去重。总量约 **5-7 周**人工。
-> 每批独立全量回归：46 属性 + 9 GUI + fuzz + 真实样本端到端（15GB 隐写 ×2 哈希比对）。
+> 每批独立全量回归：49 属性 + 9 GUI + fuzz（哨兵常开）+ 真实样本端到端（15GB 隐写 ×2 哈希比对）。
 
-| 批次 | 内容 | 来源 | 量 | 验收门（增量） |
-|---|---|---|---|---|
-| **0 缺陷修复** | §4 D1-D8 全部（D6 环修复 + D7 过滤器链深度 + S1-S5 哨兵随行） | §4 | ~2.5d | §4 验收门 |
-| **1 低风险速赢** | FormatInfo 表 / NameCodec 会话 / Outcome+derive_exit_code / AccessRecorder / Detection.note / ascii_lower 统一 / detect·stego·report·volumeset 纯化 / SafePath / C++23 切换 + Result 别名试点 / M2 filter RAII 化 / M3 pullBlock | 领域 #1/3/4/5/12 + 函数式 P1 + M2/M3 | ~1 周 | 新增单测（纯核心）+ 全量 |
-| **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 |
-| **3 可测性** | PromptSink / MemorySource / 单测壳接入（消毒器·密码链·分片分组·退出码·detect） | 领域 #7 + 测试性 | ~3d | C++ 单测首批入套件 |
-| **4 契约与所有权** | **先过 Alloy 验收门** → EntryToken 契约 + weak_ptr/KeepAlive + 视图合并（make_* 三工厂 + MeteredViewFactory）+ engines 拆分五文件 + szcom cache_ 预算驱逐 | 领域 #9/10/13 + Phase 1 + F5 | ~1.5 周 | S1-S3 哨兵全绿 + 全量 |
-| **5 资源圈禁** | res/（UniqueFile/TempFile/com_ptr）全量迁移 + gsl::owner 标注 + audit_ownership.py（grep + AST 闭包检查器，校准标准 §7.3） | Phase 2 + M1/M4 | ~1 周 | 审计脚本零违规 + 全量 |
-| **6 验证常态化** | 哨兵 fuzz 常开 + clang-tidy CI 基线 /analyze 子集 + AGENTS 增"所有权纪律"一节 + 真实样本发布门固化 | Phase 3 | ~1d | CI 全绿 |
+| 批次 | 内容 | 来源 | 量 | 验收门（增量） | 状态 |
+|---|---|---|---|---|---|
+| **0 缺陷修复** | §4 D1-D8 全部（D6 环修复 + D7 过滤器链深度 + S1-S5 哨兵随行） | §4 | ~2.5d | §4 验收门 | ✅ **已完成**（2026-10-02，36d04d1…8dfe638；49/49 + 9/9 + fuzz 哨兵常开） |
+| **1 低风险速赢** | FormatInfo 表 / NameCodec 会话 / Outcome+derive_exit_code / AccessRecorder / Detection.note / ascii_lower 统一 / detect·stego·report·volumeset 纯化 / SafePath / C++23 切换 + Result 别名试点 / M2 filter RAII 化 / M3 pullBlock | 领域 #1/3/4/5/12 + 函数式 P1 + M2/M3 | ~1 周 | 新增单测（纯核心）+ 全量 | 待排期 |
+| **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | 待排期 |
+| **3 可测性** | PromptSink / MemorySource / 单测壳接入（消毒器·密码链·分片分组·退出码·detect） | 领域 #7 + 测试性 | ~3d | C++ 单测首批入套件 | 待排期 |
+| **4 契约与所有权** | **先过 Alloy 验收门** → EntryToken 契约 + weak_ptr/KeepAlive + 视图合并（make_* 三工厂 + MeteredViewFactory）+ engines 拆分五文件 + szcom cache_ 预算驱逐 | 领域 #9/10/13 + Phase 1 + F5 | ~1.5 周 | S1-S3 哨兵全绿 + 全量 | 待排期（S1-S3 已随批次 0 落地） |
+| **5 资源圈禁** | res/（UniqueFile/TempFile/com_ptr）全量迁移 + gsl::owner 标注 + audit_ownership.py（grep + AST 闭包检查器，校准标准 §7.3） | Phase 2 + M1/M4 | ~1 周 | 审计脚本零违规 + 全量 | 待排期 |
+| **6 验证常态化** | 哨兵 fuzz 常开 + clang-tidy CI 基线 /analyze 子集 + AGENTS 增"所有权纪律"一节 + 真实样本发布门固化 | Phase 3 | ~1d | CI 全绿 | 待排期（哨兵 fuzz 常开已随批次 0 落地） |
 
 **顺序依赖**：0 独立可发布 → 1/2/3 可并行排期 → 4 依赖 1（C++23/Result）与 2
 （LayerCtx）→ 5 依赖 4（视图合并先行）→ 6 收尾。

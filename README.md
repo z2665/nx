@@ -1,7 +1,8 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读**。46/46 属性测试 + GUI 冒烟 9/9 通过。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷登记簿 D1–D8 已全部修复，2026-10-02）。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0**。49/49 属性测试 + GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -170,6 +171,29 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   空名防御合成 `__noname_N`
 - CP932/GBK 独立语料回归通过
 
+### 重构批次 0 —— 缺陷登记簿 D1–D8 + 泄漏哨兵（2026-10-02，refactor-roadmap §4）
+
+四路独立审计确认的 8 项真实缺陷全部修复（行为语义零变化，49/49 + 9/9 全绿）：
+
+- **D1 安全**：nx.log 运行头命令行密码红线过滤（`-p`/`--password`/`--password-file` 值 → `***`）
+- **D6 泄漏根因**：`LaSeqReader::replayQ_` 自引用环结构性消除——重放队列只存
+  `{idx,name,meta}`，`next()` 重放现场重建条目源。环 = 15GB `nx-{GUID}.tmp` 残留案例根因
+  （失败尝试的读取器永不析构，连带 spool/视图）；触发族两形态均有语料回归
+  （`pw_retry_nested`：前置目录加密 zip 首轮错密码 + 无密码耗尽）
+- **D7/决策 D-1**：过滤器链纳入 `--depth` 约束（每容器段链长 ≤ maxDepth，容器段重置），
+  递归深度默认 8→10——原过滤器分支同 depth 无限递归，4MiB 嵌套 gzip 即可栈溢出（DoS）；
+  语料 `filter_depth_bomb`（30 层 gzip → 退出码 3）、`depth_bomb` 加深至 12 层
+- **D2**：`--depth/--max-ratio` 非法数值经 `from_chars` 全量校验 → 退出码 64（原 std::terminate）
+- **D3**：`Stats::firstHardError` 封装 `HardErrorSlot`（自带互斥）——跨线程读写 std::string 的 UB
+- **D4**：`win_long_path` 两次调用协议——超 1040 字符不再采纳未初始化栈缓冲（1248 字符实测）
+- **D5**：`g_quiet` → `std::atomic<bool>`（fuzz/GUI/写出线程并发读写竞态）
+- **D8**：SpoolBuffer::Reader 死代码删除 / 泵线程-QueueSource 构造顺序（OOM 死锁窗口）/
+  `.Z` 后缀小写匹配 / `Sink::note` 走 `log_out`
+- **哨兵 S1–S5**（`src/diag.hpp`，`NX_DIAG_LEAKS`，fuzz 常开）：spool/读取器活性注册表
+  （fuzz 每迭代 + main atexit 全灭断言）、try_open 失败出口守卫、~ThreadPool/~Sink 析构纪律。
+  校准：带环旧实现 + 前置目录加密 zip → S3 案发现场 abort；修复后同输入静默。
+  诊断构建：`tmp/build_diag.cmd`（`-DNX_DIAG_LEAKS_MAIN=ON` → `build-diag/nx.exe`）
+
 ## 测试
 
 ```bash
@@ -177,8 +201,8 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 46/46 属性测试
-python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe）
+python tests/run_tests.py        # 49/49 属性测试
+python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）
 ```

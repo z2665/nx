@@ -2,7 +2,8 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++20，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量：GUI 进度/隐写解压/性能优化/嵌套免 spool 直读，44/44 测试通过）。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷 D1-D8 + 泄漏哨兵 S1-S5 已完成，2026-10-02）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0，49/49 测试通过）。
 
 ## 构建与打包
 
@@ -25,8 +26,8 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 属性测试 46/46；NX_EXE 环境变量可覆盖被测 exe 路径
-python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore）
+python tests/run_tests.py        # 属性测试 49/49；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
 ```
 
@@ -59,6 +60,10 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
 
 ## 踩过的坑（改动相关代码前先看 git log）
 
+- **esft 类不得把 `shared_from_this()` 交给"将被自己持有的结构"**——LaSeqReader 的
+  replayQ_ 自引用环（失败尝试的读取器永不析构 → spool/视图连带泄漏，15GB 临时文件残留
+  案例根因）。防护三重：重放队列只存元数据（ReplayRecord）、try_open 失败出口哨兵 S3
+  （src/diag.hpp，fuzz 常开）、批次 5 的 AST 强闭包检查器。
 - `setlocale(LC_ALL, ".UTF8")` 是关键修复——C locale 下 libarchive 返回 NULL pathname（D:\…\2.zip 案例）。
 - zip 文件名解码走中央目录模式（File/Spool SeekView）；码表候选名须为 iconv 格式（如 `CP932`）；
   EOCD 的 cdSize/cdOffset 是**小端**（MP4 atom 是大端）；zip64 影子值须经 CD 签名自证。
