@@ -2,7 +2,7 @@
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
 重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷登记簿 D1–D8 已全部修复，2026-10-02）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1/2/3**。51/51 测试（unit_core 纯函数与集成单测 298 项 + 50 属性）+ GUI 冒烟 9/9 通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1/2/3/4**。52/52 测试（unit_core 298 项 + 所有权模型门 + 50 属性）+ GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -241,6 +241,26 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   （四命名体系/顺序陷阱/缺口告警/单卷退化/首卷意图）
 - nxunit 达 **298 项检查**（批次 1 起 43 → 298），随主构建产出、run_tests.py 自动调用
 
+### 重构批次 4 —— 契约与所有权（2026-10-02，refactor-roadmap §8）
+
+- **前置验收门（形式化）**：`tests/ownership_model.py` 可执行穷举模型检查器（对象≤6/
+  操作 7 种/深度≤12 全序列，即刻 GC + 强弱边 + 根可达，run_tests 以 `ownership_model`
+  用例常驻）。三变体结论：修复前语义复现 replayQ_ 泄漏反例（`open→probePush→failOpen`）；
+  仅 weak_ptr 无 KeepAlive 出现异步用后死亡（"两者必须配套"的形式化证明）；
+  weak+KeepAlive 全序列零违例。**方案过门后才动代码**
+- **weak_ptr + KeepAlive**：LaEntrySource/szcom EntrySource 对读取器改持弱引用
+  （父方向强边消除，强所有权图无环）；`ByteSource::keepAlive()` 虚令牌（别名构造），
+  Sink 异步任务提交时捕获——任务可超出 walker 栈帧存活而读者不先亡
+- **EntryToken 契约**（container.hpp）：迭代位置令牌三条款（重放只携带 {token,meta}、
+  显式索取、读取器成员容器不得持条目源）
+- **视图合并**：engines/szcom 两套逐行同构的 SeekView/SeekInput 家族 →
+  `src/views.{hpp,cpp}` 唯一实现 + ViewFactory（挂表纪律从注释变命名调用：
+  rootFile 挂 meter，probeFile/spool/region 不挂）
+- **engines.cpp 拆分**：897 行 → namecodec / laimp（内部共享头）/ zipcd / laseq /
+  open 五件，公共 API 不变
+- **szcom cache_ 预算驱逐**（F5）：与 materializeBatch 共享 batchBudget 的真 LRU +
+  字节记账；中读条目豁免（驱逐后重物化 pos 归零会内容错乱）
+
 ## 测试
 
 ```bash
@@ -248,7 +268,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 51/51（unit_core 单测+集成 298 项 + 50 属性）
+python tests/run_tests.py        # 52/52（unit_core 298 项 + 所有权模型门 + 50 属性）
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）
