@@ -2,6 +2,7 @@
 #include "util.hpp"
 #include <windows.h>
 #include <shellapi.h>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
@@ -15,7 +16,8 @@ constexpr uint64_t kMaxLogBytes = 5ull * 1024 * 1024;   // 5 MiB：超过截断�
 std::mutex g_logMx;
 FILE* g_logFile = nullptr;
 std::wstring g_logPath;
-bool g_quiet = false;   // log_set_quiet：抑制控制台双写
+// fuzz 静音/GUI/写出线程并发读写（roadmap D5）——普通 bool 是数据竞争 UB
+std::atomic<bool> g_quiet{false};
 
 void close_log() {
     if (g_logFile) {
@@ -31,6 +33,7 @@ std::wstring log_path() {
 }
 
 void log_open(int argc, char** utf8ArgsDummy) {
+    (void)argc;
     (void)utf8ArgsDummy;
     std::lock_guard<std::mutex> lk(g_logMx);
     if (g_logFile) return;
