@@ -245,14 +245,27 @@ def case_bad_crc():
 
 
 def case_depth_bomb():
-    """对抗：10 层 zip 链 > 默认深度 8 → 熔断退出码 3"""
+    """对抗：12 层 zip 链 > 默认深度 10（决策 D-1：8→10）→ 熔断退出码 3"""
     def build(d):
         cur = zip_bytes({"leaf.txt": b"bottom\n"})
-        for i in range(9):
+        for i in range(11):
             cur = zip_bytes({f"l{i}.zip": cur})
         with open(os.path.join(d, "bomb.zip"), "wb") as f:
             f.write(cur)
     write_case("depth_bomb", build, {})
+
+
+def case_filter_depth_bomb():
+    """对抗：30 层嵌套 gzip > 过滤器链深度上限（决策 D-1：过滤器链纳入 --depth，
+    默认 10）→ 熔断退出码 3。修复前过滤器分支同 depth 无限递归（4MiB 输入可
+    构造数千层嵌套 gzip → 栈溢出/线程耗尽，DoS 面）"""
+    def build(d):
+        cur = gzip.compress(b"filter chain bomb\n" * 64)
+        for _ in range(29):
+            cur = gzip.compress(cur)
+        with open(os.path.join(d, "bomb.gz"), "wb") as f:
+            f.write(cur)
+    write_case("filter_depth_bomb", build, {})
 
 
 def case_missing_volume():
@@ -274,6 +287,33 @@ def case_missing_volume():
     write_case("missing_volume", build, {})
 
 
+def case_pw_retry_nested():
+    """密码失败重试（D6 触发族 1 回归）：嵌套加密 zip 前置目录条目 + 首轮错密码。
+    probe 先把目录条目存入重放队列、再在首数据条目密码验证失败——修复前队列里
+    的条目源持读取器回指成自引用环，失败读取器永不析构（泄漏读取器+spool+视图，
+    15GB 临时文件残留案例根因）。结构上等价于 build-diag 校准语料。
+    依赖 7z CLI（AES zip）；候选顺序 [错, 对] 覆盖失败重试路径。"""
+    if not sevenz_available():
+        print("[gen] 跳过 pw_retry_nested（无 7z CLI）")
+        return
+    inner = make_files({"docs/readme.txt": "retry me\n" * 200,
+                        "data/blob.bin": os.urandom(120000)})
+
+    def build(d):
+        s = build_staging(d, inner, "_pr")
+        zp = os.path.abspath(os.path.join(d, "_vault.zip"))
+        # 压目录本身：7z 会把 docs/、data/ 目录条目写在最前（probe 队列非空的关键）
+        subprocess.run([SEVEN_ZIP, "a", "-tzip", "-mem=AES256", "-pRetryPw@2026", zp,
+                        "."], check=True, capture_output=True, cwd=s)
+        with open(zp, "rb") as f:
+            v = f.read()
+        os.remove(zp)
+        with open(os.path.join(d, "outer.tar.gz"), "wb") as f:
+            f.write(gzip.compress(tar_bytes({"vault.zip": v})))
+    expected = {f"outer.tar.gz/vault.zip/{k}": v for k, v in tree_hash(inner).items()}
+    write_case("pw_retry_nested", build, expected)
+
+
 def case_bare_gz():
     """裸过滤器根：plain.txt.gz → outDir/plain.txt"""
     content = b"just a gzipped file\n" * 500
@@ -281,6 +321,7 @@ def case_bare_gz():
         with open(os.path.join(d, "plain.txt.gz"), "wb") as f:
             f.write(gzip.compress(content))
     write_case("bare_gz", build, {"plain.txt": sha256(content)})
+
 
 
 def case_zspan():
@@ -525,6 +566,8 @@ ALL = [
     case_long_path,
     case_bad_crc,
     case_depth_bomb,
+    case_filter_depth_bomb,
+    case_pw_retry_nested,
     case_missing_volume,
     case_bare_gz,
     case_zspan,

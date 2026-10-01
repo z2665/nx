@@ -223,7 +223,7 @@ def main():
         r = add("bad_crc")
         run_extract_and_compare(r, "bad_crc", find_input(d, "badcrc.zip"), ["--keep-going"], 1)
 
-    # 深度炸弹：退出码 3
+    # 深度炸弹：退出码 3（12 层 zip 链 > 默认 10，决策 D-1）
     d = os.path.join(CASES, "depth_bomb")
     if os.path.isdir(d):
         r = add("depth_bomb")
@@ -232,6 +232,41 @@ def main():
         code, _o, stderr, _t = run_nx(["extract", find_input(d, "bomb.zip"), "-O", out,
                                        "--temp-dir", tmp])
         r.check(code == 3, f"深度炸弹退出码 {code}（期望 3）: {stderr.strip()[:200]}")
+
+    # 过滤器链深度炸弹（决策 D-1）：30 层嵌套 gzip > 链上限 10 → 退出码 3
+    # （修复前过滤器分支同 depth 无限递归 = DoS 面）
+    d = os.path.join(CASES, "filter_depth_bomb")
+    if os.path.isdir(d):
+        r = add("filter_depth_bomb")
+        out = fresh_out("filter_depth_bomb")
+        tmp = fresh_tmp("filter_depth_bomb")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "bomb.gz"), "-O", out,
+                                       "--temp-dir", tmp, "--no-prompt"])
+        r.check(code == 3, f"过滤器链炸弹退出码 {code}（期望 3）: {stderr.strip()[:200]}")
+
+    # 密码失败重试（D6 触发族 1 回归）：嵌套加密 zip + 前置目录条目 + 首轮错密码
+    # → 重试解开（修复前该形态的失败读取器因 replayQ_ 自引用环永不析构）
+    d = os.path.join(CASES, "pw_retry_nested")
+    if os.path.isdir(d):
+        r = add("pw_retry_nested")
+        run_extract_and_compare(
+            r, "pw_retry_nested", find_input(d, "outer.tar.gz"),
+            ["-p", "WrongPw@1", "-p", "RetryPw@2026", "--no-prompt"], 0)
+        # 无密码 + 非交互 → 密码耗尽 → 退出码 2（同触发族，失败即弃置）
+        out = fresh_out("pw_retry_nested_nopw")
+        tmp = fresh_tmp("pw_retry_nested_nopw")
+        code, _o, _e, _t = run_nx(["extract", find_input(d, "outer.tar.gz"), "-O", out,
+                                   "--temp-dir", tmp, "--no-prompt"])
+        r.check(code == 2, f"无密码场景退出码 {code}（期望 2）")
+
+    # 非法数值参数（D2）：from_chars 全量校验 → 退出码 64（原 std::terminate）
+    r = add("arg_validation")
+    d = os.path.join(CASES, "plain_zip")
+    for bad in (["--depth", "abc"], ["--depth", "12x"], ["--depth", "99999999999999999999"],
+                ["--max-ratio", "1x"]):
+        code, _o, _e, _t = run_nx(["extract", find_input(d, "plain.zip"), "-O",
+                                   os.path.join(WORK, "arg_validation_out")] + bad)
+        r.check(code == 64, f"{' '.join(bad)} 退出码 {code}（期望 64）")
 
     # 缺分片：退出码 4
     d = os.path.join(CASES, "missing_volume")
@@ -398,7 +433,7 @@ def main():
         else:
             print(f"[run] 注意：原菜单 exe 不存在，未还原: {orig}")
 
-    # 日志：文件存在 + 内容含运行头与汇总；5MiB 截断
+    # 日志：文件存在 + 内容含运行头与汇总；5MiB 截断；密码红线过滤（D1）
     r = add("logging")
     exeDir = os.path.dirname(os.path.abspath(NX_EXE))
     logf = os.path.join(exeDir, "nx.log")
@@ -407,6 +442,14 @@ def main():
         content = open(logf, encoding="utf-8", errors="replace").read()
         r.check("==== nx" in content, "日志缺少运行头")
         r.check('"tool"' in content, "日志缺少 report JSON（默认 reporter）")
+        # D1：命令行密码绝不入日志（项目第一安全纪律）
+        marker = "NxLogRedactProbe42"
+        out = fresh_out("log_redact")
+        run_nx(["extract", find_input(os.path.join(CASES, "plain_zip"), "plain.zip"),
+                "-O", out, "-p", marker, "--no-prompt"])
+        content = open(logf, encoding="utf-8", errors="replace").read()
+        r.check(marker not in content, "命令行密码明文泄漏到 nx.log（D1）")
+        r.check("-p ***" in content, "密码脱敏标记 *** 未出现（D1）")
         with open(logf, "wb") as f:
             f.write(b"x" * (6 * 1024 * 1024))
         run_nx(["--help"])
