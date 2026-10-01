@@ -4,13 +4,16 @@
 #include "outcome.hpp"
 #include "util.hpp"
 #include "format.hpp"
+#include "detect.hpp"
 #include "sink.hpp"
 #include "volumeset.hpp"
 
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace nx;
 
@@ -138,6 +141,48 @@ void test_format_info() {
             CHECK(kFormatTable[i].fmt != kFormatTable[j].fmt);
 }
 
+// ---- detect_from_bytes（纯核心）：魔数/结构校验/SFX ----
+void test_detect_from_bytes() {
+    auto det = [](std::vector<byte> v, std::optional<uint64_t> hint = std::nullopt) {
+        return detect_from_bytes(std::span<const byte>(v.data(), v.size()), hint);
+    };
+    // gzip：魔数 + FLG 高 3 位须为 0
+    CHECK(det({byte(0x1f), byte(0x8b), byte(8), byte(0)}).fmt == Format::Gzip);
+    CHECK(det({byte(0x1f), byte(0x8b), byte(8), byte(0xE0)}).fmt == Format::Unknown);
+    // zip 本地头：合法字段 vs 异常（方法越界仍判 zip 交引擎报错）
+    std::vector<byte> lfh(34, 0);
+    lfh[0] = 'P'; lfh[1] = 'K'; lfh[2] = 3; lfh[3] = 4;
+    lfh[26] = 4;   // nlen=4
+    CHECK(det(lfh).fmt == Format::Zip);
+    CHECK(det(lfh).detail == "stored");   // method=0
+    std::vector<byte> badLfh = lfh;
+    badLfh[8] = 200;   // method > 99 → 字段异常分支（仍 Zip）
+    CHECK(det(badLfh).fmt == Format::Zip);
+    // SFX：前缀 + zip 头 → sfxOffset 结构化记录，display 合成展示
+    std::vector<byte> sfx(1000, 0);
+    std::memcpy(sfx.data() + 500, lfh.data(), lfh.size());
+    Detection d = det(sfx);
+    CHECK(d.fmt == Format::Zip);
+    CHECK(d.sfxOffset && *d.sfxOffset == 500);
+    CHECK(d.display() == std::string("zip SFX@+500"));   // SFX 分支不带 stored（与原行为一致）
+    // 7z SFX
+    std::vector<byte> sfx7(64, 0);
+    const byte m7[] = {'7', 'z', 0xBC, 0xAF, 0x27, 0x1C};
+    std::memcpy(sfx7.data() + 10, m7, 6);
+    d = det(sfx7);
+    CHECK(d.fmt == Format::SevenZip && d.sfxOffset && *d.sfxOffset == 10);
+    CHECK(d.display() == std::string("7z SFX@+10"));
+    // 空窗口/垃圾 → Unknown，display 为 "unknown"
+    CHECK(det({}).fmt == Format::Unknown);
+    CHECK(det({1, 2, 3, 4, 5}).fmt == Format::Unknown);
+    CHECK(det({1, 2, 3, 4, 5}).display() == std::string("unknown"));
+    // iso：偏移 0x8001 的 CD001，且 sizeHint 门槛生效
+    std::vector<byte> iso(0x8006 + 16, 0);
+    std::memcpy(iso.data() + 0x8001, "CD001", 5);
+    CHECK(det(iso).fmt == Format::Iso);
+    CHECK(det(iso, 100).fmt == Format::Unknown);   // 提示小于 0x8006 → 不判 iso
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -169,6 +214,7 @@ int main() {
     test_sanitize_segment();
     test_match_split_name();
     test_format_info();
+    test_detect_from_bytes();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

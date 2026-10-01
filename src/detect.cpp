@@ -1,4 +1,5 @@
 #include "detect.hpp"
+#include <algorithm>
 #include <cstring>
 
 namespace nx {
@@ -50,25 +51,29 @@ bool looks_like_tar(std::span<const byte> p) {
     return true;
 }
 
+// zip 本地头字段合法性（offset-0 与 SFX 扫描共用；原两处逐字重复）
+bool valid_zip_lfh(const byte* q, size_t avail) {
+    if (avail < 30) return false;
+    unsigned method = q[8] | (q[9] << 8);
+    unsigned nlen = q[26] | (q[27] << 8);
+    unsigned elen = q[28] | (q[29] << 8);
+    return method <= 99 && nlen > 0 && nlen < 4096 && elen < 65536;
+}
+
 } // namespace
 
-Detection detect(PushbackSource& src, const std::string& nameHint) {
-    (void)nameHint;   // M0：内容优先；扩展名仅分片排序用（volumeset）
+// 纯核心：字节窗口 → 格式判定。所有 peek/refill 决策都在壳层
+Detection detect_from_bytes(std::span<const byte> p, std::optional<uint64_t> sizeHint) {
     Detection d;
-    auto p = src.peek(64 << 10);
     if (p.empty()) return d;
 
     // ---- 精确 magic（顺序按特异性）----
     if (magic(p, "PK\x03\x04", 4)) {
         // 本地头字段合法性：压缩方法已知、文件名长度合理
-        if (p.size() >= 30) {
+        if (valid_zip_lfh(p.data(), p.size())) {
             unsigned method = p[8] | (p[9] << 8);
-            unsigned nlen = p[26] | (p[27] << 8);
-            unsigned elen = p[28] | (p[29] << 8);
-            if (method <= 99 && nlen > 0 && nlen < 4096 && elen < 65536) {
-                d.fmt = Format::Zip; d.detail = (method == 0 ? "stored" : "deflate/其他");
-                return d;
-            }
+            d.fmt = Format::Zip; d.detail = (method == 0 ? "stored" : "deflate/其他");
+            return d;
         }
         d.fmt = Format::Zip; return d;   // 字段异常也按 zip 交给引擎报错
     }
@@ -111,47 +116,52 @@ Detection detect(PushbackSource& src, const std::string& nameHint) {
     // ---- SFX 前缀扫描（D1）：PE/安装器前缀内寻找 zip/7z/rar 魔数（窗口 ≈4MiB）----
     {
         size_t scanEnd = std::min<size_t>(p.size(), 4 << 20);
-        if (scanEnd == p.size() && p.size() < (4 << 20)) {
-            p = src.peek(4 << 20);   // 64KiB 内未命中且流可能更长 → 补拉到 4MiB
-            scanEnd = std::min<size_t>(p.size(), 4 << 20);
-        }
         for (size_t i = 0; i + 4 <= scanEnd; ++i) {
             const byte* q = p.data() + i;
             if (q[0] == 'P' && q[1] == 'K' && q[2] == 3 && q[3] == 4 && i + 30 <= scanEnd) {
-                unsigned method = q[8] | (q[9] << 8);
-                unsigned nlen = q[26] | (q[27] << 8);
-                unsigned elen = q[28] | (q[29] << 8);
-                if (method <= 99 && nlen > 0 && nlen < 4096 && elen < 65536) {
+                if (valid_zip_lfh(q, scanEnd - i)) {
                     d.fmt = Format::Zip;
-                    d.detail = "SFX@+" + std::to_string(i);
+                    d.sfxOffset = i;
                     return d;
                 }
             }
             if (i + 6 <= scanEnd && q[0] == '7' && q[1] == 'z' && q[2] == 0xBC && q[3] == 0xAF &&
                 q[4] == 0x27 && q[5] == 0x1C) {
                 d.fmt = Format::SevenZip;
-                d.detail = "SFX@+" + std::to_string(i);
+                d.sfxOffset = i;
                 return d;
             }
             if (i + 8 <= scanEnd && q[0] == 'R' && q[1] == 'a' && q[2] == 'r' && q[3] == '!' &&
                 q[4] == 0x1A) {
                 d.fmt = Format::Rar;
-                d.detail = std::string(q[7] == 1 ? "rar5" : "rar4") + " SFX@+" + std::to_string(i);
+                d.detail = q[7] == 1 ? "rar5" : "rar4";
+                d.sfxOffset = i;
                 return d;
             }
         }
     }
 
-    // ---- iso9660：magic 在 0x8001，需要 32KiB+6 peek ----
-    auto hint = src.sizeHint();
-    if ((!hint || *hint >= 0x8006)) {
-        auto q = src.peek(0x8006);
-        if (q.size() >= 0x8006 && std::memcmp(q.data() + 0x8001, "CD001", 5) == 0) {
+    // ---- iso9660：magic 在 0x8001，需要 32KiB+6 窗口 ----
+    if ((!sizeHint || *sizeHint >= 0x8006)) {
+        if (p.size() >= 0x8006 && std::memcmp(p.data() + 0x8001, "CD001", 5) == 0) {
             d.fmt = Format::Iso; return d;
         }
     }
 
     // brotli 无 magic（设计 §3.1）——M0 不支持试探解码
+    return d;
+}
+
+// 壳：决定窥探窗口——64KiB 首扫；未命中且窗口未达 SFX 扫描上限（4MiB）→ 补拉重扫
+Detection detect(PushbackSource& src, const std::string& nameHint) {
+    (void)nameHint;   // M0：内容优先；扩展名仅分片排序用（volumeset）
+    auto p = src.peek(64 << 10);
+    Detection d = detect_from_bytes(p, src.sizeHint());
+    if (d.fmt != Format::Unknown) return d;
+    if (p.size() < (4 << 20)) {
+        p = src.peek(4 << 20);   // 小窗未命中且流可能更长（含 iso 的 0x8006 偏移）
+        d = detect_from_bytes(p, src.sizeHint());
+    }
     return d;
 }
 

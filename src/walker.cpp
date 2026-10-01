@@ -286,8 +286,7 @@ bool fs_direct_open(Session& s, const std::wstring& path, const std::string& roo
         throw LimitError("递归深度上限为 0");
     }
     std::string layerId = "第 1 层 " + rootName + " (" + format_name(d.fmt) + ")";
-    layer_note(s, 0, rootName + " → " + format_name(d.fmt) +
-                          (d.detail.empty() ? "" : " " + d.detail) + " [直读]");
+    layer_note(s, 0, rootName + " → " + d.display() + " [直读]");
     gui::progress_stage("展开 " + rootName + "（" + format_name(d.fmt) + "）");
     std::shared_ptr<ContainerReader> reader;
     if (d.fmt == Format::Zip) {
@@ -366,8 +365,7 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, const std::string& sub,
         }
         std::string layerId = "第 " + std::to_string(newDepth) + " 层 " + origin +
                               " (" + format_name(d.fmt) + ")";
-        layer_note(s, depth, origin + " → " + format_name(d.fmt) +
-                                 (d.detail.empty() ? "" : " " + d.detail));
+        layer_note(s, depth, origin + " → " + d.display());
         gui::progress_stage("展开 " + origin + "（" + format_name(d.fmt) + "）");
         auto reader = open_container(std::move(pb), d.fmt, layerId, s.pw, s.engineOpt(),
                                      region);
