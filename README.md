@@ -2,7 +2,7 @@
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
 重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷登记簿 D1–D8 已全部修复，2026-10-02）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1**。50/50 测试（unit_core 纯函数单测 235 项 + 49 属性）+ GUI 冒烟 9/9 通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1/2**。51/51 测试（unit_core 纯函数单测 251 项 + 50 属性）+ GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -215,6 +215,19 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **nxunit**：首个 C++ 单测目标（tests/unit_main.cpp，随主构建产出，run_tests.py
   以 `unit_core` 用例自动调用）——235 项纯函数断言
 
+### 重构批次 2 —— 行为敏感：层身份 + 密码缓存键（2026-10-02，refactor-roadmap §8）
+
+- **密码缓存键语义修正（含真实 bug 修复）**：`LayerId{key, display}` 拆分——缓存/游标键 =
+  容器逻辑路径（`outer.tar.gz/a.tar.gz/data.zip`），提示/错误文本沿用"第 N 层 name (fmt)"。
+  修复前键 = 深度+名：不同父容器下的同名分片组（a/b.tar.gz 各含 data.zip.001+）共享键，
+  a 组耗尽候选把共享游标推过界 → **b 组连候选都不试即假性 PasswordExhausted**（实测 0 文件
+  解出，候选里明明有 b 的密码）；语料 `sibling_pw_cache` 固化（51 用例）
+- **LayerCtx**（src/layer.hpp）：{sub/origin/chain/logical/depth/filterChain/throughFilter}
+  收敛 walk 原 6 个散参数；descend 规则唯一化（forEntry 进新容器段 / forFilter 链+1 逻辑
+  路径不变——过滤器非密码层）；sub 受 --no-root 影响、logical 不受（层身份独立于输出布局）
+- **Walker 类**（run/runStego/fsDirectOpen）+ `resolve_runtime_options` 装配单点
+  （spool RAM 自适应 + 溢出目录默认从 main 迁入）
+
 ## 测试
 
 ```bash
@@ -222,7 +235,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 50/50（unit_core 单测 + 49 属性）
+python tests/run_tests.py        # 51/51（unit_core 单测 + 50 属性）
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）

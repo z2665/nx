@@ -304,7 +304,7 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 |---|---|---|---|---|---|
 | **0 缺陷修复** | §4 D1-D8 全部（D6 环修复 + D7 过滤器链深度 + S1-S5 哨兵随行） | §4 | ~2.5d | §4 验收门 | ✅ **已完成**（2026-10-02，36d04d1…8dfe638；49/49 + 9/9 + fuzz 哨兵常开） |
 | **1 低风险速赢** | FormatInfo 表 / NameCodec 会话 / Outcome+derive_exit_code / AccessRecorder / Detection.note / ascii_lower 统一 / detect·stego·report·volumeset 纯化 / SafePath / C++23 切换 + Result 别名试点 / M2 filter RAII 化 / M3 pullBlock | 领域 #1/3/4/5/12 + 函数式 P1 + M2/M3 | ~1 周 | 新增单测（纯核心）+ 全量 | ✅ **已完成**（2026-10-02，836a435…；nxunit 235 检查 + 50 属性 + 9 GUI。volumeset 的 select_group 拆分顺延批次 3（单测壳就绪后一并接入），其余全量落地） |
-| **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | 待排期 |
+| **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | ✅ **已完成**（2026-10-02，两步提交：LayerId key/display 拆分 + join_logical 逻辑路径键——修复真实 bug：不同父容器同名分片组共享"深度+名"键，a 组耗尽候选污染共享游标 → b 组假性 PasswordExhausted（0 文件）；LayerCtx 收敛 walk 散参数 + Walker 类 + resolve_runtime_options 装配单点。语料 sibling_pw_cache + nxunit 251 + 51/51 + 案例 L 15GB 复验） |
 | **3 可测性** | PromptSink / MemorySource / 单测壳接入（消毒器·密码链·分片分组·退出码·detect） | 领域 #7 + 测试性 | ~3d | C++ 单测首批入套件 | 待排期 |
 | **4 契约与所有权** | **先过 Alloy 验收门** → EntryToken 契约 + weak_ptr/KeepAlive + 视图合并（make_* 三工厂 + MeteredViewFactory）+ engines 拆分五文件 + szcom cache_ 预算驱逐 | 领域 #9/10/13 + Phase 1 + F5 | ~1.5 周 | S1-S3 哨兵全绿 + 全量 | 待排期（S1-S3 已随批次 0 落地） |
 | **5 资源圈禁** | res/（UniqueFile/TempFile/com_ptr）全量迁移 + gsl::owner 标注 + audit_ownership.py（grep + AST 闭包检查器，校准标准 §7.3） | Phase 2 + M1/M4 | ~1 周 | 审计脚本零违规 + 全量 | 待排期 |
