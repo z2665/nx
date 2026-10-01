@@ -17,45 +17,41 @@ enum class Format {
 
 enum class FormatClass { None, Filter, SeqContainer, TailContainer, RandContainer };
 
-inline FormatClass classify(Format f) {
-    switch (f) {
-        case Format::Gzip: case Format::Bzip2: case Format::Xz: case Format::Lzma:
-        case Format::Zstd: case Format::Lz4: case Format::CompressZ: case Format::Brotli:
-            return FormatClass::Filter;
-        case Format::Tar: case Format::Cpio: case Format::Ar:
-            return FormatClass::SeqContainer;
-        case Format::Zip:
-            return FormatClass::TailContainer;
-        case Format::SevenZip: case Format::Rar: case Format::Iso:
-        case Format::Cab: case Format::Wim:
-            return FormatClass::RandContainer;
-        default:
-            return FormatClass::None;
-    }
+// 格式知识表（领域 #1）：格式 → {类属, 名称} 的唯一事实源——
+// 原 classify()/format_name() 两个平行 switch 各自维护一份映射，改一处漏一处
+struct FormatInfo {
+    Format fmt;
+    FormatClass cls;
+    const char* name;
+};
+constexpr FormatInfo kFormatTable[] = {
+    {Format::Gzip, FormatClass::Filter, "gzip"},
+    {Format::Bzip2, FormatClass::Filter, "bzip2"},
+    {Format::Xz, FormatClass::Filter, "xz"},
+    {Format::Lzma, FormatClass::Filter, "lzma"},
+    {Format::Zstd, FormatClass::Filter, "zstd"},
+    {Format::Lz4, FormatClass::Filter, "lz4"},
+    {Format::CompressZ, FormatClass::Filter, "compress(.Z)"},
+    {Format::Brotli, FormatClass::Filter, "brotli"},
+    {Format::Tar, FormatClass::SeqContainer, "tar"},
+    {Format::Cpio, FormatClass::SeqContainer, "cpio"},
+    {Format::Ar, FormatClass::SeqContainer, "ar"},
+    {Format::Zip, FormatClass::TailContainer, "zip"},
+    {Format::SevenZip, FormatClass::RandContainer, "7z"},
+    {Format::Rar, FormatClass::RandContainer, "rar"},
+    {Format::Iso, FormatClass::RandContainer, "iso"},
+    {Format::Cab, FormatClass::RandContainer, "cab"},
+    {Format::Wim, FormatClass::RandContainer, "wim"},
+};
+
+constexpr FormatInfo format_info(Format f) {
+    for (const FormatInfo& e : kFormatTable)
+        if (e.fmt == f) return e;
+    return {Format::Unknown, FormatClass::None, "unknown"};
 }
 
-inline const char* format_name(Format f) {
-    switch (f) {
-        case Format::Gzip: return "gzip";
-        case Format::Bzip2: return "bzip2";
-        case Format::Xz: return "xz";
-        case Format::Lzma: return "lzma";
-        case Format::Zstd: return "zstd";
-        case Format::Lz4: return "lz4";
-        case Format::CompressZ: return "compress(.Z)";
-        case Format::Brotli: return "brotli";
-        case Format::Tar: return "tar";
-        case Format::Cpio: return "cpio";
-        case Format::Ar: return "ar";
-        case Format::Zip: return "zip";
-        case Format::SevenZip: return "7z";
-        case Format::Rar: return "rar";
-        case Format::Iso: return "iso";
-        case Format::Cab: return "cab";
-        case Format::Wim: return "wim";
-        default: return "unknown";
-    }
-}
+inline FormatClass classify(Format f) { return format_info(f).cls; }
+inline const char* format_name(Format f) { return format_info(f).name; }
 
 // 过滤器层后缀剥离（用于裸过滤器条目的输出命名）
 inline std::string strip_filter_suffixes(const std::string& name) {

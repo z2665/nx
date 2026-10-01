@@ -8,7 +8,9 @@
 #include "volumeset.hpp"
 
 #include <cstdio>
+#include <iterator>
 #include <string>
+#include <string_view>
 
 using namespace nx;
 
@@ -120,6 +122,22 @@ void test_match_split_name() {
     CHECK(!match_split_name("x.zip.abcdef"));  // 非纯数字
 }
 
+// ---- format_info 表（领域 #1）：类属/名称查询与表完整性 ----
+void test_format_info() {
+    CHECK_EQ(classify(Format::Gzip), FormatClass::Filter);
+    CHECK_EQ(classify(Format::Brotli), FormatClass::Filter);
+    CHECK_EQ(classify(Format::Tar), FormatClass::SeqContainer);
+    CHECK_EQ(classify(Format::Zip), FormatClass::TailContainer);
+    CHECK_EQ(classify(Format::SevenZip), FormatClass::RandContainer);
+    CHECK_EQ(classify(Format::Wim), FormatClass::RandContainer);
+    CHECK_EQ(classify(Format::Unknown), FormatClass::None);
+    CHECK(std::string_view(format_name(Format::CompressZ)) == "compress(.Z)");
+    CHECK(std::string_view(format_name(Format::Unknown)) == "unknown");
+    for (size_t i = 0; i < std::size(kFormatTable); ++i)
+        for (size_t j = i + 1; j < std::size(kFormatTable); ++j)
+            CHECK(kFormatTable[i].fmt != kFormatTable[j].fmt);
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -150,6 +168,7 @@ int main() {
     test_strip_filter_suffixes();
     test_sanitize_segment();
     test_match_split_name();
+    test_format_info();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
