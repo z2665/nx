@@ -48,8 +48,7 @@ private:
     bool dryRun_;
     bool verify_;
     std::unique_ptr<ThreadPool> pool_;   // D4：写出线程池 min(8, cores/2)
-    std::mutex m_;
-    std::mutex errM_;
+    std::mutex m_;                       // 重名登记/校验列表（firstHardError 的锁在 HardErrorSlot 内）
     std::set<std::string> usedLower_;    // 大小写不敏感重名登记
     std::vector<VerifiedFile> verified_;
 };

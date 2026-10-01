@@ -2,6 +2,7 @@
 #pragma once
 #include "util.hpp"
 #include <atomic>
+#include <mutex>
 #include <string>
 
 namespace nx {
@@ -21,6 +22,22 @@ struct Options {
     bool stegoMode = false;             // 隐写模式（extract-stego / --stego）：只解根文件内藏归档
 };
 
+// 首个硬错误消息（D3）：写出线程池写、Walker/迭代线程读——std::string 跨线程
+// 无锁读写是数据竞争 UB，槽内自带互斥（锁内快照语义）
+struct HardErrorSlot {
+    void set(const std::string& msg) {
+        std::lock_guard<std::mutex> lk(m);
+        if (s.empty()) s = msg;
+    }
+    std::string get() const {
+        std::lock_guard<std::mutex> lk(m);
+        return s;
+    }
+private:
+    mutable std::mutex m;
+    std::string s;
+};
+
 struct Stats {
     std::atomic<uint64_t> filesOut{0};
     std::atomic<uint64_t> bytesOut{0};
@@ -37,7 +54,7 @@ struct Stats {
     std::atomic<bool> limitTripped{false};
     std::atomic<bool> stegoNotFound{false};  // 隐写模式未命中（exit 0 + GUI 提示，不算失败）
     std::atomic<bool> abortFlag{false};         // Sink 硬错误 → 全局终止
-    std::string firstHardError;
+    HardErrorSlot firstHardError;
 };
 
 } // namespace nx

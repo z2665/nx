@@ -146,7 +146,7 @@ void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
     while (reader->next(e)) {
         if (s.stats.abortFlag.load()) {
             if (gui::progress_cancelled()) throw Cancelled("用户取消");
-            throw Error(s.stats.firstHardError);
+            throw Error(s.stats.firstHardError.get());
         }
         if (e.isDir) {
             std::string rel = sub.empty() ? e.name : sub + "/" + e.name;

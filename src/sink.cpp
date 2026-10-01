@@ -120,10 +120,7 @@ void Sink::note(const std::string& line, int depth) {
 }
 
 void Sink::recordHardError(const std::string& msg) {
-    {
-        std::lock_guard<std::mutex> lk(errM_);
-        if (stats_.firstHardError.empty()) stats_.firstHardError = msg;
-    }
+    stats_.firstHardError.set(msg);   // D3：槽内自带互斥（原 errM_ 只保护写端）
     stats_.abortFlag.store(true);
 }
 
@@ -173,7 +170,8 @@ std::string Sink::emitFile(const std::string& rel, std::shared_ptr<ByteSource> s
                            uint64_t expectedSize, int displayDepth, bool independent) {
     if (stats_.abortFlag.load()) {
         if (gui::progress_cancelled()) throw Cancelled("用户取消");
-        throw Error(stats_.firstHardError.empty() ? "已中止" : stats_.firstHardError);
+        std::string he = stats_.firstHardError.get();
+        throw Error(he.empty() ? "已中止" : he);
     }
     std::string r = dedupe(rel);
     if (dryRun_) {
