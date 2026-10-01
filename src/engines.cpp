@@ -211,17 +211,33 @@ private:
     uint64_t base_, len_;
 };
 
+// 数据相位视图访问记录（领域 #3 / 免 spool 直读的区间推导依据）：私有状态机
+// idle → active（条目首次数据访问激活）→ 下一条目重置。read/seek 双记——
+// libarchive read-ahead 缓冲（256KB）命中时 read 回调不触发，seek 是唯一信号；
+// 只消费起点（stored 条目 = 本地头+载荷连续读的锚点，越界无害）
+class AccessRecorder {
+public:
+    void activate() { active_ = true; min_ = UINT64_MAX; }
+    void reset() { active_ = false; }
+    bool active() const { return active_; }
+    void noteRead(uint64_t from, uint64_t to) {   // [from, to) 非空才记
+        if (active_ && to > from && from < min_) min_ = from;
+    }
+    void noteSeek(uint64_t pos) {
+        if (active_ && pos < min_) min_ = pos;
+    }
+    uint64_t firstAccess() const { return min_; }   // UINT64_MAX = 本相位无访问
+private:
+    bool active_ = false;
+    uint64_t min_ = UINT64_MAX;
+};
+
 struct CbCtx {
     ByteSource* src = nullptr;      // 流式 = PushbackSource
     SeekView* view = nullptr;       // seekable 模式（spool/文件）
     uint64_t viewPos = 0;           // seekable 模式当前位置
     std::vector<byte> buf;
-    // 条目数据相位的视图访问记录（免 spool 直读：推导演区间用）。
-    // recActive 在条目首次数据读时置位；recMin/RecMax 记录该相位视图读覆盖范围
-    //（stored 条目 = 本地头+载荷的连续读；seek 不计入，读越界无害——只用起点）
-    bool recActive = false;
-    uint64_t recMin = UINT64_MAX;
-    uint64_t recMax = 0;
+    AccessRecorder rec;             // 条目数据相位的视图访问记录
 };
 
 la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
@@ -232,10 +248,7 @@ la_ssize_t la_read_cb(archive*, void* c, const void** buf) {
             uint64_t posBefore = ctx->viewPos;
             n = ctx->view->read_at(ctx->viewPos, ctx->buf);
             ctx->viewPos += n;
-            if (ctx->recActive && n) {   // 数据相位访问记录（区间推导）
-                if (posBefore < ctx->recMin) ctx->recMin = posBefore;
-                if (ctx->viewPos > ctx->recMax) ctx->recMax = ctx->viewPos;
-            }
+            ctx->rec.noteRead(posBefore, ctx->viewPos);   // 数据相位访问记录（区间推导）
         } else {
             n = ctx->src->read(ctx->buf);
         }
@@ -260,10 +273,7 @@ la_int64_t la_seek_cb(archive*, void* c, la_int64_t off, int whence) {
             default: return -1;
         }
         // 区间推导记录：数据相位的视图读位置（载荷锚点，本地头由回溯扫描定位）
-        if (ctx->recActive) {
-            if (abs < ctx->recMin) ctx->recMin = abs;
-            if (abs > ctx->recMax) ctx->recMax = abs;
-        }
+        ctx->rec.noteSeek(abs);
         ctx->viewPos = abs;
         return static_cast<la_int64_t>(abs);
     } catch (...) {
@@ -380,17 +390,18 @@ public:
     std::shared_ptr<RegionSource> regionOf(int idx) {
         if (!view_ || idx != curIdx_ || !dataPhase_ || sizes_.empty()) return nullptr;
         uint64_t esz = sizes_[std::min<size_t>(idx, sizes_.size() - 1)];
-        if (esz == UINT64_MAX || !ctx_.recActive || ctx_.recMin == UINT64_MAX) {
+        if (esz == UINT64_MAX || !ctx_.rec.active() || ctx_.rec.firstAccess() == UINT64_MAX) {
             return nullptr;
         }
-        // recMin = 数据相位首个视图读位置（载荷中段或本地头）。
-        // 向前回溯定位本地头：PK\x03\x04 + method==0 + 未加密 + 覆盖 recMin
-        // 且长度精确 = esz。zip 条目区间互不重叠 → 覆盖 recMin 的 stored 载荷至多
+        // firstAccess = 数据相位首个视图读位置（载荷中段或本地头）。
+        // 向前回溯定位本地头：PK\x03\x04 + method==0 + 未加密 + 覆盖 firstAccess
+        // 且长度精确 = esz。zip 条目区间互不重叠 → 覆盖 firstAccess 的 stored 载荷至多
         // 一个；误配由调用方的"子打开失败回退 spool"兜底。
         // 覆盖 libarchive 首块缓冲（256KB）+ 本地头/扩展字段上限（30+64K+64K）
         const uint64_t back = 512 * 1024;
-        uint64_t from = ctx_.recMin > back ? ctx_.recMin - back : 0;
-        size_t spanLen = static_cast<size_t>(ctx_.recMin - from) + 30;
+        uint64_t first = ctx_.rec.firstAccess();
+        uint64_t from = first > back ? first - back : 0;
+        size_t spanLen = static_cast<size_t>(first - from) + 30;
         std::vector<byte> scan(spanLen);
         if (view_->read_at(from, std::span<byte>(scan)) != spanLen) return nullptr;
         for (size_t p = 0; p + 30 <= scan.size(); ++p) {
@@ -404,8 +415,8 @@ public:
             unsigned nlen = scan[p + 26] | (scan[p + 27] << 8);
             unsigned elen = scan[p + 28] | (scan[p + 29] << 8);
             uint64_t payload = from + p + 30 + nlen + elen;
-            if (payload > ctx_.recMin) continue;              // 载荷须始于首读前
-            if (ctx_.recMin >= payload + esz) continue;       // 首读须落在载荷内
+            if (payload > first) continue;                     // 载荷须始于首读前
+            if (first >= payload + esz) continue;              // 首读须落在载荷内
             if (payload + esz > view_->size()) continue;
             return std::make_shared<RegionView>(view_, payload, esz);
         }
@@ -423,11 +434,7 @@ private:
     void activateDataPhase() {
         if (dataPhase_) return;
         dataPhase_ = true;
-        if (view_) {
-            ctx_.recActive = true;
-            ctx_.recMin = UINT64_MAX;
-            ctx_.recMax = 0;
-        }
+        if (view_) ctx_.rec.activate();
     }
 public:
 
@@ -546,7 +553,7 @@ bool LaSeqReader::nextInternal(ContainerEntry& out) {
     blockOff_ = 0;
     entryPos_ = 0;
     dataPhase_ = false;
-    ctx_.recActive = false;
+    ctx_.rec.reset();
     probeFront_.clear();
     const char* nm = archive_entry_pathname(e_.get());
     if (!nm) {
