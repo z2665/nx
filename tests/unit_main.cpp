@@ -7,6 +7,7 @@
 #include "detect.hpp"
 #include "filter.hpp"
 #include "layer.hpp"
+#include "password.hpp"
 #include "report.hpp"
 #include "sink.hpp"
 #include "stego.hpp"
@@ -452,6 +453,60 @@ void test_detect_shell() {
     CHECK(d.sfxOffset && *d.sfxOffset == (100 << 10) - 64);
 }
 
+// ---- 密码解析链（§6.2，批次 3 PromptSink 可脚本化）----
+void test_password_chain() {
+    using Opt = std::optional<SecureStr>;
+    PasswordProvider pw;
+    pw.setNoPrompt(true);
+    pw.addCandidate("alpha");
+    pw.addCandidate("beta");
+    LayerId l1{"o/x.zip", "第 1 层 x (zip)"};
+    LayerId l2{"o/y.zip", "第 2 层 y (zip)"};
+    LayerId l3{"o/z.zip", "第 3 层 z (zip)"};
+
+    // 候选按序
+    Opt a1 = pw.nextAttempt(l1);
+    CHECK(a1 && a1->view() == "alpha");
+    Opt a2 = pw.nextAttempt(l1);
+    CHECK(a2 && a2->view() == "beta");
+    CHECK(!pw.nextAttempt(l1));   // 耗尽（no-prompt）
+
+    // 每层游标独立（批次 2 语义：键 = 逻辑路径）
+    Opt b1 = pw.nextAttempt(l2);
+    CHECK(b1 && b1->view() == "alpha");
+
+    // 成功回写：层缓存 + 全局上次成功 + 本层游标清零
+    pw.reportSuccess(l1, SecureStr("beta"));
+    Opt retry = pw.nextAttempt(l1);
+    CHECK(retry && retry->view() == "beta");          // 缓存命中
+    Opt fresh = pw.nextAttempt(l3);
+    CHECK(fresh && fresh->view() == "beta");          // 新层首试 = 上次成功（先于候选）
+    Opt cont = pw.nextAttempt(l2);                    // l2 游标=1，prefix=[beta(上次), alpha, beta]
+    CHECK(cont && cont->view() == "alpha");
+
+    // PromptSink：脚本化提示按序消费；空串 = 无输入（→ 耗尽）；层身份可达
+    PasswordProvider pw2;
+    pw2.addCandidate("nope");
+    std::vector<std::string> script = {"wrong", ""};
+    size_t calls = 0;
+    std::string seenDisplay;
+    pw2.setPromptSink([&](const LayerId& l) -> std::optional<std::string> {
+        ++calls;
+        seenDisplay = l.display;
+        return calls <= script.size() ? std::optional<std::string>(script[calls - 1])
+                                      : std::nullopt;
+    });
+    LayerId l4{"o/prompt.zip", "第 4 层 prompt (zip)"};
+    Opt c1 = pw2.nextAttempt(l4);
+    CHECK(c1 && c1->view() == "nope");                // 候选先于提示
+    Opt c2 = pw2.nextAttempt(l4);
+    CHECK(c2 && c2->view() == "wrong");               // 脚本第 1 答
+    CHECK(!pw2.nextAttempt(l4));                      // 脚本第 2 答（空）→ 耗尽
+    CHECK_EQ(calls, static_cast<size_t>(2));
+    CHECK_EQ(pw2.promptCount(), static_cast<uint64_t>(2));
+    CHECK_EQ(seenDisplay, std::string("第 4 层 prompt (zip)"));
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -491,6 +546,7 @@ int main() {
     test_layer_ctx();
     test_filter_pipeline();
     test_detect_shell();
+    test_password_chain();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;

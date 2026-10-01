@@ -1,6 +1,7 @@
 // password.hpp：分层密码解析（设计 §6，M0：候选列表 + 交互 + 缓存/LRU）
 #pragma once
 #include "util.hpp"
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -56,6 +57,11 @@ struct LayerId {
     std::string display;
 };
 
+// 提示注入（批次 3 / 领域 #7）：默认走控制台/GUI（promptInteractive 内建）；
+// 测试注入脚本化应答（返回 nullopt = 无输入，等价读取失败 → 进入耗尽）。
+// 携带层身份（display 展示文本），可按层断言提示内容
+using PromptSink = std::function<std::optional<std::string>(const LayerId&)>;
+
 // 每层独立解析链：缓存 → 上次成功 → 候选列表 → 交互询问（§6.2）
 class PasswordProvider {
 public:
@@ -66,6 +72,7 @@ public:
     void loadPasswordFile(const std::wstring& path);
     void setNoPrompt(bool v) { noPrompt_ = v; }
     void setGuiPrompt(bool v) { guiPrompt_ = v; }
+    void setPromptSink(PromptSink sink);   // 测试注入（优先于控制台/GUI 路径）
 
     // 引擎逐次取候选（每次调用推进游标；耗尽后进入交互；再耗尽返回空）
     std::optional<SecureStr> nextAttempt(const LayerId& layer);
@@ -85,6 +92,7 @@ private:
     std::vector<SecureStr> candidates_;
     bool noPrompt_ = false;
     bool guiPrompt_ = false;
+    PromptSink promptSink_;                                // 测试注入的脚本化提示
     std::map<std::string, SecureStr> layerCache_;        // 层缓存（键 = LayerId::key）
     std::optional<SecureStr> lastSuccess_;               // 全局上次成功（LRU 简化）
     std::map<std::string, size_t> cursor_;               // 每层候选游标（键 = LayerId::key）

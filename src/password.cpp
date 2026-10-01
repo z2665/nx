@@ -31,6 +31,16 @@ bool PasswordProvider::promptAvailable() {
 }
 
 std::optional<SecureStr> PasswordProvider::promptInteractive(const LayerId& layer) {
+    // 测试注入的脚本化提示（批次 3 / 领域 #7）：优先于控制台/GUI 路径
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        if (promptSink_) {
+            auto s = promptSink_(layer);
+            ++prompts_;
+            if (!s || s->empty()) return std::nullopt;
+            return SecureStr(*s);
+        }
+    }
     // GUI 优先（M3 需求 4）：--gui 或无控制台（资源管理器右键启动）→ 弹窗；
     // 每个需要密码的层各弹一窗（§6.2 顺序链的 GUI 形态）；X/取消 → Cancelled 整体退出
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
@@ -64,6 +74,11 @@ std::optional<SecureStr> PasswordProvider::promptInteractive(const LayerId& laye
     SecureZeroMemory(wbuf, sizeof(wchar_t) * n);
     ++prompts_;
     return pw;
+}
+
+void PasswordProvider::setPromptSink(PromptSink sink) {
+    std::lock_guard<std::mutex> lk(m_);
+    promptSink_ = std::move(sink);
 }
 
 // 解析链（§6.2）：缓存 → 上次成功 → 候选列表 → 交互
