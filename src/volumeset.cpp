@@ -270,6 +270,16 @@ std::optional<VolumeSet> group_filesystem(const std::wstring& inputPath, std::st
         if (n == key || n.rfind(key + ".", 0) == 0) names[n] = it->file_size(ec);
     }
     auto groups = group_volumes(names);
+    return select_group(fname, key, self, names, groups, wantSpanTerminal, wantRarFirst, errOut);
+}
+
+// 纯（批次 3 拆分）：决策半部——组命中/单卷退化/终卷首卷意图/成员校验/预检
+std::optional<VolumeSet> select_group(const std::string& fname, const std::string& key,
+                                      const std::optional<NameMatch>& self,
+                                      const std::map<std::string, uint64_t>& names,
+                                      const std::map<std::string, VolumeSet>& groups,
+                                      bool wantSpanTerminal, bool wantRarFirst,
+                                      std::string* errOut) {
     auto found = groups.find(key);
     if (found == groups.end()) {
         if (wantSpanTerminal) return std::nullopt;   // 普通 zip，非分片

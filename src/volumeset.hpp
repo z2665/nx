@@ -46,6 +46,17 @@ std::map<std::string, VolumeSet> group_volumes(const std::map<std::string, uint6
 // 返回错误描述（空 = 通过）与告警列表
 void validate_set(const VolumeSet& s, std::string* errOut, std::vector<std::string>* warnsOut);
 
+// 纯（批次 3 拆分，原 group_filesystem 决策半部）：从分组结果选出 fname 所属组。
+// self/wantSpanTerminal/wantRarFirst = 输入名的归类意图（match_split_name 结果 +
+// 根名为 x.zip/x.rar 时的终卷/首卷探测）；names 供单卷 .001 退化组取成员大小。
+// nullopt 且 errOut 空 = 不是分片（单文件路径）；errOut 非空 = 是分片但不完整
+std::optional<VolumeSet> select_group(const std::string& fname, const std::string& key,
+                                      const std::optional<NameMatch>& self,
+                                      const std::map<std::string, uint64_t>& names,
+                                      const std::map<std::string, VolumeSet>& groups,
+                                      bool wantSpanTerminal, bool wantRarFirst,
+                                      std::string* errOut);
+
 // 文件系统级接入：对输入文件做兄弟分组；input 本身必须是某组的成员
 // 返回 nullopt = 不是分片（单文件路径）
 std::optional<VolumeSet> group_filesystem(const std::wstring& inputPath, std::string* errOut);

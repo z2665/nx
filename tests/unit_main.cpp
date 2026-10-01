@@ -507,6 +507,88 @@ void test_password_chain() {
     CHECK_EQ(seenDisplay, std::string("第 4 层 prompt (zip)"));
 }
 
+// ---- volumeset 三层纯函数（批次 3 补齐批次 1 顺延项）----
+void test_volumeset() {
+    // group_volumes：numbered 拼接型
+    auto groups = group_volumes({{"x.001", 100}, {"x.002", 100}});
+    CHECK_EQ(groups.size(), static_cast<size_t>(1));
+    CHECK(groups.count("x"));
+    if (groups.count("x")) {
+        const VolumeSet& g = groups.at("x");
+        CHECK(!g.zipSpan && !g.nativeRar);
+        CHECK_EQ(g.canonicalName, std::string("x"));
+        CHECK_EQ(g.ordered.size(), static_cast<size_t>(2));
+        CHECK_EQ(g.ordered[0].name, std::string("x.001"));
+    }
+    // zspan：.z01 + 终卷 .zip（顺序陷阱——终卷最后）；缺终卷不成组
+    groups = group_volumes({{"d.z01", 50}, {"d.zip", 10}});
+    CHECK_EQ(groups.size(), static_cast<size_t>(1));
+    if (groups.count("d")) {
+        const VolumeSet& g = groups.at("d");
+        CHECK(g.zipSpan);
+        CHECK_EQ(g.canonicalName, std::string("d.zip"));
+        CHECK_EQ(g.ordered.back().name, std::string("d.zip"));   // 终卷殿后
+    }
+    CHECK(group_volumes({{"e.z01", 50}}).empty());
+    // RAR 新式多卷 / 旧式首卷 + rNN
+    groups = group_volumes({{"m.part1.rar", 10}, {"m.part2.rar", 10}});
+    CHECK_EQ(groups.at("m").ordered.size(), static_cast<size_t>(2));
+    groups = group_volumes({{"o.rar", 10}, {"o.r00", 10}, {"o.r01", 10}});
+    if (groups.count("o")) {
+        const VolumeSet& g = groups.at("o");
+        CHECK(g.nativeRar);
+        CHECK_EQ(g.ordered.front().name, std::string("o.rar"));   // 首卷补入最前
+        CHECK_EQ(g.ordered.size(), static_cast<size_t>(3));
+    }
+    // 单 part1：第一遍 aggs 仍会形成单成员拼接组（多卷时被 native 覆盖为原生组；
+    // 孤立 part1 走 concat 退化语义，canonical = 去后缀基名）——既有行为快照
+    groups = group_volumes({{"solo.part1.rar", 10}});
+    CHECK_EQ(groups.size(), static_cast<size_t>(1));
+    CHECK(groups.count("solo") && groups.at("solo").ordered.size() == 1);
+
+    // validate_set：序号缺口 → 错误；非末卷不等长 → 告警
+    VolumeSet s;
+    s.key = "v";
+    s.ordered = {{"v.001", 100}, {"v.003", 100}};
+    std::string err;
+    std::vector<std::string> warns;
+    validate_set(s, &err, &warns);
+    CHECK(err.find("2") != std::string::npos);   // 缺卷号 2
+    s.ordered = {{"v.001", 100}, {"v.002", 90}, {"v.003", 50}};
+    err.clear();
+    warns.clear();
+    validate_set(s, &err, &warns);
+    CHECK(err.empty());
+    CHECK_EQ(warns.size(), static_cast<size_t>(1));   // 卷 2 与卷 1 不等长
+
+    // select_group：正常成员 / 单卷退化 / 缺终卷报错 / 首卷意图
+    std::map<std::string, uint64_t> names = {{"a.001", 10}, {"a.002", 10}};
+    auto ag = group_volumes(names);
+    auto picked = select_group("a.001", "a", match_split_name("a.001"), names, ag,
+                               false, false, &err);
+    CHECK(picked && picked->ordered.size() == 2);
+    // 单卷 .001（无兄弟）→ 单成员退化组
+    std::map<std::string, uint64_t> n2 = {{"b.001", 7}};
+    picked = select_group("b.001", "b", match_split_name("b.001"), n2, {}, false, false, &err);
+    CHECK(picked && picked->ordered.size() == 1 && picked->ordered[0].size == 7);
+    CHECK_EQ(picked->canonicalName, std::string("b"));
+    // zspan 非终卷输入且无组 → 报缺终卷
+    err.clear();
+    picked = select_group("c.z01", "c", match_split_name("c.z01"), {{"c.z01", 5}}, {},
+                          false, false, &err);
+    CHECK(!picked && err.find("终卷") != std::string::npos);
+    // x.zip 无 z 兄弟（wantSpanTerminal）→ 静默非分片
+    err.clear();
+    picked = select_group("d.zip", "d", std::nullopt, {{"d.zip", 5}}, {},
+                          true, false, &err);
+    CHECK(!picked && err.empty());
+    // 旧式首卷：x.rar 是成员（plainName 补入），wantRarFirst 放行
+    std::map<std::string, uint64_t> n3 = {{"e.rar", 10}, {"e.r00", 10}};
+    auto eg = group_volumes(n3);
+    picked = select_group("e.rar", "e", std::nullopt, n3, eg, false, true, &err);
+    CHECK(picked && picked->nativeRar && picked->ordered.front().name == "e.rar");
+}
+
 // ---- parse_size：单位与拒绝 ----
 void test_parse_size() {
     CHECK_EQ(parse_size("1048576"), uint64_t(1) << 20);
@@ -547,6 +629,7 @@ int main() {
     test_filter_pipeline();
     test_detect_shell();
     test_password_chain();
+    test_volumeset();
     test_parse_size();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
