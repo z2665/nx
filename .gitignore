@@ -35,3 +35,4 @@ tests/fuzz-corpus-seeds/
 tools/tla2tools.jar
 tools/states/
 tools/ownership_TTrace_*
+tools/fstar/
