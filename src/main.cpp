@@ -11,7 +11,7 @@
 #include "log.hpp"
 #include "outcome.hpp"
 #include "report.hpp"
-#include <windows.h>
+#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）
 #include <shellapi.h>
 #include <charconv>
 #include <cstdio>
@@ -86,15 +86,17 @@ std::string build_report(Session& s, const std::vector<std::wstring>& inputs,
 }
 
 void write_report_file(const std::wstring& path, const std::string& content) {
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    res::UniqueFile h(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!h.valid()) {
         log_err("[nx] 报告写入失败: %s\n", wide_to_utf8(path).c_str());
         return;
     }
     DWORD w = 0;
-    WriteFile(h, content.data(), static_cast<DWORD>(content.size()), &w, nullptr);
-    CloseHandle(h);
+    // M1（批次 5 顺手修复）：短写/写失败原先静默——报告不完整须可见
+    if (!WriteFile(h.get(), content.data(), static_cast<DWORD>(content.size()), &w, nullptr) ||
+        w != content.size())
+        log_err("[nx] 报告写入失败（短写）: %s\n", wide_to_utf8(path).c_str());
 }
 
 std::vector<std::string> get_args(int& argc) {

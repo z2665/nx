@@ -10,17 +10,12 @@ namespace nx {
 
 FileSource::FileSource(const std::wstring& path, InputMeter* meter) : meter_(meter) {
     std::wstring p = win_long_path(path);
-    HANDLE h = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                           OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
+    handle_ = res::UniqueFile(CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                          OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    if (!handle_.valid())
         throw Error("打开文件失败: " + wide_to_utf8(path) + " " + wide_to_utf8(win32_last_error_text()));
-    handle_ = h;
     LARGE_INTEGER sz{};
-    if (GetFileSizeEx(h, &sz)) size_ = static_cast<uint64_t>(sz.QuadPart);
-}
-
-FileSource::~FileSource() {
-    if (handle_) CloseHandle(static_cast<HANDLE>(handle_));
+    if (GetFileSizeEx(handle_.get(), &sz)) size_ = static_cast<uint64_t>(sz.QuadPart);
 }
 
 size_t FileSource::read(std::span<byte> buf) {
@@ -28,7 +23,7 @@ size_t FileSource::read(std::span<byte> buf) {
     while (total < buf.size()) {
         DWORD want = static_cast<DWORD>(std::min<size_t>(buf.size() - total, 1u << 30));
         DWORD got = 0;
-        if (!ReadFile(static_cast<HANDLE>(handle_), buf.data() + total, want, &got, nullptr)) {
+        if (!ReadFile(handle_.get(), buf.data() + total, want, &got, nullptr)) {
             DWORD e = GetLastError();
             if (e == ERROR_BROKEN_PIPE) break;
             throw Error("读文件失败: " + wide_to_utf8(win32_last_error_text()));

@@ -13,6 +13,8 @@
 #include <shlwapi.h>
 #include <objbase.h>
 #include <initguid.h>   // DEFINE_GUID 生成定义（而非 extern 声明）
+#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）：句柄/COM RAII
+#include "res/com_ptr.hpp"
 #include <cstring>
 #include <string>
 
@@ -20,6 +22,9 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "User32.lib")
+
+// 本 DLL 不在 nx 命名空间内——RAII 类型经别名引用（P2 圈禁，批次 5）
+namespace res = ::nx::res;
 
 // {7A3E9C41-5B2D-4E8A-9F60-3C1D84B2A501} 父命令（级联入口）
 DEFINE_GUID(CLSID_NxMenu, 0x7a3e9c41, 0x5b2d, 0x4e8a, 0x9f, 0x60, 0x3c, 0x1d, 0x84,
@@ -49,17 +54,15 @@ static std::wstring nx_exe_path() {
 static std::wstring first_selected_path(IShellItemArray* items) {
     if (!items)
         return {};
-    IShellItem* item = nullptr;
-    if (FAILED(items->GetItemAt(0, &item)) || !item)
+    res::com_ptr<IShellItem> item;
+    if (FAILED(items->GetItemAt(0, item.out())) || !item)
         return {};
     PWSTR p = nullptr;
     if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) {
         std::wstring r = p;
         CoTaskMemFree(p);
-        item->Release();
         return r;
     }
-    item->Release();
     return {};
 }
 
@@ -73,8 +76,8 @@ static void launch_nx(const wchar_t* verb, IShellItemArray* items) {
     PROCESS_INFORMATION pi{};
     if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr,
                        dll_dir().c_str(), &si, &pi)) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+        // P2 圈禁（批次 5）：进程/线程句柄 RAII——作用域结束自动关闭
+        res::UniqueFile piThread(pi.hThread), piProcess(pi.hProcess);
     }
 }
 
@@ -163,10 +166,7 @@ private:
 class NxEnum : public IEnumExplorerCommand {
 public:
     NxEnum(IExplorerCommand** arr, ULONG n) : n_(n), i_(0) {
-        for (ULONG i = 0; i < n; ++i) arr_[i] = arr[i];   // 已 AddRef 由调用方处理
-    }
-    ~NxEnum() {
-        for (ULONG i = 0; i < n_; ++i) arr_[i]->Release();
+        for (ULONG i = 0; i < n; ++i) arr_[i] = res::com_ptr(arr[i]);   // 接管引用
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return ++ref_; }
     ULONG STDMETHODCALLTYPE Release() override {
@@ -188,7 +188,7 @@ public:
         if (!elt) return E_POINTER;
         ULONG got = 0;
         while (got < celt && i_ < n_) {
-            elt[got] = arr_[i_++];
+            elt[got] = arr_[i_++].get();
             elt[got]->AddRef();
             ++got;
         }
@@ -210,7 +210,7 @@ public:
     }
 
 private:
-    IExplorerCommand* arr_[8];
+    res::com_ptr<IExplorerCommand> arr_[8];   // P2 圈禁（批次 5）：析构自动 Release
     ULONG n_, i_, ref_ = 1;
 };
 
@@ -246,10 +246,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE CreateInstance(IUnknown*, REFIID riid, void** ppv) override {
         if (!ppv) return E_POINTER;
-        NxCommand* cmd = new NxCommand(clsid_);
-        HRESULT hr = cmd->QueryInterface(riid, ppv);
-        cmd->Release();
-        return hr;
+        res::com_ptr<NxCommand> cmd(new NxCommand(clsid_));   // P2 圈禁：Release 收编
+        return cmd->QueryInterface(riid, ppv);
     }
     HRESULT STDMETHODCALLTYPE LockServer(BOOL) override { return S_OK; }
 
@@ -270,10 +268,8 @@ extern "C" HRESULT STDAPICALLTYPE DllGetClassObject(REFCLSID rclsid, REFIID riid
     else if (IsEqualCLSID(rclsid, CLSID_NxInto))
         clsid = &CLSID_NxInto;
     if (clsid) {
-        NxFactory* f = new NxFactory(clsid);
-        HRESULT hr = f->QueryInterface(riid, ppv);
-        f->Release();
-        return hr;
+        res::com_ptr<NxFactory> f(new NxFactory(clsid));   // P2 圈禁：Release 收编
+        return f->QueryInterface(riid, ppv);
     }
     *ppv = nullptr;
     return CLASS_E_CLASSNOTAVAILABLE;

@@ -12,22 +12,17 @@ SpoolBuffer::SpoolBuffer(size_t ramCap, const std::wstring& tempDir)
 
 SpoolBuffer::~SpoolBuffer() {
     diag::untrack_spool(this);
-    if (hf_ != INVALID_HANDLE_VALUE) CloseHandle(hf_);   // DELETE_ON_CLOSE：句柄关闭即删
+    // 溢出卷 tmp_ 析构自动关句柄（DELETE_ON_CLOSE：内核即删）
 }
 
 void SpoolBuffer::flushToTemp() {
     if (overflowed_) return;
-    tmpPath_ = make_temp_file_path(tempDir_);
-    // FILE_FLAG_DELETE_ON_CLOSE：句柄一关（正常析构/异常退出/进程被杀）OS 即删——
-    // 独占句柄天然满足"唯一持有者"；spool 读经同一句柄（不按路径重开），无冲突。
+    // 唯一临时文件工厂（res/，P2 圈禁）：FILE_FLAG_DELETE_ON_CLOSE——句柄一关
+    // （正常析构/异常退出/进程被杀）OS 即删；独占句柄天然满足"唯一持有者"；
+    // spool 读经同一句柄（不按路径重开），无冲突。
     // （真实案例：15GB spool 在成功运行结束后残留——对象级泄漏/强杀时 DeleteFileW
     // 永远没机会执行，DELETE_ON_CLOSE 把清理责任交给内核）
-    HANDLE h = CreateFileW(tmpPath_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                           CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
-        throw Error("创建临时文件失败: " + wide_to_utf8(win32_last_error_text()));
-    hf_ = h;
+    tmp_ = res::TempFile::create(tempDir_);
     overflowed_ = true;
     // RAM 全量落盘（分块 ≤16MiB：ram_ 可达 8GiB，一次 cast DWORD 会截断——
     // 真实案例 8GiB 恰为 2×4GiB，截断成 0 后 WriteFile 成功写入 0 字节，
@@ -36,7 +31,8 @@ void SpoolBuffer::flushToTemp() {
     while (off < ram_.size()) {
         size_t want = std::min<size_t>(ram_.size() - off, 16u << 20);
         DWORD wrote = 0;
-        if (!WriteFile(hf_, ram_.data() + off, static_cast<DWORD>(want), &wrote, nullptr)
+        if (!WriteFile(tmp_.handle.get(), ram_.data() + off, static_cast<DWORD>(want), &wrote,
+                       nullptr)
             || wrote == 0)
             throw Error("写临时文件失败: " + wide_to_utf8(win32_last_error_text()));
         off += wrote;
@@ -61,7 +57,8 @@ void SpoolBuffer::append(std::span<const byte> p) {
     size_t off = 0;
     while (off < p.size()) {
         DWORD wrote = 0;
-        if (!WriteFile(hf_, p.data() + off, static_cast<DWORD>(p.size() - off), &wrote, nullptr)
+        if (!WriteFile(tmp_.handle.get(), p.data() + off, static_cast<DWORD>(p.size() - off),
+                       &wrote, nullptr)
             || wrote == 0)
             throw Error("写临时文件失败: " + wide_to_utf8(win32_last_error_text()));
         off += wrote;
@@ -85,12 +82,13 @@ size_t SpoolBuffer::readAt(uint64_t pos, std::span<byte> buf) {
     std::lock_guard<std::mutex> lk(ioM_);
     LARGE_INTEGER li{};
     li.QuadPart = static_cast<LONGLONG>(pos);
-    if (!SetFilePointerEx(hf_, li, nullptr, FILE_BEGIN))
+    if (!SetFilePointerEx(tmp_.handle.get(), li, nullptr, FILE_BEGIN))
         throw Error("临时文件定位失败: " + wide_to_utf8(win32_last_error_text()));
     size_t got = 0;
     while (got < n) {
         DWORD r = 0;
-        if (!ReadFile(hf_, buf.data() + got, static_cast<DWORD>(n - got), &r, nullptr) || r == 0)
+        if (!ReadFile(tmp_.handle.get(), buf.data() + got, static_cast<DWORD>(n - got), &r,
+                      nullptr) || r == 0)
             throw Error("读临时文件失败: " + wide_to_utf8(win32_last_error_text()));
         got += r;
     }

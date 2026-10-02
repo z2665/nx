@@ -1,0 +1,48 @@
+// res/com_ptr.hpp —— COM 引用收编（批次 5 P2 圈禁，roadmap §5.2）。
+// 纪律：Release 调用自此只允许出现在 src/res/ 与 COM 接口实现体内
+// （IUnknown::Release override 是接口契约，不属手工释放）。
+#pragma once
+#include "gsl_owner.hpp"
+#include <utility>
+
+namespace nx::res {
+
+template <typename T>
+class com_ptr {
+public:
+    com_ptr() = default;
+    explicit com_ptr(T* p) noexcept : p_(p) {}   // 接管既有引用（计数已归我）
+    ~com_ptr() {
+        if (p_) p_->Release();
+    }
+    com_ptr(com_ptr&& o) noexcept : p_(std::exchange(o.p_, nullptr)) {}
+    com_ptr& operator=(com_ptr&& o) noexcept {
+        if (this != &o) {
+            if (p_) p_->Release();
+            p_ = std::exchange(o.p_, nullptr);
+        }
+        return *this;
+    }
+    com_ptr(const com_ptr&) = delete;
+    com_ptr& operator=(const com_ptr&) = delete;
+
+    T* get() const noexcept { return p_; }
+    T* operator->() const noexcept { return p_; }
+    explicit operator bool() const noexcept { return p_ != nullptr; }
+    // 所有权逃逸点（gsl::owner 标注）：转移给"将长期持有"的成员/进程级缓存
+    gsl::owner<T*> release() noexcept { return std::exchange(p_, nullptr); }
+    void reset(T* p = nullptr) noexcept {
+        T* old = std::exchange(p_, p);
+        if (old) old->Release();
+    }
+    // 接收端参数（先释放旧值）：QueryInterface/CreateObject/GetItemAt 的 out 端
+    T** out() noexcept {
+        reset();
+        return &p_;
+    }
+
+private:
+    T* p_ = nullptr;
+};
+
+} // namespace nx::res

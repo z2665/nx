@@ -39,6 +39,7 @@ else()
 endif()
 
 add_library(nxshell SHARED src/nxshell.cpp)
+target_include_directories(nxshell PRIVATE src)   # res/ RAII 头（P2 圈禁，批次 5）
 # COM DLL 由资源管理器进程内加载：仅链接、不启用 PCH/统一UTF8 也无妨
 set_target_properties(nxshell PROPERTIES OUTPUT_NAME "nxshell")
 

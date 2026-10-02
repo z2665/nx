@@ -19,31 +19,28 @@ size_t SpoolWindowView::read_at(uint64_t pos, std::span<byte> buf) {
 FileSeekView::FileSeekView(const std::wstring& path, InputMeter* meter, uint64_t base,
                            uint64_t length)
     : meter_(meter), base_(base) {
-    h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                     OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (h_ == INVALID_HANDLE_VALUE)
+    h_ = res::UniqueFile(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
+                                     FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                     FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    if (!h_.valid())
         throw Error("打开文件失败: " + wide_to_utf8(path));
     LARGE_INTEGER sz{};
-    GetFileSizeEx(h_, &sz);
+    GetFileSizeEx(h_.get(), &sz);
     uint64_t total = static_cast<uint64_t>(sz.QuadPart);
     if (base > total || base + (length ? length : (total - base)) > total)
         throw Error("视图窗口越界: " + wide_to_utf8(path));
     size_ = length ? length : (total - base);
 }
 
-FileSeekView::~FileSeekView() {
-    if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
-}
-
 size_t FileSeekView::read_at(uint64_t pos, std::span<byte> buf) {
     std::lock_guard<std::mutex> lk(m_);
     LARGE_INTEGER li{};
     li.QuadPart = static_cast<LONGLONG>(base_ + pos);
-    if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN)) throw Error("定位失败");
+    if (!SetFilePointerEx(h_.get(), li, nullptr, FILE_BEGIN)) throw Error("定位失败");
     size_t got = 0;
     while (got < buf.size()) {
         DWORD r = 0;
-        if (!ReadFile(h_, buf.data() + got, static_cast<DWORD>(buf.size() - got), &r,
+        if (!ReadFile(h_.get(), buf.data() + got, static_cast<DWORD>(buf.size() - got), &r,
                       nullptr) || r == 0)
             break;
         got += r;

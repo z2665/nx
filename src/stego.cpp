@@ -1,6 +1,6 @@
 #include "stego.hpp"
 #include "util.hpp"
-#include <windows.h>
+#include "res/unique_handle.hpp"
 #include <cstring>
 #include <vector>
 
@@ -10,32 +10,28 @@ namespace {
 
 // 独立只读句柄：检测阶段不与引擎视图共享（open 交给各引擎自己的视图/计量）
 struct FileReader {
-    HANDLE h = INVALID_HANDLE_VALUE;
+    res::UniqueFile h;
     uint64_t size = 0;
 
     explicit FileReader(const std::wstring& path) {
-        h = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) return;
+        h = res::UniqueFile(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
+                                        FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                        FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (!h.valid()) return;
         LARGE_INTEGER sz{};
-        if (GetFileSizeEx(h, &sz))
+        if (GetFileSizeEx(h.get(), &sz))
             size = static_cast<uint64_t>(sz.QuadPart);
     }
-    ~FileReader() {
-        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
-    }
-    FileReader(const FileReader&) = delete;
-    FileReader& operator=(const FileReader&) = delete;
-    bool ok() const { return h != INVALID_HANDLE_VALUE; }
+    bool ok() const { return h.valid(); }
 
     size_t read_at(uint64_t pos, void* buf, size_t n) {
         LARGE_INTEGER li{};
         li.QuadPart = static_cast<LONGLONG>(pos);
-        if (!SetFilePointerEx(h, li, nullptr, FILE_BEGIN)) return 0;
+        if (!SetFilePointerEx(h.get(), li, nullptr, FILE_BEGIN)) return 0;
         size_t got = 0;
         while (got < n) {
             DWORD r = 0;
-            if (!ReadFile(h, static_cast<byte*>(buf) + got,
+            if (!ReadFile(h.get(), static_cast<byte*>(buf) + got,
                           static_cast<DWORD>(n - got), &r, nullptr) || r == 0)
                 break;
             got += r;

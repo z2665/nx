@@ -2,9 +2,9 @@
 // M1 将升级为"溢出写入与上游解压并发"；M0 为顺序拉取式（溢出 = 全量落临时文件，读端随机访问）。
 #pragma once
 #include "bytesource.hpp"
+#include "res/temp_file.hpp"
 #include <atomic>
 #include <mutex>
-#include <windows.h>
 
 namespace nx {
 
@@ -55,8 +55,7 @@ private:
     size_t ramCap_;
     std::wstring tempDir_;
     std::vector<byte> ram_;
-    HANDLE hf_ = INVALID_HANDLE_VALUE;
-    std::wstring tmpPath_;
+    res::TempFile tmp_;   // P2 圈禁（批次 5）：溢出卷唯一工厂（DELETE_ON_CLOSE）
     uint64_t total_ = 0;
     bool overflowed_ = false;
     bool finished_ = false;

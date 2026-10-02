@@ -1,6 +1,7 @@
 // bytesource.hpp：唯一流抽象 + 各实现（设计 §4 核心抽象）
 #pragma once
 #include "util.hpp"
+#include "res/unique_handle.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -53,11 +54,10 @@ struct InputMeter {
 class FileSource : public ByteSource {
 public:
     explicit FileSource(const std::wstring& path, InputMeter* meter = nullptr);
-    ~FileSource() override;
     size_t read(std::span<byte> buf) override;
     std::optional<uint64_t> sizeHint() const override { return size_; }
 private:
-    void* handle_ = nullptr;   // HANDLE
+    res::UniqueFile handle_;   // P2 圈禁（批次 5）：RAII 句柄，析构自动关闭
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
 };

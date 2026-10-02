@@ -1,6 +1,6 @@
 #include "log.hpp"
 #include "util.hpp"
-#include <windows.h>
+#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）
 #include <shellapi.h>
 #include <atomic>
 #include <cstdio>
@@ -46,24 +46,28 @@ void log_open(int argc, char** utf8ArgsDummy) {
     if (slash != std::wstring::npos) dir.resize(slash);
     g_logPath = dir + L"\\nx.log";
 
-    HANDLE probe = CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (probe == INVALID_HANDLE_VALUE) {
-        wchar_t tmp[MAX_PATH];
-        GetTempPathW(MAX_PATH, tmp);
-        g_logPath = std::wstring(tmp) + L"nx.log";
-        probe = CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (probe == INVALID_HANDLE_VALUE) return;
+    // 探针句柄（P2 圈禁）：块作用域结束即关——必须先于 _wfopen_s 关闭
+    // （探针不带 FILE_SHARE_WRITE，持有期间 append 打开会 sharing violation）
+    {
+        res::UniqueFile probe(CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                                          nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                          nullptr));
+        if (!probe.valid()) {
+            wchar_t tmp[MAX_PATH];
+            GetTempPathW(MAX_PATH, tmp);
+            g_logPath = std::wstring(tmp) + L"nx.log";
+            probe.reset(CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+            if (!probe.valid()) return;
+        }
+        // 超过 5 MiB → 截断从 0 开始
+        LARGE_INTEGER sz{};
+        GetFileSizeEx(probe.get(), &sz);
+        if (static_cast<uint64_t>(sz.QuadPart) > kMaxLogBytes)
+            SetFilePointerEx(probe.get(), {}, nullptr, FILE_BEGIN), SetEndOfFile(probe.get());
+        else
+            SetFilePointerEx(probe.get(), {}, nullptr, FILE_END);
     }
-    // 超过 5 MiB → 截断从 0 开始
-    LARGE_INTEGER sz{};
-    GetFileSizeEx(probe, &sz);
-    if (static_cast<uint64_t>(sz.QuadPart) > kMaxLogBytes)
-        SetFilePointerEx(probe, {}, nullptr, FILE_BEGIN), SetEndOfFile(probe);
-    else
-        SetFilePointerEx(probe, {}, nullptr, FILE_END);
-    CloseHandle(probe);
     _wfopen_s(&g_logFile, g_logPath.c_str(), L"ab");   // 之后始终 append
     if (!g_logFile) return;
 

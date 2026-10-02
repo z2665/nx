@@ -12,6 +12,9 @@
 #include "sink.hpp"
 #include "stego.hpp"
 #include "volumeset.hpp"
+#include "res/unique_handle.hpp"
+#include "res/temp_file.hpp"
+#include "res/com_ptr.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -611,6 +614,96 @@ void test_parse_size() {
     CHECK(threw);
 }
 
+// ---- res/ RAII 类型（批次 5 P2 圈禁）：关闭/转移/守卫语义 ----
+int g_resClosed = 0;
+void res_close_count(int) noexcept { ++g_resClosed; }
+
+void test_res_types() {
+    // UniqueHandle：计数 closer 验证"恰一次关闭、逃逸不关"（纯）
+    using UH = res::UniqueHandle<int, -1, res_close_count>;
+    g_resClosed = 0;
+    {
+        UH a(5);
+        CHECK(a.valid() && a.get() == 5);
+        UH b(std::move(a));                    // 移动构造：源失效、不关闭
+        CHECK(!a.valid() && b.valid() && b.get() == 5);
+        CHECK_EQ(g_resClosed, 0);
+        b.reset(7);                            // 关旧值
+        CHECK_EQ(g_resClosed, 1);
+        CHECK_EQ(b.release(), 7);              // 所有权逃逸（gsl::owner）：不关闭
+        CHECK(!b.valid());
+        CHECK_EQ(g_resClosed, 1);
+        *b.out() = 9;                          // out：先重置再接收
+        CHECK(b.get() == 9);
+        UH c;
+        c = std::move(b);                      // 移动赋值
+        CHECK(!b.valid() && c.get() == 9);
+        CHECK_EQ(g_resClosed, 1);
+    }                                          // c 析构关闭 9
+    CHECK_EQ(g_resClosed, 2);
+
+    // com_ptr：引用计数转移语义（纯，栈上假 COM 对象）
+    struct FakeCom {
+        int refs = 1, released = 0;
+        unsigned long AddRef() { return static_cast<unsigned long>(++refs); }
+        unsigned long Release() {
+            ++released;
+            return static_cast<unsigned long>(--refs);
+        }
+    };
+    FakeCom fc;
+    {
+        res::com_ptr<FakeCom> p(&fc);          // 接管既有引用
+        CHECK(p.get() == &fc && static_cast<bool>(p));
+        auto* esc = p.release();               // 逃逸：不 Release
+        CHECK(esc == &fc && !p && fc.released == 0);
+        res::com_ptr<FakeCom> q(esc);
+        res::com_ptr<FakeCom> r(std::move(q)); // 移动：源置空、不 Release
+        CHECK(!q && r.get() == &fc && fc.released == 0);
+        r.reset();                             // 显式释放
+        CHECK_EQ(fc.released, 1);
+        fc.refs = 1;                           // 复位供 out() 接收
+        *r.out() = &fc;
+        CHECK(r && r->refs == 1);
+    }                                          // 析构释放
+    CHECK_EQ(fc.released, 2);
+
+    // TempFile：DELETE_ON_CLOSE——句柄关闭即删（内核级清理责任）
+    {
+        res::TempFile t = res::TempFile::create(L"");
+        CHECK(t.handle.valid());
+        CHECK(!t.path.empty());
+        DWORD w = 0;
+        CHECK(WriteFile(t.handle.get(), "abc", 3, &w, nullptr) && w == 3);
+        CHECK(GetFileAttributesW(t.path.c_str()) != INVALID_FILE_ATTRIBUTES);
+        LARGE_INTEGER zero{};
+        SetFilePointerEx(t.handle.get(), zero, nullptr, FILE_BEGIN);
+        char buf[3] = {};
+        DWORD r = 0;
+        CHECK(ReadFile(t.handle.get(), buf, 3, &r, nullptr) && r == 3 && buf[0] == 'a');
+        t.handle.reset();
+        CHECK(GetFileAttributesW(t.path.c_str()) == INVALID_FILE_ATTRIBUTES);
+    }
+
+    // DeleteGuard：dismiss 保留、未 dismiss 析构删除（.part 半成品语义）
+    std::wstring p1 = make_temp_file_path(L"");
+    {
+        res::UniqueFile f1(CreateFileW(p1.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr));
+        CHECK(f1.valid());
+    }
+    CHECK(GetFileAttributesW(p1.c_str()) != INVALID_FILE_ATTRIBUTES);
+    {
+        res::DeleteGuard g(p1);
+        g.dismiss();
+    }
+    CHECK(GetFileAttributesW(p1.c_str()) != INVALID_FILE_ATTRIBUTES);   // dismiss：不删
+    {
+        res::DeleteGuard g(p1);
+    }
+    CHECK(GetFileAttributesW(p1.c_str()) == INVALID_FILE_ATTRIBUTES);   // 未 dismiss：删除
+}
+
 } // namespace
 
 int main() {
@@ -631,6 +724,7 @@ int main() {
     test_password_chain();
     test_volumeset();
     test_parse_size();
+    test_res_types();
     std::printf("nxunit: %d/%d checks passed\n", g_total - g_fail, g_total);
     return g_fail == 0 ? 0 : 1;
 }

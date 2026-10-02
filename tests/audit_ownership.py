@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""nx 所有权审计：AST 强闭包检查器（roadmap §7.3，批次 5）。
+"""nx 所有权审计：AST 强闭包检查器 + P2 圈禁 grep 检查（roadmap §7.3，批次 5）。
 
 链路：clang-cl -Xclang -ast-dump=json 逐 TU 抽取"类→成员强边"表 →
 （shared_ptr/unique_ptr 目标展开到全部传递派生类——环常经基类静态类型达成，
  replayQ_ 事故即如此）→ F* 验证 + KaRaMeL 抽取的 closure_check.exe 判定
  esft 类的成员强闭包是否含自身（= 类型级自引用环）。
+圈禁：CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release() 等释放调用
+ 只允许出现在 src/res/（含调用括号匹配，注释中的提及不误报；
+ IUnknown::Release override 是 COM 接口实现，不属手工释放）。
 
 用法：
   python tests/audit_ownership.py                 # 审计 HEAD src/，违例退出 1
   python tests/audit_ownership.py --src <dir>     # 审计指定源目录（校准用）
   python tests/audit_ownership.py --calibrate     # 校准模式：对 f647037 须恰报
                                                   # LaSeqReader 一处零误报（roadmap §7.3）
+                                                  # （圈禁检查不参与校准——其标准是
+                                                  #   HEAD 零违规，基线时代尚未圈禁）
 依赖：clang-cl（VS "C++ Clang tools for Windows" 组件）、vcvars、
       tools/proofs/closure_check.exe（tools/build_closure_kernel.cmd 产出）
 """
@@ -251,6 +256,36 @@ def build_graph(src_dir: str):
     return records, esft, edges, children
 
 
+# ---- P2 圈禁（批次 5）：释放调用只允许出现在 src/res/ ----
+# 匹配"名字+调用括号"（注释中无括号的提及不误报；先剥注释再扫以稳妥）
+RELEASE_CALL = re.compile(
+    r"\b(?:CloseHandle|DeleteFileW|RegCloseKey|FreeLibrary)\s*\(|->Release\s*\(")
+
+COMMENT_LINE = re.compile(r"//[^\n]*")
+COMMENT_BLOCK = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+def quarantine_violations(src_dir):
+    """src_dir 下 res/ 之外的手工释放调用清单（空 = 圈禁达成）。"""
+    res_dir = os.path.normcase(os.path.join(src_dir, "res"))
+    bad = []
+    for dirpath, _dirs, files in os.walk(src_dir):
+        for f in sorted(files):
+            if not f.endswith((".cpp", ".hpp")):
+                continue
+            p = os.path.join(dirpath, f)
+            if os.path.normcase(os.path.dirname(p)) == res_dir:
+                continue   # 圈禁区本体
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            text = COMMENT_BLOCK.sub(" ", COMMENT_LINE.sub(" ", text))
+            for ln, line in enumerate(text.splitlines(), 1):
+                if RELEASE_CALL.search(line):
+                    rel = os.path.relpath(p, ROOT)
+                    bad.append(f"{rel}:{ln}: {line.strip()}")
+    return bad
+
+
 def run_kernel(nodes, edges, queries):
     """closure_check.exe：CSR 边表 + 查询 → 每查询 0/1"""
     if not os.path.exists(KERNEL):
@@ -288,14 +323,25 @@ def main():
             print(f"[audit] worktree 失败: {r.stderr}")
             return 2
         try:
-            return audit(os.path.join(worktree, "src"), expect={"LaSeqReader"})
+            return audit(os.path.join(worktree, "src"), expect={"LaSeqReader"},
+                         quarantine=False)
         finally:
             subprocess.run(["git", "worktree", "remove", "--force", worktree],
                            capture_output=True)
-    return audit(args.src, expect=set())
+    return audit(args.src, expect=set(), quarantine=True)
 
 
-def audit(src_dir, expect):
+def audit(src_dir, expect, quarantine=True):
+    rc = 0
+    if quarantine:
+        bad = quarantine_violations(src_dir)
+        if bad:
+            print(f"[audit] ❌ P2 圈禁违例（释放调用越出 src/res/）× {len(bad)}:")
+            for b in bad:
+                print(f"        {b}")
+            rc = 1
+        else:
+            print("[audit] ✅ P2 圈禁：res/ 之外零释放调用")
     records, esft, edges, children = build_graph(src_dir)
     if records is None:
         return 2
@@ -309,7 +355,7 @@ def audit(src_dir, expect):
             print(f"[audit] ✅ 校准达成：恰报 {sorted(expect)}，零误报")
         else:
             print("[audit] ✅ 零违规")
-        return 0
+        return rc
     if expect:
         print(f"[audit] ❌ 校准失败：期望恰报 {sorted(expect)}，实得 {hits}")
     else:

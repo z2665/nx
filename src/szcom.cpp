@@ -1,5 +1,7 @@
 #include "szcom.hpp"
-#include <windows.h>
+#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）
+#include "res/com_ptr.hpp"
+#include "res/gsl_owner.hpp"
 #include <objbase.h>
 #include <oleauto.h>
 #include <algorithm>
@@ -97,7 +99,8 @@ constexpr I32 kAskSkip = 2;
 // ================= DLL 加载 =================
 
 namespace {
-HMODULE g_dll = nullptr;
+// 进程级缓存（owner 标注）：命中后终身持有、不卸载——7z.dll 热路径免重复 LoadLibrary
+gsl::owner<HMODULE> g_dll = nullptr;
 // 现代 7z.dll 导出 CreateObject(clsid, iid, out)（7-Zip 9.x+ 第三方标准入口）；
 // 极旧版本才导出 DllGetClassObject —— 两者都探测
 typedef HRESULT(WINAPI* PCreateObject)(const GUID* clsid, const GUID* iid, void** out);
@@ -107,15 +110,14 @@ PDllGetClassObject g_getClassObject = nullptr;
 std::wstring g_loadedPath, g_error;
 
 std::wstring try_load(const std::wstring& path) {
-    HMODULE h = LoadLibraryW(path.c_str());
-    if (!h) return L"";
-    auto co = reinterpret_cast<PCreateObject>(GetProcAddress(h, "CreateObject"));
-    auto gc = reinterpret_cast<PDllGetClassObject>(GetProcAddress(h, "DllGetClassObject"));
-    if (!co && !gc) {
-        FreeLibrary(h);
-        return L"";
-    }
-    g_dll = h;
+    // P2 圈禁（批次 5）：探测期 UniqueModule 兜底——无入口点的 DLL 自动卸载；
+    // 命中后 release() 交给进程级缓存 g_dll（终身持有，不卸载）
+    res::UniqueModule m(LoadLibraryW(path.c_str()));
+    if (!m.valid()) return L"";
+    auto co = reinterpret_cast<PCreateObject>(GetProcAddress(m.get(), "CreateObject"));
+    auto gc = reinterpret_cast<PDllGetClassObject>(GetProcAddress(m.get(), "DllGetClassObject"));
+    if (!co && !gc) return L"";   // m 析构自动 FreeLibrary
+    g_dll = m.release();
     g_createObject = co;
     g_getClassObject = gc;
     g_loadedPath = path;
@@ -157,29 +159,28 @@ public:
     explicit FileSeekInput(const std::wstring& path, InputMeter* meter = nullptr,
                            uint64_t base = 0)
         : meter_(meter), base_(base) {
-        h_ = CreateFileW(win_long_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                         OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-        if (h_ == INVALID_HANDLE_VALUE)
+        h_ = res::UniqueFile(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
+                                         FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                         FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+        if (!h_.valid())
             throw Error("打开卷文件失败: " + wide_to_utf8(path));
         LARGE_INTEGER sz{};
-        GetFileSizeEx(h_, &sz);
+        GetFileSizeEx(h_.get(), &sz);
         uint64_t total = static_cast<uint64_t>(sz.QuadPart);
         if (base > total)
             throw Error("卷窗口偏移越界: " + wide_to_utf8(path));
         size_ = total - base;
     }
-    ~FileSeekInput() override {
-        if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
-    }
     size_t read_at(uint64_t pos, std::span<byte> buf) override {
         std::lock_guard<std::mutex> lk(m_);
         LARGE_INTEGER li{};
         li.QuadPart = static_cast<LONGLONG>(base_ + pos);
-        if (!SetFilePointerEx(h_, li, nullptr, FILE_BEGIN)) throw Error("卷定位失败");
+        if (!SetFilePointerEx(h_.get(), li, nullptr, FILE_BEGIN)) throw Error("卷定位失败");
         size_t got = 0;
         while (got < buf.size()) {
             DWORD r = 0;
-            if (!ReadFile(h_, buf.data() + got, static_cast<DWORD>(buf.size() - got), &r, nullptr) ||
+            if (!ReadFile(h_.get(), buf.data() + got, static_cast<DWORD>(buf.size() - got), &r,
+                          nullptr) ||
                 r == 0)
                 break;
             got += r;
@@ -189,7 +190,7 @@ public:
     }
     uint64_t size() const override { return size_; }
 private:
-    HANDLE h_ = INVALID_HANDLE_VALUE;
+    res::UniqueFile h_;   // P2 圈禁（批次 5）：RAII 句柄
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
     uint64_t base_ = 0;
@@ -524,7 +525,7 @@ private:
     PasswordProvider& pw_;
     EngineOptions opt_;
 
-    Z7_IInArchive* arc_ = nullptr;
+    res::com_ptr<Z7_IInArchive> arc_;   // P2 圈禁（批次 5）：Release 收编；关闭仍走 closeArc()（先 Close 后放）
     std::shared_ptr<SharedOpenState> openState_;
     std::shared_ptr<InStreamImpl> mainStream_;
     std::vector<Item> items_;
@@ -643,8 +644,7 @@ SevenZipReader::~SevenZipReader() { closeArc(); }
 void SevenZipReader::closeArc() {
     if (arc_) {
         arc_->Close();
-        arc_->Release();
-        arc_ = nullptr;
+        arc_.reset();   // Release（res/com_ptr）
     }
 }
 
@@ -679,31 +679,36 @@ bool SevenZipReader::tryOpen(const SecureStr* pw) {
     }
 
     for (int ci = 0; ci < nCls; ++ci) {
-        Z7_IInArchive* arc = nullptr;
+        res::com_ptr<Z7_IInArchive> arc;
         HRESULT hr = E_FAIL;
         if (g_createObject) {
-            hr = g_createObject(&clsids[ci], &kIidIInArchive, reinterpret_cast<void**>(&arc));
+            hr = g_createObject(&clsids[ci], &kIidIInArchive,
+                                reinterpret_cast<void**>(arc.out()));
         } else if (g_getClassObject) {
-            IClassFactory* cf = nullptr;
-            hr = g_getClassObject(clsids[ci], IID_IClassFactory, reinterpret_cast<void**>(&cf));
+            res::com_ptr<IClassFactory> cf;
+            hr = g_getClassObject(clsids[ci], IID_IClassFactory,
+                                  reinterpret_cast<void**>(cf.out()));
             if (SUCCEEDED(hr) && cf) {
-                hr = cf->CreateInstance(nullptr, kIidIInArchive, reinterpret_cast<void**>(&arc));
-                cf->Release();
+                hr = cf->CreateInstance(nullptr, kIidIInArchive,
+                                        reinterpret_cast<void**>(arc.out()));
             }
         }
         if (FAILED(hr) || !arc) {
             failMsg_ = "7z.dll 创建处理器失败 (hr=" + std::to_string(static_cast<long>(hr)) + ")";
             continue;
         }
-        auto* cb = new OpenCb(openState_);
+        res::com_ptr<OpenCb> cb(new OpenCb(openState_));
         mainStream_ = std::make_shared<InStreamImpl>(mainInput);
-        hr = arc->Open(mainStream_.get(), nullptr, cb);
-        cb->Release();
+        hr = arc->Open(mainStream_.get(), nullptr, cb.get());
+        cb.reset();   // 原语义：Open 返回即放回调（7z.dll 不跨 Open 持有）
         if (hr == S_OK) {
-            arc_ = arc;
+            arc_ = std::move(arc);   // 所有权交给成员（关闭走 closeArc：先 Close 后放）
             return true;
         }
-        arc->Release();
+        // 顺序契约（fuzz ASan 实证）：失败后 7z.dll 仍持流引用——必须先放归档对象
+        // （其析构会 Release 流），再清 mainStream_；反序 = 流先析构、7z.dll 随后
+        // Release 悬空指针（heap-use-after-free）
+        arc.reset();
         mainStream_.reset();
         failMsg_ = "归档打开失败 (hr=" + std::to_string(static_cast<long>(hr)) + ")";
         failIsPassword_ = openState_->passwordAsked;

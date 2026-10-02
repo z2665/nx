@@ -36,13 +36,10 @@ class FileSeekView : public SeekView {
 public:
     explicit FileSeekView(const std::wstring& path, InputMeter* meter = nullptr,
                           uint64_t base = 0, uint64_t length = 0);
-    ~FileSeekView() override;
-    FileSeekView(const FileSeekView&) = delete;
-    FileSeekView& operator=(const FileSeekView&) = delete;
     size_t read_at(uint64_t pos, std::span<byte> buf) override;
     uint64_t size() const override { return size_; }
 private:
-    HANDLE h_ = INVALID_HANDLE_VALUE;
+    res::UniqueFile h_;   // P2 圈禁（批次 5）：RAII 句柄（move-only ⇒ 本类不可复制）
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
     uint64_t base_ = 0;

@@ -1,7 +1,7 @@
 #include "menu.hpp"
 #include "log.hpp"
 #include "util.hpp"
-#include <windows.h>
+#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）：注册表键 RAII
 #include <shlwapi.h>
 
 #pragma comment(lib, "Advapi32.lib")
@@ -26,16 +26,15 @@ std::wstring exe_path() {
 }
 
 bool set_reg(HKEY root, const wchar_t* sub, const wchar_t* value, const wchar_t* data) {
-    HKEY k = nullptr;
-    if (RegCreateKeyExW(root, sub, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &k, nullptr) !=
+    res::UniqueRegKey k;
+    if (RegCreateKeyExW(root, sub, 0, nullptr, 0, KEY_SET_VALUE, nullptr, k.out(), nullptr) !=
         ERROR_SUCCESS)
         return false;
-    bool ok = RegSetValueExW(k, value, 0, REG_SZ,
+    bool ok = RegSetValueExW(k.get(), value, 0, REG_SZ,
                              reinterpret_cast<const BYTE*>(data),
                              static_cast<DWORD>((wcslen(data) + 1) * sizeof(wchar_t))) ==
               ERROR_SUCCESS;
-    RegCloseKey(k);
-    return ok;
+    return ok;   // k 析构自动 RegCloseKey
 }
 
 bool del_tree(HKEY root, const wchar_t* sub) {
@@ -47,14 +46,13 @@ bool del_tree(HKEY root, const wchar_t* sub) {
     } else {
         leaf = sub;
     }
-    HKEY h = nullptr;
+    res::UniqueRegKey h;
     LSTATUS r = parentPath.empty()
-                    ? RegOpenKeyExW(root, nullptr, 0, DELETE, &h)
-                    : RegOpenKeyExW(root, parentPath.c_str(), 0, DELETE, &h);
+                    ? RegOpenKeyExW(root, nullptr, 0, DELETE, h.out())
+                    : RegOpenKeyExW(root, parentPath.c_str(), 0, DELETE, h.out());
     if (r != ERROR_SUCCESS)
         return true;   // 路径不存在 = 已删
-    LSTATUS d = SHDeleteKeyW(h, leaf.c_str());
-    RegCloseKey(h);
+    LSTATUS d = SHDeleteKeyW(h.get(), leaf.c_str());
     return d == ERROR_SUCCESS || d == ERROR_FILE_NOT_FOUND;
 }
 
@@ -115,11 +113,9 @@ bool menu_remove(std::string* errOut) {
 }
 
 bool menu_installed() {
-    HKEY k = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kParent, 0, KEY_QUERY_VALUE, &k) != ERROR_SUCCESS)
-        return false;
-    RegCloseKey(k);
-    return true;
+    res::UniqueRegKey k;
+    return RegOpenKeyExW(HKEY_CURRENT_USER, kParent, 0, KEY_QUERY_VALUE, k.out()) ==
+           ERROR_SUCCESS;
 }
 
 } // namespace nx

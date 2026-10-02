@@ -2,7 +2,7 @@
 #include "sink.hpp"
 #include "diag.hpp"
 #include "gui.hpp"
-#include <windows.h>
+#include "res/temp_file.hpp"   // P2 圈禁（批次 5）：UniqueFile + DeleteGuard
 #include <bcrypt.h>
 #pragma comment(lib, "Bcrypt.lib")
 #include <algorithm>
@@ -231,9 +231,13 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
     // 真实案例：251 字符最终路径 + .nxpart 后缀超限，目录全建成、文件全失败
     std::wstring tmpL = win_long_path(tmp);
     std::wstring finalL = win_long_path(finalPath);
-    HANDLE h = CreateFileW(tmpL.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
+    // .part 半成品守卫（P2 圈禁，批次 5）：落名成功（dismiss）前任何失败路径
+    // 自动删除不留盘——原两段 catch 手工清理归一。
+    // 声明必须先于句柄：逆序析构 = 先关句柄再删文件（独占句柄未关则删除必败）
+    res::DeleteGuard part(tmpL);
+    res::UniqueFile h(CreateFileW(tmpL.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!h.valid())
         throw Error("创建输出文件失败: " + wide_to_utf8(finalPath) + " " +
                     wide_to_utf8(win32_last_error_text()));
 
@@ -241,58 +245,49 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
     bool doHash = verify_;
     uint64_t written = 0;
     std::vector<byte> buf;   // 仅零拷贝不可用时使用
-    try {
-        for (;;) {
-            // D5：优先零拷贝视图（libarchive 块 / spool 窗口直借）
-            std::span<const byte> v = src.read_direct(1 << 20);
-            if (v.empty()) {
-                if (buf.empty()) buf.assign(256 << 10, 0);
-                size_t n = src.read(buf);
-                if (n == 0) break;
-                v = std::span<const byte>(buf.data(), n);
-            }
-            size_t n = v.size();
-            size_t off = 0;
-            while (off < n) {
-                DWORD w = 0;
-                if (!WriteFile(h, v.data() + off, static_cast<DWORD>(n - off), &w, nullptr) ||
-                    w == 0)
-                    throw Error("写输出失败: " + wide_to_utf8(finalPath) + " " +
-                                wide_to_utf8(win32_last_error_text()));
-                off += w;
-            }
-            if (doHash) sha.update(v.data(), n);
-            written += n;
-            uint64_t total = stats_.bytesOut.fetch_add(n) + n;
-            if (total > opt_.maxBytes) {
-                stats_.limitTripped = true;
-                throw LimitError("累计输出超过上限 " + format_size(opt_.maxBytes));
-            }
-            // 大文件写出中途响应中止/取消（GUI 取消 → Cancelled → 静默退出）
-            if (stats_.abortFlag.load()) {
-                if (gui::progress_cancelled())
-                    throw Cancelled("用户取消");
-                throw Error("已中止（写出被全局终止）: " + r);
-            }
+    for (;;) {
+        // D5：优先零拷贝视图（libarchive 块 / spool 窗口直借）
+        std::span<const byte> v = src.read_direct(1 << 20);
+        if (v.empty()) {
+            if (buf.empty()) buf.assign(256 << 10, 0);
+            size_t n = src.read(buf);
+            if (n == 0) break;
+            v = std::span<const byte>(buf.data(), n);
         }
-    } catch (...) {
-        CloseHandle(h);
-        DeleteFileW(tmpL.c_str());
-        throw;
+        size_t n = v.size();
+        size_t off = 0;
+        while (off < n) {
+            DWORD w = 0;
+            if (!WriteFile(h.get(), v.data() + off, static_cast<DWORD>(n - off), &w,
+                           nullptr) ||
+                w == 0)
+                throw Error("写输出失败: " + wide_to_utf8(finalPath) + " " +
+                            wide_to_utf8(win32_last_error_text()));
+            off += w;
+        }
+        if (doHash) sha.update(v.data(), n);
+        written += n;
+        uint64_t total = stats_.bytesOut.fetch_add(n) + n;
+        if (total > opt_.maxBytes) {
+            stats_.limitTripped = true;
+            throw LimitError("累计输出超过上限 " + format_size(opt_.maxBytes));
+        }
+        // 大文件写出中途响应中止/取消（GUI 取消 → Cancelled → 静默退出）
+        if (stats_.abortFlag.load()) {
+            if (gui::progress_cancelled())
+                throw Cancelled("用户取消");
+            throw Error("已中止（写出被全局终止）: " + r);
+        }
     }
-    CloseHandle(h);
+    h.reset();   // 先关句柄再落名（原语义：CloseHandle 后 MoveFileExW）
 
-    try {
-        if (expectedSize != UINT64_MAX && written != expectedSize)
-            throw CorruptError("条目大小不符: " + r + "（期望 " + std::to_string(expectedSize) +
-                               "，实得 " + std::to_string(written) + "）");
-        if (!MoveFileExW(tmpL.c_str(), finalL.c_str(), MOVEFILE_REPLACE_EXISTING))
-            throw Error("落名失败: " + wide_to_utf8(finalPath) + " " +
-                        wide_to_utf8(win32_last_error_text()));
-    } catch (...) {
-        DeleteFileW(tmpL.c_str());   // 校验/落名失败不留 .part
-        throw;
-    }
+    if (expectedSize != UINT64_MAX && written != expectedSize)
+        throw CorruptError("条目大小不符: " + r + "（期望 " + std::to_string(expectedSize) +
+                           "，实得 " + std::to_string(written) + "）");
+    if (!MoveFileExW(tmpL.c_str(), finalL.c_str(), MOVEFILE_REPLACE_EXISTING))
+        throw Error("落名失败: " + wide_to_utf8(finalPath) + " " +
+                    wide_to_utf8(win32_last_error_text()));
+    part.dismiss();   // 落名成功：半成品已是正式文件，不再删除
     stats_.filesOut.fetch_add(1);
     if (doHash) {
         std::string hex = sha.finish();
