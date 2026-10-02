@@ -133,37 +133,37 @@ def main():
     else:
         print("[run] 跳过 nxunit（未构建）")
 
-    # 所有权小模型（批次 4 前置验收门）：修复前语义必出泄漏反例、
-    # 仅 weak 无 KeepAlive 必出异步用后死亡、weak+KeepAlive 全序列无违例
-    r = add("ownership_model")
-    p = subprocess.run([sys.executable, os.path.join(HERE, "ownership_model.py")],
-                       capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", timeout=120)
-    r.check(p.returncode == 0, "所有权模型验收门失败:\n" + (p.stdout or "")[-800:])
-
-    # 权威形态：TLA+/TLC 全状态空间完备检查（tools/ownership.tla 三变体；
-    # java + tools/tla2tools.jar 就绪时运行——legacy 必违 NoLeak、weakOnly 必违
-    # AsyncNoUseAfterDead、fixed 必须全过；与 Python 门结论必须一致）
+    # 所有权模型门（TLA+/TLC，唯一权威形态——批次 4 前置验收门常驻）：
+    # legacy 必违 NoLeak、weakOnly 必违 AsyncNoUseAfterDead、fixed 必须全过。
+    # 硬门：缺 jar/java 直接判 FAIL（跑 tools/fetch_tla.cmd 获取），不静默跳过
     tla_jar = os.path.join(ROOT, "tools", "tla2tools.jar")
     tla_spec = os.path.join(ROOT, "tools", "ownership.tla")
-    if os.path.exists(tla_jar):
-        r = add("ownership_tla")
+    r = add("ownership_tla")
+    if not os.path.exists(tla_jar):
+        r.check(False, "缺 tools/tla2tools.jar——先运行 tools/fetch_tla.cmd（或手动下载放入 tools/）")
+    else:
         ok = True
         notes = []
         for variant, expect in (("legacy", False), ("weakOnly", False), ("fixed", True)):
             cfg = os.path.join(ROOT, "tools", f"ownership_{variant}.cfg")
-            p = subprocess.run(["java", "-jar", tla_jar, "-nowarning", "-config", cfg,
-                                tla_spec], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=300,
-                               cwd=os.path.join(ROOT, "tools"))
-            clean = p.returncode == 0
+            try:
+                p = subprocess.run(["java", "-jar", tla_jar, "-nowarning", "-config", cfg,
+                                    tla_spec], capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=300,
+                                   cwd=os.path.join(ROOT, "tools"))
+                clean = p.returncode == 0
+                detail = (p.stdout or "")[-300:]
+            except FileNotFoundError:
+                r.check(False, "缺 java（TLC 运行时）——安装 JDK 11+ 后重试")
+                ok = False
+                break
+            except subprocess.TimeoutExpired:
+                clean, detail = False, "TLC 超时"
             if clean != expect:
                 ok = False
-                notes.append(f"{variant}: returncode={p.returncode}（期望{'通过' if expect else '违例'}）\n"
-                             + (p.stdout or "")[-400:])
-        r.check(ok, "TLA+/TLC 与 Python 门结论不一致:\n" + "\n".join(notes))
-    else:
-        print("[run] 跳过 ownership_tla（无 tools/tla2tools.jar）")
+                notes.append(f"{variant}: returncode={p.returncode}（期望{'通过' if expect else '违例'}）\n{detail}")
+        if notes:
+            r.check(False, "TLA+/TLC 门结论与预期不符:\n" + "\n".join(notes))
 
     # M1：zip/7z/rar 三主流格式（带密码参数）
     for case, entry, args, want in [

@@ -289,10 +289,10 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 
 | 手段 | 对象 | 时机 | 成本 |
 |---|---|---|---|
-| **TLA+ / TLC** | 所有权小模型（已落地：tools/ownership.tla 三变体 + 三个 cfg，run_tests 以 `ownership_tla` 用例常驻；tests/ownership_model.py 降级为 CI 快速门） | **批次 4 的前置验收门（已过）**：legacy 复现 replayQ_ 反例（TLC 完备反例 trace = Open→ProbePush→DropReader）、weakOnly 证"weak 与 KeepAlive 必须配套"（AsyncNoUseAfterDead 违例）、fixed 全状态空间零违例 | 已完成 |
+| **TLA+ / TLC** | 所有权小模型（已落地：tools/ownership.tla 三变体 + 三个 cfg；run_tests `ownership_tla` 用例为**硬门**——缺 jar/java 直接 FAIL） | **批次 4 的前置验收门（已过）**：legacy 复现 replayQ_ 反例（TLC 完备反例 trace = Open→ProbePush→DropReader）、weakOnly 证"weak 与 KeepAlive 必须配套"（AsyncNoUseAfterDead 违例）、fixed 全状态空间零违例 | 已完成 |
 | TLA+ | BoundedQueue abandon 协议（NoDeadlock/NoLostWake） | 工具已就绪（tla2tools.jar），随批次 6 或单独排期 | 0.5d |
 | CBMC | regionOf 区间扫描抽取纯函数 / stego 边界 / sanitize_segment（下标越界·回绕·接受谓词） | 随批次 5/6 顺手（抽取即单测） | 0.5-1d/函数 |
-| F* 或 Coq（待装） | AST 强闭包检查器的正确性证明（闭包定点 = 数学可达性、终止性）——检查器本体仍是 clang-cl ast-dump + 程序，证明其算法 | 批次 5（用户配置工具后） | 1-2d |
+| F*（已装：tools/fstar 2026.09.27） | AST 强闭包检查器的正确性证明（闭包定点 = 数学可达性、终止性）——检查器本体仍是 clang-cl ast-dump + 程序，证明其算法 | 批次 5 | 1-2d |
 
 ---
 
@@ -321,7 +321,7 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 | # | 日期 | 决策 | 背景 |
 |---|---|---|---|
 | D-1 | 2026-10-02 | **递归深度默认 10 层，过滤器链纳入 `--depth` 约束**。实现草案：`walk()` 增 `filterChain` 参数（容器分支重置为 0，过滤器分支 +1 并检查超限抛 LimitError/exit 3）；`maxDepth` 默认 8→10 + usage 文案；depth_bomb 语料加深至 12 层；新增 filter_depth_bomb 用例（30 层嵌套 gzip，期望退出码 3） | F2/DoS：过滤器分支同 depth 递归无上界，4MiB 输入可构造数千层嵌套 gzip 致栈溢出/线程耗尽。默认 10 层已覆盖全部真实需求（用户确认）。注意：不能让过滤器直接计入 `depth`——会破坏 tar.gz 根的 noRoot 语义与层编号 |
-| D-2 | 2026-10-02 | **形式化工具选型：TLA+/TLC 而非 Alloy**（用户指示"验证器用成熟的，不要自制简陋模型"）。Alloy 需另装工具链而本机已有 OpenJDK 11，tla2tools.jar 单文件即可运行（经代理自动获取入 tools/）。所有权小模型以 tools/ownership.tla 落地（三变体共用一份规范，GC 建模为独立原子 Collect 动作，比操作内折叠更忠实），TLC **完备**全状态空间检查取代深度上限穷举；tests/ownership_model.py（自制穷举器）降级为 CI 快速门保留、结论须与 TLC 一致（run_tests 同时跑两者）。**证明侧（AST 强闭包检查器正确性）选定 F\* 或 Coq，待用户配置安装** | 批次 4 验收门最初以自制 Python 穷举器达成同等校准，但用户正确指出：权威验证应交给成熟工具，自制模型只是"能跑的校准脚本" |
+| D-2 | 2026-10-02 | **形式化工具选型：TLA+/TLC（模型检查）+ F\*（证明）**（用户指示"验证器用成熟的，不要自制简陋模型"；门就是门，CI 不允许静默跳过）。TLC 完备检查为唯一权威门并硬性接入 run_tests（缺 jar/java 直接 FAIL，`ownership_tla` 用例）；自制 Python 穷举器**已删除**不再维护。所有权小模型 tools/ownership.tla 三变体共用一份规范，GC 为独立原子 Collect 动作。证明侧 F\* 2026.09.27 已就位（tools/fstar/，用户配置），链路自检 tools/proofs/Smoke.fst（闭包保种子/单调性引理全由 z3 自动 discharge） | 批次 4 验收门最初以自制 Python 穷举器达成，用户两次纠正：①自制模型只配当校准脚本不配当权威验证；②"缺 jar 时优雅跳过"不是门——强制要求通过 |
 | — | — | 待决事项：F\* vs Coq 二选一（证明侧工具，用户配置） | — |
 
 ---
