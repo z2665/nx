@@ -36,3 +36,5 @@ tools/tla2tools.jar
 tools/states/
 tools/ownership_TTrace_*
 tools/fstar/
+tools/proofs/*.checked
+tools/proofs/Closure.krml
