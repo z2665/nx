@@ -515,6 +515,15 @@ def main():
                        timeout=180)
     r.check(g.returncode == 0, "GUI 冒烟失败: " + (g.stdout or "")[-500:])
 
+    # 所有权 AST 强闭包审计（批次 5，硬门）：esft 类的成员强闭包含自身 = 类型级
+    # 自引用环。链路 = clang-cl ast-dump → 边表（shared_ptr→派生展开）→ F* 验证
+    # closure_check.exe。校准标准（f647037 恰报 LaSeqReader 零误报）见 --calibrate
+    r = add("ownership_audit")
+    p = subprocess.run([sys.executable, os.path.join(HERE, "audit_ownership.py")],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=1800)
+    r.check(p.returncode == 0, "所有权审计失败:\n" + (p.stdout or "")[-800:])
+
     # 汇总
     print()
     fails = 0
