@@ -263,7 +263,21 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **szcom cache_ 预算驱逐**（F5）：与 materializeBatch 共享 batchBudget 的真 LRU +
   字节记账；中读条目豁免（驱逐后重物化 pos 归零会内容错乱）
 
-## 测试
+### 重构批次 5 —— 资源圈禁与 AST 所有权审计（进行中，2026-10-02）
+
+- **AST 强闭包检查器**（`tests/audit_ownership.py`，roadmap §7.3 信任链闭合）：
+  clang-cl `-ast-dump=json` 逐 TU 抽取"类→成员强边"表（shared_ptr/unique_ptr 目标
+  展开到全部传递派生类——环常经基类静态类型达成，replayQ_ 事故即如此；容器元素
+  所有权同计强边；weak_ptr/裸指针/引用不计）→ **F\* 验证 + KaRaMeL 抽取的
+  closure_check.exe** 判定 esft 类成员强闭包含自身（类型级自引用环）。
+  证明链：`tools/proofs/Closure.fst`（P0 集合保元素/P1 保种子/P2 单调/P3 后继吸收
+  四引理全 VC 通过）→ KaRaMeL C → clang-cl 编译（tools/build_closure_kernel.cmd）。
+  **校准达成：对基线 f647037 恰报 LaSeqReader 一处零误报**；HEAD 零违规。
+  run_tests 以 `ownership_audit` 用例硬门接入（53/53）。自环判定为后继种子语义
+  （"closure 含自身"被 P1 平凡满足——合成图测试抓出的规格级 bug）
+- 待完成：res/ 圈禁（UniqueFile/TempFile/com_ptr 全量迁移）+ gsl::owner 标注
+
+
 
 ```bash
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
