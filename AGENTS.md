@@ -2,8 +2,8 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++20，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-4 已完成，2026-10-02；剩批次 5 res/ 圈禁、批次 6 验证常态化）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-4，52/52 测试通过；C++23）。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-5 已完成，2026-10-02；剩批次 6 验证常态化）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-5，53/53 测试通过；C++23）。
 
 ## 构建与打包
 
@@ -45,6 +45,11 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
   → FilterStage(过滤器直连) / ArchiveStage(libarchive+SpoolStore)
   → Walker(递归+Limiter+PasswordProvider) → Sink(安全落盘)
 ```
+
+- `src/res/` 是**资源圈禁区（P2，批次 5）**：Win32 句柄/COM/临时文件的 RAII 唯一来源
+  （UniqueFile/UniqueRegKey/UniqueModule/TempFile/com_ptr/DeleteGuard，header-only）。
+  `CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release()` 不得出现在 res/ 之外——
+  `tests/audit_ownership.py` 的 grep 圈禁门是硬门，新代码违例直接 FAIL。
 
 - `ByteSource` 是唯一流抽象；R 类（需 seek 的）容器经 `SpoolStore`（RAM 环形自适应 → 磁盘溢出），
   **stored 嵌套条目例外**——可经 `RegionSource` 区间直读免 spool（见下）。

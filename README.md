@@ -1,8 +1,8 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0 缺陷登记簿 D1–D8 已全部修复，2026-10-02）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0/1/2/3/4**。52/52 测试（unit_core 298 项 + 所有权模型门 + 50 属性）+ GUI 冒烟 9/9 通过。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0–5 已完成，2026-10-02）。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0–5**。53/53 测试（unit_core 325 项 + 所有权模型门 + 50 属性）+ GUI 冒烟 9/9 通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -263,7 +263,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **szcom cache_ 预算驱逐**（F5）：与 materializeBatch 共享 batchBudget 的真 LRU +
   字节记账；中读条目豁免（驱逐后重物化 pos 归零会内容错乱）
 
-### 重构批次 5 —— 资源圈禁与 AST 所有权审计（进行中，2026-10-02）
+### 重构批次 5 —— 资源圈禁与 AST 所有权审计（2026-10-02，refactor-roadmap §8）
 
 - **AST 强闭包检查器**（`tests/audit_ownership.py`，roadmap §7.3 信任链闭合）：
   clang-cl `-ast-dump=json` 逐 TU 抽取"类→成员强边"表（shared_ptr/unique_ptr 目标
@@ -275,7 +275,25 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   **校准达成：对基线 f647037 恰报 LaSeqReader 一处零误报**；HEAD 零违规。
   run_tests 以 `ownership_audit` 用例硬门接入（53/53）。自环判定为后继种子语义
   （"closure 含自身"被 P1 平凡满足——合成图测试抓出的规格级 bug）
-- 待完成：res/ 圈禁（UniqueFile/TempFile/com_ptr 全量迁移）+ gsl::owner 标注
+- **res/ 资源圈禁**（P2：释放调用只允许出现在 `src/res/`）：
+  `UniqueHandle<T,Invalid,Closer>` 模板（header-only）+ `UniqueFile/UniqueRegKey/
+  UniqueModule` 三别名收编全部 Win32 句柄——文件（FileSource/FileSeekView/
+  FileSeekInput/日志探针/报告写出）、注册表键（右键菜单装卸）、DLL 模块（7z.dll
+  探测期自动卸载、命中后 owner 转移进程级缓存）；`TempFile` 唯一临时文件工厂
+  （统一 DELETE_ON_CLOSE，spool 溢出卷）；`com_ptr<T>` 收编 COM 引用（szcom
+  IInArchive/回调/类工厂 + nxshell 全部手工 Release）；`DeleteGuard` 半成品守卫
+  （sink `.part` 原两段 catch 手工清理归一——声明序=先关句柄后删文件的契约，
+  GUI 用例 6 曾实证抓住反序残留）。**audit_ownership.py 增 grep 圈禁硬门**
+  （CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release() 越出 res/ 即 FAIL，
+  剥注释防误报；res/ 豁免、COM Release override 豁免），负样本自测通过
+- **gsl::owner 标注**（零依赖自带 `res/gsl_owner.hpp`）：所有权逃逸点显式化——
+  `UniqueHandle::release()`/`com_ptr::release()` 返回值与 7z.dll 进程级缓存
+- **M1 顺手修复**：write_report_file 短写/写失败原先静默——现报"报告写入失败（短写）"
+- **fuzz 实证回归**：COM 释放顺序契约——Open 失败后 7z.dll 仍持流引用，必须
+  先 `arc.reset()` 再清 `mainStream_`（反序 = heap-use-after-free，ASan 抓获、
+  修复后工件入库为 fuzz 回归种子）
+- nxunit +27 → **325 项检查**（res/ RAII 语义：恰一次关闭/逃逸不关/out 接收/
+  move 语义/引用计数/DELETE_ON_CLOSE/DeleteGuard dismiss）
 
 
 
@@ -284,7 +302,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 52/52（unit_core 298 项 + 所有权模型门 + 50 属性）
+python tests/run_tests.py        # 53/53（unit_core 325 项 + 所有权模型门 + 50 属性）
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）
