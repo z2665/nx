@@ -32,5 +32,6 @@ tests/fuzz-corpus/
 tests/fuzz-corpus-seeds/
 
 # TLC 模型检查工件
+tools/tla2tools.jar
 tools/states/
 tools/ownership_TTrace_*
