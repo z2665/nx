@@ -22,7 +22,7 @@ let rec union_acc (l: list node) (acc: list node)
     | [] -> acc
     | x :: q -> union_acc q (insert x acc)
 
-let step (edges: node -> list node) (frontier: list node) : Tot (list node) =
+let step (edges: node -> Tot (list node)) (frontier: list node) : Tot (list node) =
   union_acc (flatten (map edges frontier)) frontier
 
 (* P0a：insert 不丢 acc 元素 *)
@@ -45,13 +45,13 @@ let union_keeps l acc =
   in aux l acc
 
 (* 迭代闭包：closure 0 = {x}；每轮吸收后继 *)
-let rec closure (edges: node -> list node) (fuel: nat) (x: node)
+let rec closure (edges: node -> Tot (list node)) (fuel: nat) (x: node)
   : Pure (list node) (decreases fuel)
   = if fuel = 0 then [x]
     else step edges (closure edges (fuel - 1) x)
 
 (* P1：种子保留 *)
-val closure_keeps_seed : edges:(node -> list node) -> x:node -> n:nat
+val closure_keeps_seed : edges:(node -> Tot (list node)) -> x:node -> n:nat
   -> Lemma (ensures List.mem x (closure edges n x))
 let closure_keeps_seed edges x n =
   let rec aux (k: nat)
@@ -65,7 +65,7 @@ let closure_keeps_seed edges x n =
   in aux n
 
 (* P2：逐轮单调 *)
-val closure_mono : edges:(node -> list node) -> x:node -> n:nat
+val closure_mono : edges:(node -> Tot (list node)) -> x:node -> n:nat
   -> Lemma (ensures (forall (y: node).
       List.mem y (closure edges n x) ==> List.mem y (closure edges (n + 1) x)))
 let closure_mono edges x n =
@@ -89,7 +89,7 @@ let closure_mono edges x n =
   in aux n
 
 (* P3 前置：成员的后继落在 flatten(map edges) 中 *)
-val succ_in_flatten : edges:(node -> list node) -> l:list node -> y:node -> z:node
+val succ_in_flatten : edges:(node -> Tot (list node)) -> l:list node -> y:node -> z:node
   -> Lemma (requires (List.mem y l /\ List.mem z (edges y)))
             (ensures List.mem z (flatten (map edges l)))
 let succ_in_flatten edges l y z =
@@ -109,7 +109,7 @@ let succ_in_flatten edges l y z =
   in aux l
 
 (* P3：后继吸收——闭包成员的后继在下一轮进入闭包（点式） *)
-val closure_absorbs : edges:(node -> list node) -> x:node -> n:nat -> y:node -> z:node
+val closure_absorbs : edges:(node -> Tot (list node)) -> x:node -> n:nat -> y:node -> z:node
   -> Lemma (ensures (List.mem y (closure edges n x) ==> List.mem z (edges y)
                     ==> List.mem z (closure edges (n + 1) x)))
 let closure_absorbs edges x n y z =
@@ -121,10 +121,17 @@ let closure_absorbs edges x n y z =
     succ_in_flatten edges c1 y z
   ) else ()
 
-(* 检查器判定：fuel = 全域大小+1 时闭包是否含自身 *)
-val self_cycle : edges:(node -> list node) -> universe_size:nat -> x:node
-  -> Pure bool
-           (requires True)
-           (ensures fun r -> r <==> List.mem x (closure edges (universe_size + 1) x))
+(* 检查器判定：x 经 ≥1 步强边回到自身。闭包以种子为起点故 P1 恒含种子——
+ * 判定从后继出发：∃y ∈ edges x, x ∈ closure(y)（universe_size 轮覆盖全域最长
+ * 简单路径）。正确性依据 P0-P3（闭包语义）+ 后继种子的定义展开；完整 iff
+ * 引理（判定 ⇔ 数学可达意义下的环）留作后续证明债务，见 roadmap §9。 *)
+val self_cycle : edges:(node -> Tot (list node)) -> universe_size:nat -> x:node
+  -> Tot bool
+let rec scan_back (edges: node -> Tot (list node)) (us: nat) (x: node) (l: list node)
+  : Tot bool (decreases l)
+  = match l with
+    | [] -> false
+    | y :: q -> if List.mem x (closure edges us y) then true else scan_back edges us x q
+
 let self_cycle edges universe_size x =
-  List.mem x (closure edges (universe_size + 1) x)
+  scan_back edges universe_size x (edges x)

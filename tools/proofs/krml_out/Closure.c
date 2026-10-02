@@ -190,14 +190,41 @@ Prims_list__uint32_t
 }
 
 bool
+scan_back(
+  Prims_list__uint32_t *(*edges)(uint32_t x0),
+  krml_checked_int_t us,
+  uint32_t x,
+  Prims_list__uint32_t *l
+)
+{
+  if (l->tag == Prims_Nil)
+    return false;
+  else if (l->tag == Prims_Cons)
+  {
+    Prims_list__uint32_t *q = l->tl;
+    uint32_t y = l->hd;
+    if (FStar_List_Tot_Base_mem__uint32_t(x, closure(edges, us, y)))
+      return true;
+    else
+      return scan_back(edges, us, x, q);
+  }
+  else
+  {
+    KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+      __FILE__,
+      __LINE__,
+      "unreachable (pattern matches are exhaustive in F*)");
+    KRML_HOST_EXIT(255U);
+  }
+}
+
+bool
 self_cycle(
   Prims_list__uint32_t *(*edges)(uint32_t x0),
   krml_checked_int_t universe_size,
   uint32_t x
 )
 {
-  return
-    FStar_List_Tot_Base_mem__uint32_t(x,
-      closure(edges, Prims_op_Addition(universe_size, 1), x));
+  return scan_back(edges, universe_size, x, edges(x));
 }
 

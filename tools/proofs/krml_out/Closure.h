@@ -38,6 +38,14 @@ Prims_list__uint32_t
 *closure(Prims_list__uint32_t *(*edges)(uint32_t x0), krml_checked_int_t fuel, uint32_t x);
 
 bool
+scan_back(
+  Prims_list__uint32_t *(*edges)(uint32_t x0),
+  krml_checked_int_t us,
+  uint32_t x,
+  Prims_list__uint32_t *l
+);
+
+bool
 self_cycle(
   Prims_list__uint32_t *(*edges)(uint32_t x0),
   krml_checked_int_t universe_size,

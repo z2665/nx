@@ -12,8 +12,6 @@
 
 extern krml_checked_int_t Prims_op_Subtraction(krml_checked_int_t x, krml_checked_int_t y);
 
-extern krml_checked_int_t Prims_op_Addition(krml_checked_int_t x, krml_checked_int_t y);
-
 
 #define internal_Prims_H_DEFINED
 #endif /* internal_Prims_H */
