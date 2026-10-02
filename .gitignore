@@ -30,3 +30,7 @@ build-fuzz/
 build-diag/
 tests/fuzz-corpus/
 tests/fuzz-corpus-seeds/
+
+# TLC 模型检查工件
+tools/states/
+tools/ownership_TTrace_*

@@ -13,6 +13,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
 CASES = os.path.join(HERE, "cases")
 NX_EXE = os.environ.get("NX_EXE", os.path.join(HERE, "..", "build", "nx.exe"))
 WORK = os.path.join(HERE, "work")
@@ -139,6 +140,30 @@ def main():
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=120)
     r.check(p.returncode == 0, "所有权模型验收门失败:\n" + (p.stdout or "")[-800:])
+
+    # 权威形态：TLA+/TLC 全状态空间完备检查（tools/ownership.tla 三变体；
+    # java + tools/tla2tools.jar 就绪时运行——legacy 必违 NoLeak、weakOnly 必违
+    # AsyncNoUseAfterDead、fixed 必须全过；与 Python 门结论必须一致）
+    tla_jar = os.path.join(ROOT, "tools", "tla2tools.jar")
+    tla_spec = os.path.join(ROOT, "tools", "ownership.tla")
+    if os.path.exists(tla_jar):
+        r = add("ownership_tla")
+        ok = True
+        notes = []
+        for variant, expect in (("legacy", False), ("weakOnly", False), ("fixed", True)):
+            cfg = os.path.join(ROOT, "tools", f"ownership_{variant}.cfg")
+            p = subprocess.run(["java", "-jar", tla_jar, "-nowarning", "-config", cfg,
+                                tla_spec], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=300,
+                               cwd=os.path.join(ROOT, "tools"))
+            clean = p.returncode == 0
+            if clean != expect:
+                ok = False
+                notes.append(f"{variant}: returncode={p.returncode}（期望{'通过' if expect else '违例'}）\n"
+                             + (p.stdout or "")[-400:])
+        r.check(ok, "TLA+/TLC 与 Python 门结论不一致:\n" + "\n".join(notes))
+    else:
+        print("[run] 跳过 ownership_tla（无 tools/tla2tools.jar）")
 
     # M1：zip/7z/rar 三主流格式（带密码参数）
     for case, entry, args, want in [

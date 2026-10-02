@@ -243,11 +243,13 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 
 ### 重构批次 4 —— 契约与所有权（2026-10-02，refactor-roadmap §8）
 
-- **前置验收门（形式化）**：`tests/ownership_model.py` 可执行穷举模型检查器（对象≤6/
-  操作 7 种/深度≤12 全序列，即刻 GC + 强弱边 + 根可达，run_tests 以 `ownership_model`
-  用例常驻）。三变体结论：修复前语义复现 replayQ_ 泄漏反例（`open→probePush→failOpen`）；
-  仅 weak_ptr 无 KeepAlive 出现异步用后死亡（"两者必须配套"的形式化证明）；
-  weak+KeepAlive 全序列零违例。**方案过门后才动代码**
+- **前置验收门（形式化，TLA+/TLC 权威形态）**：`tools/ownership.tla` 三变体共用一份
+  规范（legacy/weakOnly/fixed），GC 建模为独立原子 Collect 动作，TLC **完备**全状态
+  空间检查（无深度上限）——legacy 违 NoLeak（反例 trace = Open→ProbePush→DropReader，
+  即 replayQ_ 环触发族 1）；weakOnly 违 AsyncNoUseAfterDead（"weak 与 KeepAlive 必须
+  配套"的形式化证明）；fixed 零违例。run_tests 以 `ownership_tla` 用例常驻（需
+  Java + tools/tla2tools.jar）；`tests/ownership_model.py` 为 CI 快速门，结论须与
+  TLC 一致。**方案过门后才动代码**
 - **weak_ptr + KeepAlive**：LaEntrySource/szcom EntrySource 对读取器改持弱引用
   （父方向强边消除，强所有权图无环）；`ByteSource::keepAlive()` 虚令牌（别名构造），
   Sink 异步任务提交时捕获——任务可超出 walker 栈帧存活而读者不先亡
