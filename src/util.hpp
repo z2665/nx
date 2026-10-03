@@ -1,43 +1,15 @@
 // nx - 流式嵌套压缩包解压工具（M0）
-// util.hpp：通用工具 —— 转换、路径、错误类型
+// util.hpp：通用工具 —— 转换、路径、解析。错误分类学与 Result 在 outcome.hpp
+//（util.hpp 经 include 转发，既有包含点无需改动）
 #pragma once
-#include <expected>
-#include <stdexcept>
+#include "outcome.hpp"
+#include <cstdint>
 #include <string>
 #include <string_view>
-#include <cstdint>
 
 namespace nx {
 
 using byte = unsigned char;
-
-// 值错误二元表达（批次 1 试点，roadmap §6.3）：std::expected 别名隔离——
-// 纯解析/冷路径优先；跨线程 exception_ptr、中止/熔断/密码耗尽控制流仍走异常
-template <class T>
-using Result = std::expected<T, std::string>;
-
-// ---- 错误类型（决定退出码语义，见设计 §8）----
-// NOLINT：sink 参数惯用法——按值收下再 move 入基类，非浪费拷贝
-struct Error : std::runtime_error {
-    explicit Error(std::string m) : std::runtime_error(std::move(m)) {}   // NOLINT(performance-unnecessary-value-param)
-};
-struct LimitError : Error {            // 超限熔断 / 磁盘水位 → 退出码 3
-    explicit LimitError(std::string m) : Error(std::move(m)) {}
-};
-struct PasswordExhausted : Error {     // 密码缺失或耗尽 → 退出码 2
-    std::string layer;
-    PasswordExhausted(std::string layer_, std::string m)
-        : Error(std::move(m)), layer(std::move(layer_)) {}
-};
-struct MissingVolumes : Error {        // 缺分片 → 退出码 4
-    explicit MissingVolumes(std::string m) : Error(std::move(m)) {}
-};
-struct CorruptError : Error {          // 数据损坏（keep-going 可隔离）→ 记入退出码 1
-    explicit CorruptError(std::string m) : Error(std::move(m)) {}
-};
-struct Cancelled : Error {             // 用户取消（GUI X/取消）→ 直接退出（M3 需求 5）
-    explicit Cancelled(std::string m) : Error(std::move(m)) {}
-};
 
 // ---- 编码转换 ----
 std::wstring utf8_to_wide(std::string_view s);
