@@ -1,7 +1,7 @@
 # nx — 流式嵌套压缩包解压工具
 
-设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
-重构记录：[refactor-roadmap.md](refactor-roadmap.md)（批次 0–6 全部完成，2026-10-03；纪律与决策权威）。
+设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.3：设计权威 + §4.1 所有权与生命周期 + §9.6 验证体系）。
+工作区纪律：[AGENTS.md](AGENTS.md)（所有权纪律 P1-P6 操作化 + 决策速查）。
 **当前状态：M0–M3 + v1 后续 + 重构批次 0–6（全部）**。55/55 测试（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）+ GUI 冒烟 9/9 + 合成发布门通过。C++23。
 
 ## 构建（Windows + VS 2026 + vcpkg）
@@ -81,7 +81,8 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 
 ## 重构记录（批次 0–6，2026-10-02/03 全部完成）
 
-细节见 [refactor-roadmap.md](refactor-roadmap.md)（纪律/架构/验证体系/决策权威）与各 commit；AGENTS.md 含所有权纪律操作化清单。
+逐批交付如下（逐 commit 细节见 git 历史；所有权模型与生命周期状态机 → 设计文档 §4.1，
+验证体系全景 → 设计文档 §9.6，操作化纪律 → AGENTS.md）。
 
 | 批次 | 交付 |
 |---|---|

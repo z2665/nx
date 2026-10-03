@@ -2,9 +2,9 @@
 
 > 版本 v0.3 ｜ 2026-10-03 ｜ 平台：纯 Windows ｜ 实现：C++23（选型决策见 §7）
 > 实现状态：M0–M3 + v1 后续 + 现代化重构批次 0–6 **全部完成**（55/55 测试 + GUI 9/9 +
-> 合成发布门；进度与测试清单见 README，重构纪律与决策见 refactor-roadmap.md，§10 为实施记录）
+> 合成发布门；进度与测试清单见 README，工作区纪律见 AGENTS.md，§10 为实施记录）
 > v0.3 变更：语言标准更新为 C++23、工具链与依赖表对齐实现现状、案例代号匿名化（D-4）、
-> §4 补所有权与生命周期指引；历史决策记录（v0.2 选型）保留原貌。
+> §4.1 所有权与生命周期/§9.6 验证体系收编自重构路线图（该文件已退役删除）；历史决策记录（v0.2 选型）保留原貌。
 
 ---
 
@@ -174,7 +174,31 @@ struct Entry {
 - 控制台 `SetConsoleOutputCP(CP_UTF8)` + VT 转义进度（Win10+ 终端原生支持）；
 - 磁盘水位：`GetDiskFreeSpaceEx` 预检 + 解压中周期复查，超限熔断；
 - 线程模型：`std::jthread` + `stop_token`，级间固定容量 MPSC 有界队列（默认 1 MiB `--buffer`）形成背压——内存上界 = 活跃链数 × 级数 × 缓冲，可预测。不引入协程，普通线程池足够且更好调试。
-- **所有权与生命周期（重构后纪律）**：强所有权图为 DAG——条目源对读取器持 weak_ptr、异步写出经 `keepAlive()` 令牌配套保活（EntryToken 契约，container.hpp）；Win32 句柄/COM/临时文件 RAII 唯一来源在 `src/res/`（P2 圈禁，五名单硬门）；各核心类型生命周期状态机与不变式（SpoolBuffer/LaSeqReader/SevenZipReader/Sink/BoundedQueue）的权威定义在 [refactor-roadmap.md](refactor-roadmap.md) §5.1，运行时哨兵见 src/diag.hpp（S1-S10）。
+
+### 4.1 所有权与生命周期（重构后纪律，权威定义）
+
+强所有权边构成以 {main 栈 Session、Walker 活动栈帧、Sink 任务队列、7z.dll COM 引用}
+为根的 **DAG**（无环由三层验证保证，见 §9.6）。核心机制：
+
+- **weak_ptr + KeepAlive 令牌（配套，缺一即违）**：条目源（LaEntrySource/EntrySource）
+  对读取器只持 `weak_ptr`；异步写出的存活由 Sink 任务捕获 `keepAlive()` 保活令牌；
+- **EntryToken 契约**（container.hpp）：迭代位置显式令牌——重放只携带 {token,meta}、
+  显式索取、读取器成员容器不得持有条目源或含条目源的类型（INV-3）；
+- **P2 圈禁**：Win32 句柄/COM 引用/临时文件的 RAII 唯一来源在 `src/res/`（释放
+  五名单硬门，见 AGENTS 架构分层节）；文件句柄接入一律 `res::adopt_file()`；
+- **生命周期状态机与关键不变式**：
+
+| 类型 | 状态机 | 关键不变式 |
+|---|---|---|
+| SpoolBuffer | growing → finished（overflowed 单调） | read_at 仅 finished；append 仅 growing；overflowed ⇒ ram_.empty() |
+| LaSeqReader | probing → iterating → drained → dead | dead 时 replayQ_ 必空；adoptStream 至多一次 |
+| SevenZipReader | opening⇄enumerate⇄probe → ready → iterating → dead | arc_≠null ⇒ ready/iterating；cache_[i].pos 单调 |
+| Sink/ThreadPool | accepting → draining → destroyed | destroyed 仅可自 draining 迁入（先 waitAll） |
+| BoundedQueue | open/closed → dead（终态） | dead 时两侧必不阻塞（TLA+ DeadRelease 已证） |
+
+借用纪律断言化（四条）：Sink 析构前必 waitAll；QueueSource 先亡于队列；Session/Sink
+成员声明序显式化；COM 释放契约（S8 哨兵）。运行时哨兵见 `src/diag.hpp`（S1-S10，
+`NX_DIAG_LEAKS`，fuzz 常开；诊断构建 `build-diag.cmd`）。
 
 ---
 
@@ -300,6 +324,26 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 3. **对抗用例**：zip-slip 路径集、Windows 保留名/ADS/超长名、42.zip 风格炸弹（熔断必须触发）、截断流、坏 CRC、缺分片、序号跳号、`.z01+.zip` 顺序陷阱、本地头/中央目录不一致、**7z 头加密（无密码连列表都没有）**、错误密码与损坏数据混叠。
 4. **密码专项**：层身份正确性（同密码复用命中缓存；异密码各自询问且提示文本带层路径）；回显关闭；`--no-prompt` 下密码耗尽的退出码；RAR3 大候选列表的耗时长尾。
 5. **性能基准**：固定 3 组语料 × 3 方案（手工两遍 / bsdtar 管道 / 本工具）；指标 = 墙钟、**峰值磁盘占用**（流水线应为 0 中间）、峰值内存、用户 CPU。机械盘/网络盘环境必测（流水线收益放大器）。
+
+### 9.6 验证体系（重构落地，run_tests 硬门）
+
+- **双 TLA+ 模型**（缺 tla2tools.jar/java 直接 FAIL）：`tools/ownership.tla` 三变体
+  ——legacy 复现 replayQ_ 反例、weakOnly 证"weak 与 KeepAlive 必须配套"、fixed 零违例；
+  `tools/boundedqueue.tla` 三变体——closeNoWake/abandonNoWake 校准反例必违、
+  fixed 零违例零死锁（DeadRelease + ParkedSanity）；
+- **AST 强闭包检查器**（`tests/audit_ownership.py`，硬门）：clang-cl ast-dump →
+  类→成员强边表 → **F\* 验证 + KaRaMeL 抽取的 closure_check.exe**（Closure.fst
+  四引理全 VC）判定 esft 类成员强闭包含自身；校准 f647037 恰报 LaSeqReader
+  零误报；同脚本含 P2 圈禁 grep 门（五名单 + 每次运行正/负样本自检）；
+- **clang-tidy 基线门**（`tests/tidy_check.py` + `.clang-tidy`）：owning-memory/
+  dangling-handle/mt-unsafe/unnecessary-value-param 四检查零警告；
+- **fuzz**（libFuzzer+ASan，哨兵 S1-S5 常开）+ `tests/fuzz-regression/` 持久回归
+  种子（历史崩溃工件，populate_seeds 回灌）；
+- **发布门**（`tests/release_gate.py`）：合成语料（真实案例结构重建，确定性种子，
+  D-4 隐私纪律）端到端哈希比对，manifest 入库。
+
+三层分工：**TLA+ 管设计语义、AST 检查器管代码现状、F\* 管检查器不说谎**。
+MSVC /analyze 排雷（`build-analyze.cmd`，低噪子集）为非门辅助，项目源零警告。
 
 ---
 
@@ -462,7 +506,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 | M3（正式发布） | unRAR 可选插件、`nxcore.dll` C ABI 导出、安装器/右键菜单、可选 WPF 壳 | 分发物 + 全量测试矩阵 | ✅ 完成（便携打包/右键级联/GUI 密码/默认日志；nxcore.dll 与 WPF 未做，非必需） |
 | 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | ✅ 均已完成（GUI 进度窗+真百分比、extract-stego 隐写解压，见 §10 实施记录） |
 | v1 后续 | 性能四项（zlib-ng/spool 自适应/批量 CTR/LTO）、嵌套免 spool 直读、真实案例稳定性修复 | — | ✅ 完成（AES 12×、bench B 反超手工、stored 嵌套免搬运；见 §10 实施记录） |
-| 现代化重构（2026-10-02/03） | 缺陷登记簿 D1-D8、领域类型化、纯核心/效果壳、所有权 DAG（weak_ptr+KeepAlive/EntryToken/res 圈禁）、验证体系（双 TLA+ 模型 / AST 闭包检查器 + F\* / clang-tidy 基线 / fuzz 哨兵 / 合成发布门） | 全量回归全绿 | ✅ 批次 0-6 全部完成（55/55 + 9/9；详 refactor-roadmap.md） |
+| 现代化重构（2026-10-02/03） | 缺陷登记簿 D1-D8、领域类型化、纯核心/效果壳、所有权 DAG（weak_ptr+KeepAlive/EntryToken/res 圈禁）、验证体系（双 TLA+ 模型 / AST 闭包检查器 + F\* / clang-tidy 基线 / fuzz 哨兵 / 合成发布门） | 全量回归全绿 | ✅ 批次 0-6 全部完成（55/55 + 9/9；交付清单见 README「重构记录」，纪律见 AGENTS） |
 
 ---
 

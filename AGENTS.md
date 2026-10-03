@@ -1,9 +1,8 @@
 # AGENTS.md — nx 工作区须知
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++23，单 exe `build\nx.exe`）。
-权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-重构记录与纪律：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-6 完成态：P1-P6 原则、现行架构、验证体系、决策 D-1~D-4 权威）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，55/55 测试通过；C++23）。
+权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读；§4.1 所有权与生命周期、§9.6 验证体系）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，55/55 测试通过；C++23）。重构已完成，路线图文件已退役——纪律正文即本文件「所有权纪律」节。
 
 ## 构建与打包
 
@@ -68,9 +67,12 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
 - 密码绝不写日志/`--report`；`SecureStr` 安全擦除；每层密码独立解析链。
 - Sink 必须走路径消毒 + `.part` 临时名原子 rename；深度/总量/磁盘水位/压缩比熔断不可绕过。
 
-## 所有权纪律（批次 6；roadmap P1-P6 的操作化清单）
+## 所有权纪律（P1-P6，改资源相关代码前对照）
 
-改动任何持有/传递资源的代码前对照：
+**行为硬边界与性能红线（P 原则的前提）**：免 spool 直读回退语义、密码解析链顺序、
+熔断、退出码契约（0/1/2/3/4/64）、`.part` 原子落名——不经显式决策不变更；
+filter 五解码泵、readEntryDirect、PushbackSource、writeOne、SFX/EOCD 扫描体
+不做纯度牺牲（不 ranges 化）；热路径零拷贝不加间接层。
 
 1. **图无环（P1）**：esft 类的成员容器不得持有"条目源或含条目源的类型"
    （EntryToken 契约，`container.hpp`）；条目源对读取器只持 `weak_ptr`，异步写出的
@@ -88,13 +90,20 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
    （run_tests `tidy_check` 用例，零警告）会拦 owning 裸指针与值拷贝浪费——
    真修优先，语义边界（sink 参数/jthread stop_token/COM 移交/CRT 豁免）才 NOLINT。
 5. **纯核心/效果壳（P5）**：解析、推导、打分、消毒、决策写成纯函数进 nxunit；
-   IO/日志/GUI/线程留在壳层（热路径红线见 roadmap §2.2，不纯化）。
+   IO/日志/GUI/线程留在壳层。
 6. **不变式显式化（P6）**：生命周期不变式落成注释契约或断言——如 sink writeOne
    的 DeleteGuard 声明序（先关句柄后删文件）、szcom tryOpen 的 COM 释放顺序
    （`arc.reset()` 先于 `mainStream_.reset()`）——不留在口头。
 
-三层验证分工：TLA+（`tools/ownership.tla`）管设计语义、AST 检查器管代码现状、
-F* 证明（`tools/proofs/`）管检查器算法本身——改所有权模型时三层都要过。
+三层验证分工：TLA+（`tools/ownership.tla` + `boundedqueue.tla`）管设计语义、
+AST 检查器管代码现状、F\* 证明（`tools/proofs/`）管检查器算法本身——改所有权
+模型时三层都要过。
+
+**决策速查**（详案见 git 历史）：D-1 递归深度默认 10、过滤器链纳入 `--depth`
+（不直接计入 depth——保 tar.gz 根 noRoot 语义）；D-2 形式化工具只用成熟件
+（TLA+/TLC + F\*），门就是门、缺工具直接 FAIL；D-3 圈禁=五名单，CRT/内存
+分配器族（fclose/LocalFree/CoTaskMemFree/archive_read_free）显式豁免，语义
+边界 NOLINT 附理由；D-4 真实样本/路径/密码不入仓——测试语料一律按结构自建。
 
 ## 踩过的坑（改动相关代码前先看 git log）
 
