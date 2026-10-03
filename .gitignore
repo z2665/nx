@@ -38,3 +38,7 @@ tools/ownership_TTrace_*
 tools/fstar/
 tools/proofs/*.checked
 tools/proofs/Closure.krml
+
+# 发布门合成语料（gen_release_corpus.py 产物，manifest 入库、语料本体重建）
+tests/release-cases/
+build-analyze/

@@ -1,0 +1,1223 @@
+{
+ "L": {
+  "exit": 0,
+  "fileCount": 33,
+  "files": [
+   {
+    "path": "release_L.mp4/archive.zip/emoji/🎬素材.dat",
+    "size": 262144,
+    "sha256": "436e684aee3142de6ac8138ae0e89116d22851fb4a38f1ad220581c4552dbe74"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/readme.txt",
+    "size": 6400,
+    "sha256": "7f9f778d19178ed23b75dbd453dc4411f7221a68e877d761300f264fe9422c98"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/媒体/cover.bin",
+    "size": 1048576,
+    "sha256": "c8abcba1b04979880c779dab9f322f06ff7dde966357d73f5161a50919a1912f"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/媒体/playlist.m3u",
+    "size": 1208,
+    "sha256": "916fa793b5a20ffac191e062c58605ae52f4168ddef590b4121ec0e7a0568e56"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f00.txt",
+    "size": 6800,
+    "sha256": "326340721617c318492168c8ccb40cd94ae839ffc1c4bf84034cd632817838e3"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f01.txt",
+    "size": 6800,
+    "sha256": "20a21727abe5fcaf354e295452765cb228bcc37da780682168a504bbb12a384a"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f02.txt",
+    "size": 6800,
+    "sha256": "793b7fb48275d253b2e6c98d7635c1593c72308e6ac73228d956961666d3a870"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f03.txt",
+    "size": 6800,
+    "sha256": "f5dd18bbb421745fc5b2deed22a0b53aefa99004b62a3415f2347af46ea509a9"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f04.txt",
+    "size": 6800,
+    "sha256": "d29e8c956dcf63b114a84e5949335d0cd0942d25c19c0d270a27267938fb1409"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f05.txt",
+    "size": 6800,
+    "sha256": "894d439a6535aefe66e806eaee50e6447876c3caeffc54dcbf9b0cc27f50d2a2"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f06.txt",
+    "size": 6800,
+    "sha256": "5c9f27038fb94da376c0ca40b14a4bc449afabb7cadc29f160ff88bb55ae50a7"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f07.txt",
+    "size": 6800,
+    "sha256": "e78dc321789ad411026059e69f82ed8c952c83cee17b9e000e96c88ebaeb10ea"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f08.txt",
+    "size": 6800,
+    "sha256": "85d92db057bf8d44b33f3f538efe56e62314c1f565cc4ae5d6b20841ea0b00cf"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f09.txt",
+    "size": 6800,
+    "sha256": "5ab44cad04938c4e63da089a02357c3fb036a1f0a03338bf6c2f5d96c3fcbd56"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f10.txt",
+    "size": 7200,
+    "sha256": "1cca1eac8fdf4d8f168f7c958ffaa12c8eef3187299c5ed0eff9df2485665d97"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f11.txt",
+    "size": 7200,
+    "sha256": "f42b752f576f2cc883d662b08c7655652d3bf2372e9b90fdfdc0fbab4bea12b1"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f12.txt",
+    "size": 7200,
+    "sha256": "e7b3cf6cfd500aeec2603ea8011c8511e93ef8bedfbe751bb0b209bdcf4628ab"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f13.txt",
+    "size": 7200,
+    "sha256": "2c0565b73b1fc879bcecc3ff529eb7d723ef82c68b29c91e2361ee5febf40fcb"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f14.txt",
+    "size": 7200,
+    "sha256": "85cf99b72eb2ee4549716cd07c08a9434260a93c7424ee52cbccab1daba446b8"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f15.txt",
+    "size": 7200,
+    "sha256": "042959be0b822145f21b2c9310f10ccdfc750fae7b6995f42fabbe99b7ea1d04"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f16.txt",
+    "size": 7200,
+    "sha256": "f62d2006c464cf42f33d67ff780db1efe819e793da6384690a28866e77bbbb2d"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f17.txt",
+    "size": 7200,
+    "sha256": "32c5f458b24a24017b09a1c082785bc2aff1219d60c8f841d44c42ab05db5897"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f18.txt",
+    "size": 7200,
+    "sha256": "2726d2464bb21c78b44a70869ee6df732eb90d4ee49dff954da7756133c4151d"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f19.txt",
+    "size": 7200,
+    "sha256": "88f42376c6ebe95913e741be62163c02ba4c3ed736af61a0fe5ce0c7fb111cc7"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f20.txt",
+    "size": 7200,
+    "sha256": "44f9e844cb6c339dd948c7f5478ae53229c5d99343c4176b174e41ef9ec4dddb"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f21.txt",
+    "size": 7200,
+    "sha256": "e3ba06628e135112c883887fa98825130930659d19923d7798b5192697f486c6"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f22.txt",
+    "size": 7200,
+    "sha256": "681ba921d86fc66e3ce7cdd3a64e703b4ccb3867c289e8fe182f7d5d18e71ccd"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f23.txt",
+    "size": 7200,
+    "sha256": "5749f9507c4f5aea67afbca720535636d0c80115a70668280bd1ec5e09f6a416"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f24.txt",
+    "size": 7200,
+    "sha256": "1fc120d056a516cee2490bde361942c079a857967c7a2d5466f279f2a32c6c1b"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f25.txt",
+    "size": 7200,
+    "sha256": "ee81ab0c7e2708bfa712314309be4aac03ecfa66e0865274cd77f3de03554a05"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f26.txt",
+    "size": 7200,
+    "sha256": "055693e32d48854f92c05f2150273f52ea5b2df446cd188fda6274e088eade08"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/批量/f27.txt",
+    "size": 7200,
+    "sha256": "f79e67cb59af6a39d5339d1b382b3a456036c2cc355602f27acdf444b7da6757"
+   },
+   {
+    "path": "release_L.mp4/archive.zip/深度目录/深度目录/深度目录/深度目录/深度目录/深度目录/深度目录/深度目录/长路径/数据文件.bin",
+    "size": 67108864,
+    "sha256": "f909845667142937ace938e5e89a304757fe54c9052c85d8b81118e01a536928"
+   }
+  ],
+  "stderrTail": ""
+ },
+ "XJ": {
+  "exit": 0,
+  "fileCount": 202,
+  "files": [
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_000.dat",
+    "size": 65536,
+    "sha256": "5d6bfe3ad4b580fbffece4716fbe2f70e312239cbd8245cafb81e7a1878f65c4"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_005.dat",
+    "size": 65536,
+    "sha256": "c08b9288fd80ce15f4bad91d16c90693168a47bd5f4d9488458262dd5d10aab9"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_010.dat",
+    "size": 65536,
+    "sha256": "164309d93addc52562848116f0a920ab7bfb8941ded9b1b3e2ec425f86e5990a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_015.dat",
+    "size": 65536,
+    "sha256": "f2fff4270f401bd905a72a99f841ee2b0e076725ee53aec54c43434d8b8f8cb7"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_020.dat",
+    "size": 65536,
+    "sha256": "eacedabd5f6aad101b953aae2b7bdf0e30d4791c0b27aa6390d11ac7807cc14f"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_025.dat",
+    "size": 65536,
+    "sha256": "7212393e16f28ec6cf544430fe30f73325a27137b13ef805572fbf0535ddb9b3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_030.dat",
+    "size": 65536,
+    "sha256": "bfebd5b7a0aaa4fa8ad9082dc40b25343aded6e2e42d2229de0fecb219ec9fb5"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_035.dat",
+    "size": 65536,
+    "sha256": "f833a352303f7c0e8eb3927b73149dc09d9f82f1fb6349adc08f32b22b77ba70"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_040.dat",
+    "size": 65536,
+    "sha256": "b8c59196e8aaf7d5a920c710c22d297c0a4b3195e32c7588a803671825ec649e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_045.dat",
+    "size": 65536,
+    "sha256": "067b317b530ea6e6982bd33432403382298ba05f1cd945e654f384a76bb95ed2"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_050.dat",
+    "size": 65536,
+    "sha256": "c8e6127135b608a49e1de3bc119c91ada0532022537578e794e66ea60d5e0c9b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_055.dat",
+    "size": 65536,
+    "sha256": "5ee2640dfe9cd8cdef6f73734d103c8c953d465348970721eccd3d41a4038f8d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_060.dat",
+    "size": 65536,
+    "sha256": "fd0770009e5470af6c2396306334fc499b294903bd9b96a1086516ea19edf5cb"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_065.dat",
+    "size": 65536,
+    "sha256": "f38265d66868fe982af397d745fd53b7070b85a209b62735a6e338e06bd93149"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_070.dat",
+    "size": 65536,
+    "sha256": "1ad2d164ef92055084dfd63b9317f06febadd02804f1f47725000f5415aeb885"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_075.dat",
+    "size": 65536,
+    "sha256": "f6b2fa2ea12d87db584125325365ef47b4922892a290f5164cd2b55b51872bdc"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_080.dat",
+    "size": 65536,
+    "sha256": "cf9860262267b312732f1241a78bf2b26b79b86bffe99950ab145a8a79fc38cc"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_085.dat",
+    "size": 65536,
+    "sha256": "ce051d61d14e17e95c58c4b72854a0671782a9910f70f8b76807deea940740b5"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_090.dat",
+    "size": 65536,
+    "sha256": "79df3602d13908eb712f187fec869f6b668355a6473e94c40261545353fdadac"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_095.dat",
+    "size": 65536,
+    "sha256": "15dd428109f5883364dfa4927667a25a7d44bf810b653a31491753f0a8aeac25"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_100.dat",
+    "size": 65536,
+    "sha256": "a203ec54cd70212753a2946a6dc77ba41efa51662902aa987b5960e93402dbb3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_105.dat",
+    "size": 65536,
+    "sha256": "66b79e5e186d19bc39a6cca2acd0acbafc9e30628de75c465fc71e5f49249b24"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_110.dat",
+    "size": 65536,
+    "sha256": "68e86e418c1e2fa27ada4aa996f92be494d9633fd9342bf12baa52e66fdf1ddf"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_115.dat",
+    "size": 65536,
+    "sha256": "ff13cba3d681a42c0128c62645c8e8efcf339fc002a7791b0735ac344ad12361"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_120.dat",
+    "size": 65536,
+    "sha256": "4f1d21ae2aaf6e7b9744543988ffc2acd783d09e1309537a03ca3c43332bf901"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_125.dat",
+    "size": 65536,
+    "sha256": "1df9c8d505b0480bf92035c1da9a1a9352563922f24ea243ae9a111276659c58"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_130.dat",
+    "size": 65536,
+    "sha256": "2e8032a344ea5bdcb281e6dbeb207de26bc76f4a4c6ac7b759ff0b824d608736"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_135.dat",
+    "size": 65536,
+    "sha256": "10c8a71b60b2ba1b29b11781bc108394513b0ed7e60b5f6faf105112dcedce82"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_140.dat",
+    "size": 65536,
+    "sha256": "f872baa94a13a8404890b77640a2a1303e5abf6722113f89cc49b46d5e305cce"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_145.dat",
+    "size": 65536,
+    "sha256": "7f6686ce4fdd1ca1135f1f92302b3328e432dc46ca5c8f4ba05bb87562f2ea9e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_150.dat",
+    "size": 65536,
+    "sha256": "9fdaccb93fcd18cb3134f12cbfc386cc4339559270a050c886c5b19e52d5f5da"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_155.dat",
+    "size": 65536,
+    "sha256": "5fc3826ab2bd9f3c4a1aa15bfb4430c4ab68219a3d8034fb791d8e6d562bb27d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_160.dat",
+    "size": 65536,
+    "sha256": "fa44f799277896836dd9aef5d5072a98a2ae88719741d104f88157adc1892203"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_165.dat",
+    "size": 65536,
+    "sha256": "1eb72d8746dbed5c00c3496bb413000a06da34d0c4b483b448138883fc7f903a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_170.dat",
+    "size": 65536,
+    "sha256": "aa571f94528dfdb6607065fc90014b875cbb153c057d3657f343a6320a65b0db"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_175.dat",
+    "size": 65536,
+    "sha256": "2f8fef200fe7678333d01ecaf0d8d9ba7bccd753362adbb58232900035f37edd"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_180.dat",
+    "size": 65536,
+    "sha256": "5bfdf484a3995b56307aa36222e8434e5a3c39a5f65cd3996dd1dab9dceeffca"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_185.dat",
+    "size": 65536,
+    "sha256": "8bd8bae58b857b3193a9425cd8355c78248a3ca429150168c39edbfaad525532"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_190.dat",
+    "size": 65536,
+    "sha256": "e5ba4f051b5fc7efd2841f9403dcc494de559038930f1148a48a66b0226831fb"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/assets/blob_195.dat",
+    "size": 65536,
+    "sha256": "cf1c213e4211a607183d58e58611bdd03fbee01676d9ed2aa49ab6e813899be9"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/save/1.save/autosave/meta.json",
+    "size": 21,
+    "sha256": "617fa2fa75d5a751f7a7f86a4ca2f73e69eafe8e943198832dedfc87221e46d9"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/save/1.save/persistent",
+    "size": 8192,
+    "sha256": "8951e83c515779e51645373acb5e9c5dd8537e1a92fe747925e48ab4c2339bca"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_001.rpy",
+    "size": 10500,
+    "sha256": "8e444a2dd82dba1ad7e448df0a55d4bac4193bed6b06b02a2c096e5f75c1db4a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_002.rpy",
+    "size": 10500,
+    "sha256": "ee89090fb4badde031cfb1dae206f24ff70a5af98b33643805b204c034fda6d0"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_003.rpy",
+    "size": 10500,
+    "sha256": "16e06be90173923fb4bb35734dee37e292fc2ac395de46d04570472e17bcc64c"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_004.rpy",
+    "size": 10500,
+    "sha256": "666a35ff5ab7c8eb54e091582f7613371a209a16b3f7b0ac97cf36a3242bd76e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_006.rpy",
+    "size": 10500,
+    "sha256": "99f33d0fbd78ff1ec3fd417e21f8f7ccc9172de95fec86c9d5cf6195a551c051"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_007.rpy",
+    "size": 10500,
+    "sha256": "8fe4e84fe31fa27c8738e4e37e0f69827748f9d484dbb01da1ca9cc4b0c68078"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_008.rpy",
+    "size": 10500,
+    "sha256": "d1860ed38ecb3f22a8c2bdd7c2e94ae0c4706231b6431d4b3cd937a512469765"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_009.rpy",
+    "size": 10500,
+    "sha256": "b4021d75089e021daba0943cb1524b571c63a2d436cfe0e112d520885f43600b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_011.rpy",
+    "size": 11400,
+    "sha256": "c78526a72e3347e9c435d7c1f9b091df61b038201504e910af6941598f44b68a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_012.rpy",
+    "size": 11400,
+    "sha256": "0f0f5bb995cae3506080411ed2339dc60228b6e344fc73a6bcb7a160fd6c614a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_013.rpy",
+    "size": 11400,
+    "sha256": "def8a363f9b2a8a03827f44ada23160d55f757f9215f2068305e6772310a1a18"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_014.rpy",
+    "size": 11400,
+    "sha256": "0347db6f1914646112e7daecc9b4bbfa18e75b8988ddd58e7bd80b908feccd70"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_016.rpy",
+    "size": 11400,
+    "sha256": "647ab3975295fc914b97e61d71f92db326582f417d2dfe4cf60efeda72690d70"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_017.rpy",
+    "size": 11400,
+    "sha256": "c4c413fc9fd293a7544de3e8a18aaad18b88391b63fcbb24589722722065f3aa"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_018.rpy",
+    "size": 11400,
+    "sha256": "97ef849f03da64923936f702d72fe6c95a7c1002062d8d850ceee1554a28b6b3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_019.rpy",
+    "size": 11400,
+    "sha256": "0b3190454b5ae88ceb6b422f797746a6049183c7d9cc44a7d78750c7394afc9a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_021.rpy",
+    "size": 11400,
+    "sha256": "8eb9fbda29f5476af1f6eb6226ca275668bc66ac8a3442fac111845553dfb0fa"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_022.rpy",
+    "size": 11400,
+    "sha256": "35843632ffc451468fb1f887c83168f9383b60d43f9fd02d64c561a52ef70a89"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_023.rpy",
+    "size": 11400,
+    "sha256": "90285c027b34f38175bec1613f5d49b8f4581f645a940b997c23433486cbdaf8"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_024.rpy",
+    "size": 11400,
+    "sha256": "3b4c7ac2a68505392d42b32b04a2f1fa1ca732ad58ca4b1010cd7f80fadfbf1a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_026.rpy",
+    "size": 11400,
+    "sha256": "b2e714bf66e8e6d64388bb25f27ce5d2ccfe1844d817d9b26e33e2c11558be4b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_027.rpy",
+    "size": 11400,
+    "sha256": "3530edf59b14a27752bfec4bd2115947bc0c681875f2a3c09577ba42562b91dc"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_028.rpy",
+    "size": 11400,
+    "sha256": "3eb62c8434edb01653937ba65685efc35e29a1d6b2c49ff76d24978341fc6e43"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_029.rpy",
+    "size": 11400,
+    "sha256": "784cf2f8c53f809976fe1f3935835f5fdad730c759d82dc06a95a98f002a1187"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_031.rpy",
+    "size": 11400,
+    "sha256": "6f54dfce10091fbeae223cf19b050e41e6a7807f430dc35e7b7f1e4edb5055c0"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_032.rpy",
+    "size": 11400,
+    "sha256": "18f0ee2eb546831f4c01ae27641ef387e9fd19edf69f7fcac276601d177dce57"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_033.rpy",
+    "size": 11400,
+    "sha256": "03959334b9264e5258836abb9bc13ebd50542b4cef666e3fd2560587ecc95f6b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_034.rpy",
+    "size": 11400,
+    "sha256": "8709eb09fc2a87387fba0fdce6e10de2c3ccf3b7c68d07c00dde92230103b245"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_036.rpy",
+    "size": 11400,
+    "sha256": "cb48895bf87bdc4f09a2673dbbbc2569616c70fda5d49c3e2703368ea4f4d930"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_037.rpy",
+    "size": 11400,
+    "sha256": "dca8095aa0997b1cc4049caae731111651b171842c4af7a96c175f262efada14"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_038.rpy",
+    "size": 11400,
+    "sha256": "713fb2361734aabe9019a8b359f4e0b24ce90e6ed2a834bcbefebd5d9709d096"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_039.rpy",
+    "size": 11400,
+    "sha256": "f997cc7b8d5e778939525137c1a67a3dd43f9a883eef71340a79dadf103c28fc"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_041.rpy",
+    "size": 11400,
+    "sha256": "ca80725a9d7e93e0bd31f9610cb78adb28add2f18468961544bf130e75295deb"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_042.rpy",
+    "size": 11400,
+    "sha256": "5117389e04c4f82c8d0db4d2aa3dd1ce130b3096806156753e5ab26252acbd5f"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_043.rpy",
+    "size": 11400,
+    "sha256": "23576905f01150e7378600cce2e983074e33c49530cc31e45abea519ec5d6409"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_044.rpy",
+    "size": 11400,
+    "sha256": "b5d36f332946a0388a24c5a5612365b6536f93b4902f9928efe62471c13082ad"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_046.rpy",
+    "size": 11400,
+    "sha256": "14df7c6272b609d0ec64b26871ed31abfa24f99a03cd6a9f720f2b0866036c91"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_047.rpy",
+    "size": 11400,
+    "sha256": "4ece0a7a8e26e0c6042fb277459971abc5cfc0dafcb1aca20b76aaecb2d27e66"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_048.rpy",
+    "size": 11400,
+    "sha256": "3092ce5124b2ece0fcde062cc86c67dfddada3154a191604c1ff50aad2206900"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_049.rpy",
+    "size": 11400,
+    "sha256": "6f99897bd74732137fd6a0db32884aeeeef0acec85655f38ea5281857519b2b0"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_051.rpy",
+    "size": 11400,
+    "sha256": "cb578ae5bc94cbfb93a141be94db37d7a6aa23db3d415cbc545513a2420535f3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_052.rpy",
+    "size": 11400,
+    "sha256": "1db9cdbdb19413918c1ae1736f4a97a128f67a8070231828485b41d252d43dd1"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_053.rpy",
+    "size": 11400,
+    "sha256": "a4c6ba59456dfba58d17df743640832aee0d9d339949fc3ae8226b5e81ff144e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_054.rpy",
+    "size": 11400,
+    "sha256": "fe8306fb683f3feb5569cd940b0fcaa6ba9c982b05422a116102bf4c8adff646"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_056.rpy",
+    "size": 11400,
+    "sha256": "0f49e51d5da679456fd4821a695ac7c25b7bc8f1018f6385ba7de9368a19c835"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_057.rpy",
+    "size": 11400,
+    "sha256": "3e6c283557fafe7ae7bd3528da8510ef3c989a9f8e786f1d91f5e5052c3c03fe"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_058.rpy",
+    "size": 11400,
+    "sha256": "a190c358c91dcd73f23cb8c4097692611f465ed476eefdfd4a3bc18d627b1b2d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_059.rpy",
+    "size": 11400,
+    "sha256": "230f337a797899c373fc9b744a590bacd7d8f1acf7262b8e6391e5edd2f11102"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_061.rpy",
+    "size": 11400,
+    "sha256": "31da63aa15a4b883f231bd25536c796521189488d89b9c884e026966d8618760"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_062.rpy",
+    "size": 11400,
+    "sha256": "fea63cdac03a8612bf129c8a00f7e023a0f2ec0532635160f5426cfd1dfea4a2"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_063.rpy",
+    "size": 11400,
+    "sha256": "c7406c399dbc676f2e1ad92abcaee456e183f330532e7b2b319bbf90cc74c316"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_064.rpy",
+    "size": 11400,
+    "sha256": "d5a10e0e998ed1db29286da8054e5b68eeeefdc1f8839834d878dabf4618590d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_066.rpy",
+    "size": 11400,
+    "sha256": "b65bf1893ce66744656292b38f952f562a50dfbd16499b0e195162e1b24a6d96"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_067.rpy",
+    "size": 11400,
+    "sha256": "4996d046e53bc496e0c008d782628666204f2e23178d422873fba1434be75b1e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_068.rpy",
+    "size": 11400,
+    "sha256": "43e98a2488da5bb54512254e4ebfa386358d13f025b54db92bad1fc6381821fb"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_069.rpy",
+    "size": 11400,
+    "sha256": "d9418cd9e008770d3017644b97d6ddb9a19644d5e0d5250d20343a9b77e84a81"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_071.rpy",
+    "size": 11400,
+    "sha256": "5ebb5ef657960c96740c6c6063beb6b4f52192c08ce9464be48d53df591b3b2c"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_072.rpy",
+    "size": 11400,
+    "sha256": "23633a69b351c67e3c5032d6bc38b0b9097399ad04af983861d8ed3d327e1cc3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_073.rpy",
+    "size": 11400,
+    "sha256": "560e5cde86b083905734fa2cace82bc89b9d262b8828d57d038c3ef5e4fb48ce"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_074.rpy",
+    "size": 11400,
+    "sha256": "76c9c4658ec82d76a2969195078743a6b0b331959b3eebde4107d35d04559f7b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_076.rpy",
+    "size": 11400,
+    "sha256": "01d5ca46bddb2cfe0af10b709a39a523583cc7e5def728f72b2894979f06eb08"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_077.rpy",
+    "size": 11400,
+    "sha256": "36a2731a7a662ed8bef62379b303f1648f851265a074d9181faff8b7a252cf45"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_078.rpy",
+    "size": 11400,
+    "sha256": "4bdeece000beeba06cfdade97aed47d2f0fd33432e389eeadafa9988f2eb9eb5"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_079.rpy",
+    "size": 11400,
+    "sha256": "dbc64354fe1494d4cdddb0269ac6313a1ad0f3830c8ca7491be83655b6adc312"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_081.rpy",
+    "size": 11400,
+    "sha256": "4043c34422cd0db952d52c8ea9858b4b11faf9fab2ba07e2e61c1daa64adfd55"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_082.rpy",
+    "size": 11400,
+    "sha256": "bb45114b2ac839159957df8c715d6565c8a7d1fc820082fcf816e9fb2f504a90"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_083.rpy",
+    "size": 11400,
+    "sha256": "576561fc1f42535b35dcd408cd63815ad1de42226315f65848dbc59be3ffb648"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_084.rpy",
+    "size": 11400,
+    "sha256": "8ba606811cf4c93a5f169a11d87a0d2293d2f52384c92e1700e7ba694476c88f"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_086.rpy",
+    "size": 11400,
+    "sha256": "88238cdfefdf69a037ee147cb7bbfbc47a21ed7f2230b85101aba123485fb2d7"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_087.rpy",
+    "size": 11400,
+    "sha256": "3db0e4bd5220efbbb3b06b259fa6c1d1e94190fcf64cc19a762cd3040008126b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_088.rpy",
+    "size": 11400,
+    "sha256": "86e42f852d54d2681f4990689e0986567e22601fb3a86d8b31e203bf36c576de"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_089.rpy",
+    "size": 11400,
+    "sha256": "61283e4577058b42645a4a516cc6e8447e9a13fe3398c152cab6bcc39dd6bcd7"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_091.rpy",
+    "size": 11400,
+    "sha256": "e655de57955a5c1670079403febd63ca0026803d1d7d2cbdac94c8e9b1a25095"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_092.rpy",
+    "size": 11400,
+    "sha256": "aefb286dbb8e30bb50d42cc1b6489ca89a56cdf54322dd431e3b0a2a9bbcf660"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_093.rpy",
+    "size": 11400,
+    "sha256": "2cd126179bd583a0f76399a3608309e7574c517550ba88c2a098a6caf212fbe8"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_094.rpy",
+    "size": 11400,
+    "sha256": "4fc1ae652f86f8970147950242112a90de882625062b496d648cd2be08211837"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_096.rpy",
+    "size": 11400,
+    "sha256": "653892327c5ffa2739ea7b61f51523331483a691628dde6486ce8f7ba66486e7"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_097.rpy",
+    "size": 11400,
+    "sha256": "8529f660567b3f491952cdf5260c735cee06b16284a219ce92f7fcf06810a4e2"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_098.rpy",
+    "size": 11400,
+    "sha256": "8ba5053f56c4977e22b1289ac6f0d08a7011bf04ebf9a2749ede6aa705021b54"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_099.rpy",
+    "size": 11400,
+    "sha256": "ae45363216263efa447e1d05653400044535de4c4de55815965d5595d76433f4"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_101.rpy",
+    "size": 12300,
+    "sha256": "738066e4fcfda539098293ab5766c024a13829aa8c28fd8076d7f96002251102"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_102.rpy",
+    "size": 12300,
+    "sha256": "5a6118e50440834a8db5afe955cf64725d7679a73c4f835c9f6e32ceb4ba78cd"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_103.rpy",
+    "size": 12300,
+    "sha256": "191a418cc4797896e31a1cfa82c85cd575d899d7e17503529228bfa58273882d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_104.rpy",
+    "size": 12300,
+    "sha256": "095a85cfc8674f11e9f0be572c2bf5a9c99bce9f2c1a88d7289bb7e014f9dfd6"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_106.rpy",
+    "size": 12300,
+    "sha256": "1f8e401706a847182d95409ae8faa6897cfdf14e571d74ceee0be02665608135"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_107.rpy",
+    "size": 12300,
+    "sha256": "a329cdf9a023a4af85bafd0c1f403d7e6ed38432803fe8fb0345cb8babd6fb79"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_108.rpy",
+    "size": 12300,
+    "sha256": "21aeaf3f5076de5b66e1ed461f1fd6e22d19af59c7e2c87c393c7b76e30adc8d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_109.rpy",
+    "size": 12300,
+    "sha256": "36a55a7ca4478ca94935a4fe71ac5f0cf97132360fd44dde050e4343a0b30415"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_111.rpy",
+    "size": 12300,
+    "sha256": "4560351ae9a2a1974ed82a625b7fa5de36516b89be9eefcf9c0bc8c077ce4dd3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_112.rpy",
+    "size": 12300,
+    "sha256": "1e46f2e790e1c2fdae56f4a593c12bd25033770fe15995b1bf13956d9d4bd307"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_113.rpy",
+    "size": 12300,
+    "sha256": "7bfe86afd902c36b214a6fb67e66015f6d47d86674415b164821399bdfa49277"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_114.rpy",
+    "size": 12300,
+    "sha256": "cef83e3083e30594efba7be1ee5aa52fbc25f35e105218caa54c0d794d8389cd"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_116.rpy",
+    "size": 12300,
+    "sha256": "fb06be864a86367701b63d503f44accbb4a1391613893707bfab7acd4010b567"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_117.rpy",
+    "size": 12300,
+    "sha256": "fbca80d246f30bcc7e718c41929ddcfc24cba7acd421857a2571bdf1e39b25db"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_118.rpy",
+    "size": 12300,
+    "sha256": "8143af5e9ecf69abdda8e400055bc71e4f2e93c57c9b839c5c8c7b347a48c833"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_119.rpy",
+    "size": 12300,
+    "sha256": "d5b2dc704895e80a904d71963f48e0746d9c0de09d2bf965707707bdefbce590"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_121.rpy",
+    "size": 12300,
+    "sha256": "e1c7655e627313c9e60050787ae3acf8accc318e30ba6fcea3172e22d94c8533"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_122.rpy",
+    "size": 12300,
+    "sha256": "28a8940408a137fea8fa4841393435f6c60ac02d40f572871a9f3b09c4967cc3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_123.rpy",
+    "size": 12300,
+    "sha256": "6935bbeec374dea20df38b236075b684a47d21995c786088ff63479a98645dda"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_124.rpy",
+    "size": 12300,
+    "sha256": "238544913320ca8fa852cc642447dbaef938730b934acdfd8f0ec0a82d148175"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_126.rpy",
+    "size": 12300,
+    "sha256": "34a2f2901a51ce1d26ac784f623f6d078f935686b26bad0e33d25020931b1e10"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_127.rpy",
+    "size": 12300,
+    "sha256": "315b855d85cd56e228d9b99c95e6458bfff5db12faf93a38d6faf5339c3c8bef"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_128.rpy",
+    "size": 12300,
+    "sha256": "a8233921a417fc3bfde734a152c4d0a272d467dc56680dacf021aad64f6fb9fc"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_129.rpy",
+    "size": 12300,
+    "sha256": "ddf566960fa2165c4ed0667f4a201fdd52f39997e58cfba24e3da93c08ce8f2a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_131.rpy",
+    "size": 12300,
+    "sha256": "07a4f36cb1716dc06040ad1a4467188fd87f0143836fe5ee26929b27e78052c6"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_132.rpy",
+    "size": 12300,
+    "sha256": "56de80a2999a086fb3ba4e1947a16de980e7a82c2cab527cc8db902a1dd46238"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_133.rpy",
+    "size": 12300,
+    "sha256": "827cba4d7fca5a1be0ad31661625fff3250c58f9836727cb1bb8559bb167e5a9"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_134.rpy",
+    "size": 12300,
+    "sha256": "cb698d822918808d5cb511748c01a6d19f667028e8ccd829d237064439f92af4"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_136.rpy",
+    "size": 12300,
+    "sha256": "7356037da3c86afdefa44407558f6f993c2e2eaa5cf9ef80a8cd44449cc169d4"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_137.rpy",
+    "size": 12300,
+    "sha256": "1a9f722f7591d7d758184b69694d8462230fd2a952b6796efb4af7b2c1cd67ab"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_138.rpy",
+    "size": 12300,
+    "sha256": "4827c576171d040f515cac83dee23c0370a783ab16cfa71a83ac713815a160b6"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_139.rpy",
+    "size": 12300,
+    "sha256": "a1b3e24ab7fcb53af3583699e60e337d2e3abe03e8ee9bdbb37023c95a9a6f2d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_141.rpy",
+    "size": 12300,
+    "sha256": "a5b64d384527556992eb0e1c635596c62585398e59fc1c9a5a3200379a358369"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_142.rpy",
+    "size": 12300,
+    "sha256": "4e7e4b7c9458d5a9711fff5a9d1afd6ce719cdf726af8d935474857f75331926"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_143.rpy",
+    "size": 12300,
+    "sha256": "124d54e72ff0a1edb8f494dac08eebf7118b4478c49b667003b1b8f5f6f63f35"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_144.rpy",
+    "size": 12300,
+    "sha256": "c8aa74ea1d3d1cc369355fdaef1b117be599fdac64eb243b797a41fee0fd32a3"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_146.rpy",
+    "size": 12300,
+    "sha256": "a5dd33624b51b4be6458e8e8716ba32892d64cb3aa87e46c322b58f0ff189f5e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_147.rpy",
+    "size": 12300,
+    "sha256": "176cd236febf1615103a04941aaacfdca4a0dcdb564cb7c0dfb90a2d3faf2f2b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_148.rpy",
+    "size": 12300,
+    "sha256": "a6aa21a2ba07c749a42c27bb1f557c32757f23489be26b44c85f9727684ba5f4"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_149.rpy",
+    "size": 12300,
+    "sha256": "8e2ee1faca5c321728edbc79f1b412dc11d55380f7e6d4497d9f57a3bb84beb5"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_151.rpy",
+    "size": 12300,
+    "sha256": "7680d87b74854be54031a573b4c3e8f323d268750930f7632c1434649b3faa0b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_152.rpy",
+    "size": 12300,
+    "sha256": "2f787d98e6743f1d2a61872e3859561ba18be5ca586df4d22caf83f1147a53c1"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_153.rpy",
+    "size": 12300,
+    "sha256": "f68c180364a25384df826e1c23d6aa6eb74bc99f9ea7bf2dc64714b2046f2025"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_154.rpy",
+    "size": 12300,
+    "sha256": "ce63588b01025382b0c4decb4fb0d34fddbc4e2e5ca05f2a8a9014d13b3a49b9"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_156.rpy",
+    "size": 12300,
+    "sha256": "da6d36ff1a27e04c46a28efbccec36bb07ab2e8b71d341dacd98a1b5edf0a496"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_157.rpy",
+    "size": 12300,
+    "sha256": "d2eade9e286eb246e89852b50723883a0869cb328e32b130804a6f0071c1519b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_158.rpy",
+    "size": 12300,
+    "sha256": "cb4cbc1aa4c3e1ddd14898421275fa72a0c19ceefcb301d77774a873da4f1101"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_159.rpy",
+    "size": 12300,
+    "sha256": "c76c612cdde365b5f2dbf2070b0f8d9af5a88caae8ee5e60e746c1b2b17724d0"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_161.rpy",
+    "size": 12300,
+    "sha256": "47dd066947b4726cc91fc56995c18b23388ce740c6dfd1775a90b7e318ab4645"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_162.rpy",
+    "size": 12300,
+    "sha256": "868cd3779f426cf449e5d1eeb7486d1fee2a6c043e969ba2800a2fc086eee243"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_163.rpy",
+    "size": 12300,
+    "sha256": "f057f08fa52448758e12fa7ee345ee02979cb4c7511047891997759dd33fbd23"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_164.rpy",
+    "size": 12300,
+    "sha256": "0b7587ac06a0cd8cc8bda92162001018faccf85568e013241c194b5c51cad650"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_166.rpy",
+    "size": 12300,
+    "sha256": "52206964b1461c1608f098b516b6b1bc0a12b95fdab65e6fc0fbb9b082be34c5"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_167.rpy",
+    "size": 12300,
+    "sha256": "f10a6a02b7c5b8e586e92c7acd4c20f15015f2e66bee56b91c4ef736bae3fb29"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_168.rpy",
+    "size": 12300,
+    "sha256": "f70389b3f16c550af0a26e6360a56783f517c0e565d0c156a5726082bd4709fb"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_169.rpy",
+    "size": 12300,
+    "sha256": "db86a5201f35ea983cff14d35ebbbdf51986958d488ea43293f02eb38b5b6b72"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_171.rpy",
+    "size": 12300,
+    "sha256": "e55a2188029d15530b8820767c85762ef558bf1a796fb55383aae366ee9f0968"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_172.rpy",
+    "size": 12300,
+    "sha256": "108b1f5c44a24e28e5db78127e0ba81386e125cb12df38ee6fe42df188cbb60b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_173.rpy",
+    "size": 12300,
+    "sha256": "3ae3bd8b45605ce3b784e9953c398caf8e23964eef903852f6fdab1ab233f408"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_174.rpy",
+    "size": 12300,
+    "sha256": "da25505b958911836422ebf02931a94b78c000804cb0967429a839322f886e4e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_176.rpy",
+    "size": 12300,
+    "sha256": "d17836a6ca8df379076120d4c7956c50a052cf47ebe6323ba8ec728fe9fca18a"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_177.rpy",
+    "size": 12300,
+    "sha256": "a490fdd489e5d5e4b027f706673be534e1d013a63746abd3ff58abb7587d9598"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_178.rpy",
+    "size": 12300,
+    "sha256": "309657e208c809e5387a64788ef64c8d87d319e274d8339d5ce3d7dfd9a5847b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_179.rpy",
+    "size": 12300,
+    "sha256": "2bbedd504f8188d135c946badb57b33691e226cf26d1ca83f7a6e52800b301bc"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_181.rpy",
+    "size": 12300,
+    "sha256": "c4d398e228e870eabbd29f003ef1d0f7abfc61916c21addcb1cd6fee8805a7be"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_182.rpy",
+    "size": 12300,
+    "sha256": "7a7e47bec46044403b507b9ef7953af6d1aa6c9b56d38abc53fd0f84c62e1992"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_183.rpy",
+    "size": 12300,
+    "sha256": "e5b3eafe355b920da018d4c11646a488da21b71489b7516c2c0e7927a68eac5e"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_184.rpy",
+    "size": 12300,
+    "sha256": "17c4fe0b0372d8e4cf2a536dbd3d1f6516254a473d1930eec94ee8e831cbe5ef"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_186.rpy",
+    "size": 12300,
+    "sha256": "9e58ba7817c8328deba21c908f5dbce3f6e3226498d3804a981354a1f8924adf"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_187.rpy",
+    "size": 12300,
+    "sha256": "3f65d84bbefc29a122bdeb865b6013fc59ea2501b90749422c83c99fbaff1695"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_188.rpy",
+    "size": 12300,
+    "sha256": "3ada5fa312cb064f76fef30ef0d8f8a5af9c6d3c43464645476d6fb63fba612d"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_189.rpy",
+    "size": 12300,
+    "sha256": "3b8d913b5866fb93eabf4074f2f431ed8f207deaa7f10202719f31e440cfedf1"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_191.rpy",
+    "size": 12300,
+    "sha256": "f69f59aa0c338c94252aee59197bd4664622b344611060753059dbf6a2467e32"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_192.rpy",
+    "size": 12300,
+    "sha256": "4ebdaf4b12b37275a016e60a05be611b9ecd7ae5a23f24bb8e05e00351c7df4c"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_193.rpy",
+    "size": 12300,
+    "sha256": "9aa52f0cbb8b415093d91b8560cae5f9ca5245ecd876d5ae2af00b76f9209bcb"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_194.rpy",
+    "size": 12300,
+    "sha256": "648f4949d5fdfbf91f30b4dc78d55d4277beb937ab1487bfb9069a53b52a3afe"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_196.rpy",
+    "size": 12300,
+    "sha256": "6415ff88eaf39d97d4b823ecfa865dd7d44159c46a90caf9794727bac99e722b"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_197.rpy",
+    "size": 12300,
+    "sha256": "7d7064f7a99f52884d3524858645e3ffb54370ff3542d5a0cd556a2b218e959c"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_198.rpy",
+    "size": 12300,
+    "sha256": "9d574b668a9ec3c63e047496ef6d95b9eb184a55d2f0860db2086a9117bef6cf"
+   },
+   {
+    "path": "release_XJ.mp4/payload.exe/game/script/chapter_199.rpy",
+    "size": 12300,
+    "sha256": "7dd5034deb40a5708868217b1743ca4e1078d682c2521dd9faaf9731eb10b259"
+   }
+  ],
+  "stderrTail": ""
+ },
+ "X": {
+  "exit": 0,
+  "fileCount": 5,
+  "files": [
+   {
+    "path": "release_x/blob/random.bin",
+    "size": 8388608,
+    "sha256": "f7aab4126e88f7c9c5af60554e529810afd78eb0a96a3dc210846474482a28bc"
+   },
+   {
+    "path": "release_x/first.txt",
+    "size": 3500,
+    "sha256": "5499d3a1df04130a141a494631ff69646e76049465b8e4d54ca057d3ddce5f90"
+   },
+   {
+    "path": "release_x/inner.zip/docs/说明.txt",
+    "size": 12300,
+    "sha256": "8ae39b2bb1c0ef7eec1824eaef625cce3c26841cd2584ccb880c7d0c49e2cca5"
+   },
+   {
+    "path": "release_x/inner.zip/vault/data_0.bin",
+    "size": 33554432,
+    "sha256": "028ba9942278d408182062ff22cba8314cabb855d8a4174150bd72ca8c2a48d2"
+   },
+   {
+    "path": "release_x/inner.zip/vault/secret.key",
+    "size": 4096,
+    "sha256": "57243a980acf6b2382f1ceac0bc2d71353e0312fdc4c1360d4a8b000b81d29aa"
+   }
+  ],
+  "stderrTail": ""
+ }
+}
