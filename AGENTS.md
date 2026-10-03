@@ -2,8 +2,8 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++23，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-5 已完成，2026-10-02；剩批次 6 验证常态化）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-5，53/53 测试通过；C++23）。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-6 全部完成，2026-10-03）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，54/54 测试通过；C++23）。
 
 ## 构建与打包
 
@@ -26,9 +26,11 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 测试 53/53（unit_core 325 项单测 + 所有权 TLA/审计双门 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/run_tests.py        # 测试 54/54（unit_core 325 项 + 所有权双门 + clang-tidy 基线门 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/release_gate.py     # 发布门：合成语料（真实案例结构重建，D-4 隐私纪律——真实样本/密码不入仓）端到端哈希比对；--update 固化基线
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
+cmd /c build-analyze.cmd         # MSVC /analyze 排雷（低噪子集，非门；项目源零警告）
 ```
 
 - 退出码契约（测试断言依赖）：`0` 成功｜`1` 部分失败｜`2` 密码｜`3` 超限｜`4` 缺分片。
@@ -65,6 +67,34 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
 
 - 密码绝不写日志/`--report`；`SecureStr` 安全擦除；每层密码独立解析链。
 - Sink 必须走路径消毒 + `.part` 临时名原子 rename；深度/总量/磁盘水位/压缩比熔断不可绕过。
+
+## 所有权纪律（批次 6；roadmap P1-P6 的操作化清单）
+
+改动任何持有/传递资源的代码前对照：
+
+1. **图无环（P1）**：esft 类的成员容器不得持有"条目源或含条目源的类型"
+   （EntryToken 契约，`container.hpp`）；条目源对读取器只持 `weak_ptr`，异步写出的
+   存活由 Sink 任务捕获 `keepAlive()` 令牌——**两者必须配套**（weakOnly 是 TLA+
+   反例已证形态）。新增/改组合类型后跑 run_tests 的 `ownership_audit` 硬门
+   （AST 强闭包含自身 = 类型级自引用环，replayQ_ 事故的永久免疫）。
+2. **释放圈禁（P2）**：Win32 句柄/COM 引用/临时文件只经 `src/res/` 的 RAII 类型；
+   文件句柄接入一律 `res::adopt_file(CreateFileW(...))`（哨兵 nullptr，
+   INVALID_HANDLE_VALUE 由它归一）。五名单出 res/ 即 audit FAIL（见架构分层节）。
+   COM out 参数的引用计数移交用 com_ptr + NOLINT 附理由。
+3. **泄漏可观测（P3）**：新资源类型若可能泄漏，按 `diag.hpp` S1-S5 模式加哨兵
+   （fuzz 构建常开）；fuzz 崩溃工件修复后移入 `tests/fuzz-regression/` 登记——
+   那是唯一持久的回归种子层（fuzz-corpus-seeds 会被每次运行重建）。
+4. **RAII 优先（P4）**：新代码不得出现裸 new/裸句柄/手工清理；`clang-tidy` 基线门
+   （run_tests `tidy_check` 用例，零警告）会拦 owning 裸指针与值拷贝浪费——
+   真修优先，语义边界（sink 参数/jthread stop_token/COM 移交/CRT 豁免）才 NOLINT。
+5. **纯核心/效果壳（P5）**：解析、推导、打分、消毒、决策写成纯函数进 nxunit；
+   IO/日志/GUI/线程留在壳层（热路径红线见 roadmap §6.3，不纯化）。
+6. **不变式显式化（P6）**：生命周期不变式落成注释契约或断言——如 sink writeOne
+   的 DeleteGuard 声明序（先关句柄后删文件）、szcom tryOpen 的 COM 释放顺序
+   （`arc.reset()` 先于 `mainStream_.reset()`）——不留在口头。
+
+三层验证分工：TLA+（`tools/ownership.tla`）管设计语义、AST 检查器管代码现状、
+F* 证明（`tools/proofs/`）管检查器算法本身——改所有权模型时三层都要过。
 
 ## 踩过的坑（改动相关代码前先看 git log）
 

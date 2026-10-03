@@ -360,15 +360,17 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   （澳洲女足 11GB 案例外层为 deflate 存储≈不可压缩数据）→ 正确回退 spool，行为与修复后
   基线一致。语料 nested_zip_stored（>2MiB 内层越过 256KB read-ahead 缓冲）覆盖命中路径。
   嵌套链 region 可链式套窗口（RegionView : SeekView : RegionSource）。
-- **【实施记录】spool 溢出 4GiB DWORD 截断修复**（11.23GiB 隐写 MP4 真实案例）：
-  SpoolBuffer::flushToTemp 整段落盘时 `static_cast<DWORD>(ram_.size())`——RAM 环
-  自适应至 8GiB 后首次触发（恰为 2×4GiB，截断成 0），WriteFile 以长度 0 调用返回
+- **【实施记录】spool 溢出 4GiB DWORD 截断修复**（案例 M：11.23GiB 隐写 MP4
+  真实案例，本地语料库，已匿名化）：SpoolBuffer::flushToTemp 整段落盘时
+  `static_cast<DWORD>(ram_.size())`——RAM 环自适应至 8GiB 后首次触发（恰为
+  2×4GiB，截断成 0），WriteFile 以长度 0 调用返回
   TRUE/写入 0 字节，落入 `wrote==0` 分支且 GetLastError()==0，报错文本竟为
   "写临时文件失败: 操作成功完成 (Win32 0)"。M0 起潜伏（旧固定 64MiB 环从未越过
-  4GiB；1.mp4 案例 2.5GB 亦侥幸）。修复：分块 ≤16MiB 落盘；全仓扫 DWORD 截断
+  4GiB；另一 MP4 案例 2.5GB 亦侥幸）。修复：分块 ≤16MiB 落盘；全仓扫 DWORD 截断
   无同类。真实验证：解出 9.32GiB 双视频 exit 0（540s，含 8GB spool 往返）。
-- **【实施记录】输出路径超 MAX_PATH + spool 临时文件残留**（案例 L，15GB 隐写真实案例，2026-10-01）：链路=MP4 隐写窗口 →
-  zip（单条目 15GB 嵌套 zip，emoji+深中文路径）→ 内层 zip（32 条目 13.84GiB）。
+- **【实施记录】输出路径超 MAX_PATH + spool 临时文件残留**（案例 L：15GB 隐写
+  MP4 真实案例——尾部伪装 + zip64 影子 EOCD → 隐写 zip（单条目 15GB 嵌套 zip，
+  emoji+深中文路径）→ 内层 zip（32 条目 13.84GiB）；本地语料库，已匿名化，2026-10-01）：
   病灶①：最终路径 251 字符 + `.nxpart-<pid>-<tick>` 后缀≈267 > 260，
   Sink::writeOne 的 CreateFileW/MoveFileExW/DeleteFileW 裸路径调用——超 260 的
   裸路径报 ERROR_PATH_NOT_FOUND(3)（非"路径过长"，最易误诊），目录因
@@ -381,7 +383,8 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   修复：溢出临时文件加 FILE_FLAG_DELETE_ON_CLOSE——句柄一关内核即删（独占句柄
   = 唯一持有者，spool 读经同一句柄无冲突），清理与对象生命周期解耦；同场景
   验证残留 0。读取器泄漏本体留待后续（影响仅内存壳，ram_ 溢出后已清空）。
-- **【实施记录】solid 7z 批量抽取（O(N²) 修复）**（案例 XJ，2.61GB 隐写 MP4 真实案例）：文件=MP4（尾部假 mdat + zip64 影子
+- **【实施记录】solid 7z 批量抽取（O(N²) 修复）**（案例 XJ：2.61GB 隐写 MP4
+  真实案例，本地语料库，已匿名化）：文件=MP4（尾部假 mdat + zip64 影子
   EOCD + 76B 诱饵，7-Zip 22.01 完全打不开）→ 隐写 zip（deflate 标记的不可压缩
   2.27GB 单条目 exe）→ 7z SFX（**Solid=+**，Delta+LZMA2:26+BCJ2+7zAES，3692 文件
   2.7GB，Ren'Py 游戏目录树）。病灶：szcom 逐条目单独 `arc_->Extract(&idx,1,…)` ——
@@ -400,13 +403,14 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   run_tests 加 <60s 时间断言防回退）；真实文件 38s/3747 文件/2.53GiB exit 0，
   与 7z CLI 单遍全解对比共同条目哈希零差异（多出的 66 文件=.save（Ren'Py 存档=zip）
   按设计递归展开；7z CLI 的 1 条 Warning 即同批矛盾路径）。fuzz 60s 回归无异常。
-- **【实施记录】extract-into 同名冲突修复**（案例 Z 真实案例）：默认前缀
+- **【实施记录】extract-into 同名冲突修复**（案例 Z：zip 直开真实案例，已匿名化）：默认前缀
   曾=完整文件名 → 输出目录与输入 zip 同名，`ensure_dir_recursive` 把 ALREADY_EXISTS
   误判成功（未验证是目录），到子条目目录创建才失败（错误仅在 stderr："创建目录失败"），
   表现为 GUI 解压 0 文件退出 1。修复两层：默认前缀改为去扩展名 stem（WinRAR 惯例，
   设计上避开撞名）；ensure_dir_recursive 对 ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY。
   gui_smoke 用例 1 改为直接采用默认前缀（此前所有用例都覆盖了默认值，恰好漏掉该路径）。
-  **无扩展名残余场景**（案例 X，1.85GiB 7z 嵌套 7z 真实案例）：
+  **无扩展名残余场景**（案例 X：1.85GiB 无扩展名 7z 嵌 7z 真实案例，内层加密，
+  本地语料库，已匿名化）：
   文件名无小数点 → stem 回退=完整文件名 → 撞名仍发生；且创建失败在 main 提前 return 1，
   绕过完成弹窗，GUI 右键场景下用户完全看不到失败原因。补丁：失败按成因分类
   （`CompareStringOrdinal` 判撞输入文件/GetFileAttributes 判同名文件占位/其他含

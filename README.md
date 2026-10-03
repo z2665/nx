@@ -1,8 +1,8 @@
 # nx — 流式嵌套压缩包解压工具
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0–5 已完成，2026-10-02）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0–5**。53/53 测试（unit_core 325 项 + 所有权模型门 + 50 属性）+ GUI 冒烟 9/9 通过。
+重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0–6 已完成，2026-10-03）。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0–6（全部）**。54/54 测试（unit_core 325 项 + 所有权双门 + clang-tidy 基线门 + 50 属性）+ GUI 冒烟 9/9 + 合成发布门通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -114,7 +114,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   载荷必须解压，语义上无区间
 
 ### 稳定性修复（真实语料案例）
-- **输出路径超 MAX_PATH（案例 L 15GB 隐写案例）**：最终路径 251 字符 + `.nxpart-`
+- **输出路径超 MAX_PATH（案例 L：15GB 隐写 MP4）**：最终路径 251 字符 + `.nxpart-`
   临时名后缀超 260，`Sink::writeOne` 的 `CreateFileW`/`MoveFileExW`/`DeleteFileW`
   用裸路径——超 260 的裸路径报 **ERROR_PATH_NOT_FOUND(3)** 而非"路径过长"，目录
   （`ensure_dir_recursive` 内部有 `\?`）全建成、偏偏文件全失败。修复：三处调用统一
@@ -126,7 +126,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   spool 存活、2 个强引用）+ 强杀进程时 dtor 不会执行。修复：临时文件创建改
   `FILE_FLAG_DELETE_ON_CLOSE`——句柄一关（正常/异常/被杀）内核即删，清理责任
   不再依赖对象生命周期；验证同场景残留 0。读取器泄漏本身留待后续（影响仅内存壳）
-- **solid 7z 逐条目抽取 O(N²)**（案例 XJ 隐写案例）：内层 7z SFX
+- **solid 7z 逐条目抽取 O(N²)**（案例 XJ：隐写 MP4 → 7z SFX solid）：内层 7z SFX
   为 solid（3692 文件 2.3GB，LZMA2+BCJ2+AES），szcom 逐条目单独 `Extract` = 每文件
   从 solid 块头重解码到目标位置，实测外推 8~12 小时。修复：**批量抽取**
   （`materializeBatch`：一次 `Extract` 携带一批连续索引，`GetStream` 按 index 分发到
@@ -140,11 +140,11 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   `cast DWORD` 把 8GiB（=2×4GiB）截断成 0 → `WriteFile` 长度 0 成功返回 → 报错竟是
   "写临时文件失败: 操作成功完成 (Win32 0)"。修复：分块 ≤16MiB 落盘。M0 起潜伏，
   spool 自适应 8GiB 后首次暴露
-- **extract-into 输出目录与输入文件同名**（案例 Z）：默认前缀曾=完整文件名 →
+- **extract-into 输出目录与输入文件同名**（案例 Z：zip 直开）：默认前缀曾=完整文件名 →
   与输入 zip 同名；`ensure_dir_recursive` 把 ALREADY_EXISTS 误判成功（同名文件占位），
   解到子条目才失败且错误仅在 stderr。修复：默认前缀改去扩展名 stem（WinRAR 惯例）+
   ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY。
-  **无扩展名残余场景**（`案例 X` 真实案例）：无小数点输入 stem 回退=完整文件名，
+  **无扩展名残余场景**（案例 X：无扩展名 7z 嵌 7z，内层加密）：无小数点输入 stem 回退=完整文件名，
   撞名仍发生且 GUI 右键场景下仅 log_err 用户完全不可见（提前 return 1 绕过完成弹窗）。
   修复：创建失败按成因分类（撞输入文件/被同名文件占用/其他）+ **GUI 交互流弹窗告知**
   （extract-into/-stego 刚弹过前缀窗或 Explorer/`--gui` 启动时 `MessageBox` 指引换前缀；
@@ -164,7 +164,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - 首跑实测（5 分钟）：22,947 次 / 76 exec/s / 0 崩溃，峰值 RSS 457MB；自动字典已习得
   CP936/CP932（码表探测）、各格式魔数、`ftyp`（MP4 atom 步进）等深层特征——覆盖真实
 
-### 真实语料修复（D:\…\2.zip 案例）
+### 真实语料修复（案例 N：本地 zip，CP932 文件名）
 - **根因三层**：C locale → libarchive NULL pathname（主因）／本地头 EUC-JP vs 中央目录 UTF-8 不一致 ／
   码表候选名须 iconv 格式
 - 修复：`setlocale(LC_ALL, ".UTF8")` + zip 改中央目录模式（File/Spool SeekView）+ `CP932` 格式码表探测 +
@@ -314,6 +314,36 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 - **fuzz 回归种子入库**：`tests/fuzz-regression/`（git 跟踪）为唯一持久层，
   populate_seeds 回灌——原"入库"声明不实且种子会被下次运行抹掉（三路同发现）
 
+### 重构批次 6 —— 验证常态化（2026-10-03，refactor-roadmap §8）
+
+- **clang-tidy 基线门**（roadmap §7.3 推荐集四检查：owning-memory /
+  dangling-handle / mt-unsafe / unnecessary-value-param）：`.clang-tidy` 入库 +
+  `tests/tidy_check.py`（并行全 TU，零警告基线，run_tests 硬门用例 `tidy_check`
+  ——缺 clang-tidy 组件直接 FAIL）。首跑 13 位点清零：**4 处真修**（EntrySource
+  构造 ×2 / iterate_container 的 shared_ptr / walk 的 LayerCtx——均 const& 化，
+  纯浪费拷贝；LayerCtx 改 const& 时 walker.cpp 前向声明同步，否则 LNK1120）、
+  9 处语义边界 NOLINT 附理由（sink 参数 move 惯用法 / jthread stop_token /
+  COM out 引用计数移交 ×3 / CRT fclose 豁免 D-3 / main 单线程 setlocale·exit）。
+  flags 注记：clang-tidy 经 `--` 传参须用 clang 风格（`/EHsc` 等 cl 旗标不生效）
+- **MSVC /analyze 排雷**（`build-analyze.cmd`，低噪子集，非门）：项目源
+  **零警告**达成。顺手修复 4 处真信号：make_temp_file_path 的
+  StringFromGUID2 返回值守卫（原死路径还会覆盖目录串致落 CWD）、Sha256::update
+  失败即失能（原静默给错误哈希）、ThreadPool::worker 标注 maybe_unused、
+  nxshell 冗余宏定义（C4005）；GetStdHandle 双形态 NULL/INVALID 比较为有意
+  语义（suppress 6329 附注释）
+- **合成发布语料 + 发布门**（用户隐私纪律：真实样本/路径/密码不入仓，测试
+  一律按真实案例**结构**自建）：`tests/gen_release_corpus.py` 确定性种子重建
+  三案例结构——L（伪装 MP4+影子 zip64 EOCD+伪装尾+假 mdat → 隐写 deflate
+  zip → AES zip 32 条目深路径大件）、XJ（伪装 MP4 → 7z SFX solid+AES 200
+  文件 + .save 递归）、X（无扩展名 7z 嵌加密 zip）；`tests/release_gate.py`
+  `--spool-ram 16MiB` 强制溢出路径，manifest（tracked）哈希比对，重建后
+  逐字节确定。诱饵本地头未复刻（诱饵+影子组合的锚点行为依赖真实样本字节
+  细节，影子回退路径已覆盖——见 gen_release_corpus 注释）
+- **AGENTS 所有权纪律一节**（P1-P6 操作化清单 + 三层验证分工）+ **D-3 决策**
+  （圈禁名单定界五项，CRT/内存分配器族豁免）
+- 历史遗留：BoundedQueue abandon 协议的 TLA+ 模型（0.5d，roadmap §7.4）
+  未随批次 6 落地——run_tests 的 ownership_tla 门已覆盖所有权主线
+
 
 
 ```bash
@@ -321,7 +351,10 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 53/53（unit_core 325 项 + 所有权模型门 + 50 属性）
+python tests/run_tests.py        # 54/54（unit_core 325 项 + 所有权双门 + clang-tidy 基线门 + 50 属性）
+python tests/release_gate.py     # 发布门：合成语料（真实案例结构重建）端到端哈希比对
+python tests/gen_release_corpus.py  # 发布语料生成（确定性种子，缺则 release_gate 自动重建）
+cmd /c build-analyze.cmd         # MSVC /analyze 排雷（低噪子集，非门；当前零警告）
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（自动构建 build-fuzz/nxfuzz.exe；泄漏哨兵 S1-S5 常开——泄漏=abort=崩溃）
 python tests/bench.py            # 基准（3 语料 × 3 方案）
 python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）

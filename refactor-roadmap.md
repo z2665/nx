@@ -6,7 +6,7 @@
 >
 > **阅读指南**：§1–3 看动机与原则；§4 缺陷登记簿（**D1-D8 已全部修复**，含验收记录）；
 > §5 目标架构；§6 四路审计详录（材料库，按需查阅）；§7 形式化验证方案（S1-S5 已落地）；
-> §8 执行计划（单一批次制，**批次 0-5 已完成**，仅剩批次 6）；§9 决策记录。全部行号为 f647037 基线。
+> §8 执行计划（单一批次制，**批次 0-6 全部完成**）；§9 决策记录。全部行号为 f647037 基线。
 
 ---
 
@@ -19,8 +19,8 @@
 
 | 案例 | 症状 | 根因 | 当前状态 |
 |---|---|---|---|
-| 案例 XJ（2.6GB） | 解压外推 8~12 小时 | solid 7z 逐条目单独 `Extract` = 每文件从 solid 块头重解码（O(N²)） | **已修复**（批式抽取，38s/3747 文件，2f5494b） |
-| 案例 L（15GB） | 最深路径文件落盘失败 | 输出路径 251 字符 + `.nxpart-` 后缀 > 260，Sink 三处裸路径调用无 `\\?\` | **已修复**（f647037） |
+| 案例 XJ：隐写 MP4（2.6GB） | 解压外推 8~12 小时 | solid 7z 逐条目单独 `Extract` = 每文件从 solid 块头重解码（O(N²)） | **已修复**（批式抽取，38s/3747 文件，2f5494b） |
+| 案例 L：隐写 MP4（15GB） | 最深路径文件落盘失败 | 输出路径 251 字符 + `.nxpart-` 后缀 > 260，Sink 三处裸路径调用无 `\\?\` | **已修复**（f647037） |
 | 同上 | 14.86GB `nx-{GUID}.tmp` 成功运行后残留 | **LaSeqReader replayQ_ 自引用环**（见 §1.2） | 文件残留已由 DELETE_ON_CLOSE 兜底；**对象泄漏未修**（D6） |
 
 ### 1.2 泄漏根因定案：replayQ_ 自引用环
@@ -309,11 +309,11 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 |---|---|---|---|---|---|
 | **0 缺陷修复** | §4 D1-D8 全部（D6 环修复 + D7 过滤器链深度 + S1-S5 哨兵随行） | §4 | ~2.5d | §4 验收门 | ✅ **已完成**（2026-10-02，36d04d1…8dfe638；49/49 + 9/9 + fuzz 哨兵常开） |
 | **1 低风险速赢** | FormatInfo 表 / NameCodec 会话 / Outcome+derive_exit_code / AccessRecorder / Detection.note / ascii_lower 统一 / detect·stego·report·volumeset 纯化 / SafePath / C++23 切换 + Result 别名试点 / M2 filter RAII 化 / M3 pullBlock | 领域 #1/3/4/5/12 + 函数式 P1 + M2/M3 | ~1 周 | 新增单测（纯核心）+ 全量 | ✅ **已完成**（2026-10-02，836a435…；nxunit 235 检查 + 50 属性 + 9 GUI。volumeset 的 select_group 拆分顺延批次 3（单测壳就绪后一并接入），其余全量落地） |
-| **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | ✅ **已完成**（2026-10-02，两步提交：LayerId key/display 拆分 + join_logical 逻辑路径键——修复真实 bug：不同父容器同名分片组共享"深度+名"键，a 组耗尽候选污染共享游标 → b 组假性 PasswordExhausted（0 文件）；LayerCtx 收敛 walk 散参数 + Walker 类 + resolve_runtime_options 装配单点。语料 sibling_pw_cache + nxunit 251 + 51/51 + 案例 L 15GB 复验） |
+| **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | ✅ **已完成**（2026-10-02，两步提交：LayerId key/display 拆分 + join_logical 逻辑路径键——修复真实 bug：不同父容器同名分片组共享"深度+名"键，a 组耗尽候选污染共享游标 → b 组假性 PasswordExhausted（0 文件）；LayerCtx 收敛 walk 散参数 + Walker 类 + resolve_runtime_options 装配单点。语料 sibling_pw_cache + nxunit 251 + 51/51 + 15GB 案例 L 复验） |
 | **3 可测性** | PromptSink / MemorySource / 单测壳接入（消毒器·密码链·分片分组·退出码·detect） | 领域 #7 + 测试性 | ~3d | C++ 单测首批入套件 | ✅ **已完成**（2026-10-02：MemorySource 内存源 + 过滤器泵/detect 壳真实路径集成测试；PromptSink 脚本化提示（密码链全语义可单测）；select_group 拆分（group_filesystem 只剩 IO 壳）+ volumeset 三层单测。消毒器/退出码/detect 已随批次 1 落地。nxunit 298 检查，51/51） |
 | **4 契约与所有权** | **先过 Alloy 验收门** → EntryToken 契约 + weak_ptr/KeepAlive + 视图合并（make_* 三工厂 + MeteredViewFactory）+ engines 拆分五文件 + szcom cache_ 预算驱逐 | 领域 #9/10/13 + Phase 1 + F5 | ~1.5 周 | S1-S3 哨兵全绿 + 全量 | ✅ **已完成**（2026-10-02。验收门以可执行穷举模型检查器落地（tests/ownership_model.py，对象≤6/深度≤12 全序列）：legacy 复现 replayQ_ 反例（open→probePush→failOpen）、weakOnly 证"两者必须配套"、fixed 零违例；代码：weak_ptr 条目源 + ByteSource::keepAlive() 令牌（Sink 任务提交时捕获）、EntryToken 契约、views.{hpp,cpp} 唯一实现 + ViewFactory 挂表纪律类型化、engines.cpp 拆五件（namecodec/laimp/zipcd/laseq/open）、szcom cache_ 共享预算 LRU 驱逐（中读豁免）。S1-S5 哨兵诊断构建全静默 + 52/52 + fuzz + 15GB 复验） |
 | **5 资源圈禁** | res/（UniqueFile/TempFile/com_ptr）全量迁移 + gsl::owner 标注 + audit_ownership.py（grep + AST 闭包检查器，校准标准 §7.3） | Phase 2 + M1/M4 | ~1 周 | 审计脚本零违规 + 全量 | ✅ **已完成**（2026-10-02 落地 + 03 三路评审修复。AST 检查器先行落地并校准（f647037 恰报 LaSeqReader 零误报）；随后 res/ 圈禁全量：`UniqueHandle<T,Invalid,Closer>` header-only 模板 + UniqueFile/UniqueRegKey/UniqueModule（文件/注册表/DLL 三类 Win32 句柄）、TempFile 工厂（DELETE_ON_CLOSE 统一）、com_ptr（szcom+nxshell 全部手工 Release）、DeleteGuard（sink .part 两段 catch 归一）；audit_ownership.py 增 grep 圈禁硬门；gsl::owner 标注三个逃逸点（res/gsl_owner.hpp 零依赖自带）；M1 顺手修复 write_report_file 短写静默。**两个实证教训**：①DeleteGuard 声明序=先关句柄后删文件（反序被 GUI 用例 6 抓住）；②COM 释放顺序契约——Open 失败后 7z.dll 仍持流引用，arc.reset() 必须先于 mainStream_.reset()（评审更正叙事：该 UAF 只存在于迁移开发期未提交中间态，提交史顺序从未错；契约已注释化）。**三路评审修复（03）**：UniqueFile 哨兵 nullptr 化——INVALID_HANDLE_VALUE 非 NTTP 合法常量、clang 全家拒绝，曾使 AST 门非确定（红队 C-1）；audit fail-loud——TU 独立临时名+退出码透传+补构建定义+失败不跳过（spec M-2）；圈禁门自检自动化（M-3）；fuzz 回归种子入库 tests/fuzz-regression/（git 跟踪，populate_seeds 回灌——原"入库"不实，M-1）。nxunit +27=325，53/53 + 9/9 + fuzz 全绿） |
-| **6 验证常态化** | 哨兵 fuzz 常开 + clang-tidy CI 基线 /analyze 子集 + AGENTS 增"所有权纪律"一节 + 真实样本发布门固化 | Phase 3 | ~1d | CI 全绿 | 待排期（哨兵 fuzz 常开已随批次 0 落地；持久回归种子在 tests/fuzz-regression/（git 跟踪）；顺带评估：fclose/LocalFree/CoTaskMemFree/archive_read_free 是否纳入圈禁、audit 覆盖 gitignored res 外资源口径） |
+| **6 验证常态化** | 哨兵 fuzz 常开 + clang-tidy CI 基线 /analyze 子集 + AGENTS 增"所有权纪律"一节 + 真实样本发布门固化 | Phase 3 | ~1d | CI 全绿 | ✅ **已完成**（2026-10-03。①clang-tidy 基线门：.clang-tidy 四检查 + tidy_check.py 并行全 TU 零警告硬门（run_tests 54/54）——首跑 13 位点：4 真修（EntrySource×2/iterate_container/walk 的 const& 化）+ 9 语义边界 NOLINT（决策 D-3 定界）；②/analyze 排雷（build-analyze.cmd 低噪子集，非门）项目源零警告——顺手修 4 真信号（StringFromGUID2 守卫+死路径落 CWD、Sha256::update 失能、worker maybe_unused、nxshell 冗余宏）；③发布门改为**合成语料**（用户隐私纪律 D-4：真实样本/路径/密码不入仓）——gen_release_corpus.py 确定性种子按案例 L/XJ/X 结构重建 + release_gate.py manifest 哈希门 + --spool-ram 强制溢出；④AGENTS"所有权纪律"一节（P1-P6 操作化+三层分工）；⑤文档匿名化（案例代号 L/XJ/X/Z/M/N）。遗留：BoundedQueue abandon 的 TLA+ 模型（0.5d）未做——ownership_tla 门已覆盖主线，可单独排期） |
 
 **顺序依赖**：0 独立可发布 → 1/2/3 可并行排期 → 4 依赖 1（C++23/Result）与 2
 （LayerCtx）→ 5 依赖 4（视图合并先行）→ 6 收尾。
@@ -326,6 +326,8 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 |---|---|---|---|
 | D-1 | 2026-10-02 | **递归深度默认 10 层，过滤器链纳入 `--depth` 约束**。实现草案：`walk()` 增 `filterChain` 参数（容器分支重置为 0，过滤器分支 +1 并检查超限抛 LimitError/exit 3）；`maxDepth` 默认 8→10 + usage 文案；depth_bomb 语料加深至 12 层；新增 filter_depth_bomb 用例（30 层嵌套 gzip，期望退出码 3） | F2/DoS：过滤器分支同 depth 递归无上界，4MiB 输入可构造数千层嵌套 gzip 致栈溢出/线程耗尽。默认 10 层已覆盖全部真实需求（用户确认）。注意：不能让过滤器直接计入 `depth`——会破坏 tar.gz 根的 noRoot 语义与层编号 |
 | D-2 | 2026-10-02 | **形式化工具选型：TLA+/TLC（模型检查）+ F\*（证明）**（用户指示"验证器用成熟的，不要自制简陋模型"；门就是门，CI 不允许静默跳过）。TLC 完备检查为唯一权威门并硬性接入 run_tests（缺 jar/java 直接 FAIL，`ownership_tla` 用例）；自制 Python 穷举器**已删除**不再维护。所有权小模型 tools/ownership.tla 三变体共用一份规范，GC 为独立原子 Collect 动作。证明侧 F\* 2026.09.27 已就位（tools/fstar/，用户配置），链路自检 tools/proofs/Smoke.fst（闭包保种子/单调性引理全由 z3 自动 discharge） | 批次 4 验收门最初以自制 Python 穷举器达成，用户两次纠正：①自制模型只配当校准脚本不配当权威验证；②"缺 jar 时优雅跳过"不是门——强制要求通过 |
+| D-3 | 2026-10-03 | **圈禁名单定界为五项；CRT/内存分配器族显式豁免**：`fclose`（CRT FILE\*，log 单点、与进程同生命周期）、`LocalFree`（CommandLineToArgvW 契约释放）、`CoTaskMemFree`（COM 任务内存惯例）、`archive_read_free`（第三方 C API 上下文释放，等价 free）不纳入 grep 圈禁名单——它们是内存/分配器释放而非 Win32 句柄/COM 引用/临时文件；散布若显著增长再行收编。NOLINT 边界定界：Win32 API 返回值接入（adopt_file）与 COM out 参数引用计数移交属"无标注世界 ↔ owner 纪律"边界，NOLINT 附理由豁免；sink 参数（按值收再 move）、jthread stop_token 惯例同理 | 批次 5 三路评审 M-5：五名单与 P2"一切手动释放"原则句的落差需定界；批次 6 clang-tidy 基线首跑 13 位点即此三类边界，全部按语义定界清零 |
+| D-4 | 2026-10-03 | **测试语料隐私纪律：真实样本不入仓**。用户指示：所有测试样本自建（含加密/不加密、密码可控），**基于真实样本的结构**构建——真实文件名/路径/密码会泄露用户信息。发布门因此从"真实 15GB 语料哈希比对"改为合成语料（gen_release_corpus.py 确定性种子重建案例 L/XJ/X 结构 + release_gate.py）；文档中历史案例一律以代号引用（L/XJ/X/Z/M/N），不再出现真实标题/路径 | 批次 6 发布门初版直接引用了真实样本路径与密码（未提交即废弃）；用户明确隐私要求 |
 | — | — | 待决事项：F\* vs Coq 二选一（证明侧工具，用户配置） | — |
 
 ---
