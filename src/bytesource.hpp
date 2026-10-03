@@ -47,7 +47,9 @@ public:
 
 using SourcePtr = std::unique_ptr<ByteSource>;
 
-// 计量：根输入文件读取量（供压缩比熔断使用，设计 D6）
+// 计量：根输入文件实时读取量（供压缩比熔断使用，设计 D6；进度窗分子同源）。
+// 总量快照 = Stats::inputTotal（session.hpp，run_input 开卷前一次性累计）；
+// 挂表纪律（根输入挂/派生不挂）类型化在 views.hpp ViewFactory
 struct InputMeter {
     std::atomic<uint64_t> bytes{0};
 };

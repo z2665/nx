@@ -9,6 +9,8 @@
 
 namespace nx {
 
+// 会话聚合根：定义于此而非 session.hpp（后者被 sink.hpp 依赖，反向放置需
+// 前置声明+外置析构绕路——见 session.hpp 头注）
 class Session {
 public:
     Options opt;

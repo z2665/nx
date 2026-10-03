@@ -1,4 +1,7 @@
-// session.hpp：全局选项 / 统计 / 会话对象
+// session.hpp：全局选项 / 统计。
+// 注意：会话聚合根 Session（Options+Stats+pw/meter/sink 的装配）定义在
+// walker.hpp——其 unique_ptr<Sink> 成员需 Sink 完整类型，而 sink.hpp 又引用
+// 本文件的 Options/Stats，放这里得走前置声明+外置析构的绕路。按名索骥勿扑空。
 #pragma once
 #include "util.hpp"
 #include <atomic>
@@ -41,7 +44,7 @@ private:
 struct Stats {
     std::atomic<uint64_t> filesOut{0};
     std::atomic<uint64_t> bytesOut{0};
-    std::atomic<uint64_t> inputTotal{0};     // 根输入总大小（进度窗分母；run_input 累计）
+    std::atomic<uint64_t> inputTotal{0};     // 根输入总大小（进度窗分母；run_input 累计）。实时消耗读数 = Session::meter（InputMeter，bytesource.hpp）
     std::atomic<uint64_t> tempBytes{0};
     std::atomic<uint64_t> produced{0};          // 过滤器累计产出（压缩比分子）
     std::atomic<uint64_t> containers{0};

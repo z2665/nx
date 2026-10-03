@@ -1,5 +1,12 @@
-// spool.hpp：SpoolStore（M0 版）：RAM 优先 → 临时文件溢出，随机访问读取（设计 §4）
-// M1 将升级为"溢出写入与上游解压并发"；M0 为顺序拉取式（溢出 = 全量落临时文件，读端随机访问）。
+// spool.hpp：SpoolStore——R 类容器的 seek 适配器（设计 §4：RAM 优先 → 磁盘溢出）
+// · append 随上游解码推进（溢出写入与上游解压并发——流水线收益保住的那一半）；
+//   下游随机访问在 finish() 之后（R 类引擎开卷本就需完整数据）
+// · 溢出卷 = res::TempFile（FILE_FLAG_DELETE_ON_CLOSE：句柄一关内核即删，
+//   清理不依赖对象生命周期——15GB spool 残留案例的教训）；RAM 全量落盘
+//   分块 ≤16MiB（8GiB 环整段 cast DWORD 截断成 0 的教训，案例 M）
+// · RAM 上限 ramCap 由调用方注入（自动策略：空闲物理内存 50%，64MiB–8GiB，
+//   装配单点 = walker.cpp resolve_runtime_options）
+// · ioM_ 串行化句柄访问——read_at 支持多线程并发（SeekView 契约，views.hpp）
 #pragma once
 #include "bytesource.hpp"
 #include "res/temp_file.hpp"
