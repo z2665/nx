@@ -14,7 +14,7 @@ struct FileReader {
     uint64_t size = 0;
 
     explicit FileReader(const std::wstring& path) {
-        h = res::UniqueFile(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
+        h = res::adopt_file(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
                                         FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                         FILE_ATTRIBUTE_NORMAL, nullptr));
         if (!h.valid()) return;

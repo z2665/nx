@@ -86,8 +86,9 @@ std::string build_report(Session& s, const std::vector<std::wstring>& inputs,
 }
 
 void write_report_file(const std::wstring& path, const std::string& content) {
-    res::UniqueFile h(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL, nullptr));
+    res::UniqueFile h = res::adopt_file(
+        CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!h.valid()) {
         log_err("[nx] 报告写入失败: %s\n", wide_to_utf8(path).c_str());
         return;

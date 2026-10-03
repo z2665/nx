@@ -49,15 +49,16 @@ void log_open(int argc, char** utf8ArgsDummy) {
     // 探针句柄（P2 圈禁）：块作用域结束即关——必须先于 _wfopen_s 关闭
     // （探针不带 FILE_SHARE_WRITE，持有期间 append 打开会 sharing violation）
     {
-        res::UniqueFile probe(CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
-                                          nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                                          nullptr));
+        res::UniqueFile probe = res::adopt_file(
+            CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
         if (!probe.valid()) {
             wchar_t tmp[MAX_PATH];
             GetTempPathW(MAX_PATH, tmp);
             g_logPath = std::wstring(tmp) + L"nx.log";
-            probe.reset(CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                                    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+            probe = res::adopt_file(
+                CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
             if (!probe.valid()) return;
         }
         // 超过 5 MiB → 截断从 0 开始

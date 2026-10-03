@@ -235,8 +235,9 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
     // 自动删除不留盘——原两段 catch 手工清理归一。
     // 声明必须先于句柄：逆序析构 = 先关句柄再删文件（独占句柄未关则删除必败）
     res::DeleteGuard part(tmpL);
-    res::UniqueFile h(CreateFileW(tmpL.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL, nullptr));
+    res::UniqueFile h = res::adopt_file(CreateFileW(tmpL.c_str(), GENERIC_WRITE, 0, nullptr,
+                                                    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                                    nullptr));
     if (!h.valid())
         throw Error("创建输出文件失败: " + wide_to_utf8(finalPath) + " " +
                     wide_to_utf8(win32_last_error_text()));

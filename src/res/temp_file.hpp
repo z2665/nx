@@ -19,10 +19,10 @@ struct TempFile {
     // 失败抛 Error("创建临时文件失败: ...")——与原 spool.cpp 文案一致。
     static TempFile create(const std::wstring& dir) {
         std::wstring p = make_temp_file_path(dir);
-        UniqueFile h(CreateFileW(p.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                 CREATE_ALWAYS,
-                                 FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
-                                 nullptr));
+        UniqueFile h = adopt_file(CreateFileW(p.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                                              nullptr, CREATE_ALWAYS,
+                                              FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
+                                              nullptr));
         if (!h.valid())
             throw Error("创建临时文件失败: " + wide_to_utf8(win32_last_error_text()));
         return TempFile{std::move(h), std::move(p)};

@@ -159,7 +159,7 @@ public:
     explicit FileSeekInput(const std::wstring& path, InputMeter* meter = nullptr,
                            uint64_t base = 0)
         : meter_(meter), base_(base) {
-        h_ = res::UniqueFile(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
+        h_ = res::adopt_file(CreateFileW(win_long_path(path).c_str(), GENERIC_READ,
                                          FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                          FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
         if (!h_.valid())

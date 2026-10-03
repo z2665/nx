@@ -1,6 +1,8 @@
 // unit_main.cpp：纯核心单元测试（批次 1 起的 C++ 单测壳 nxunit）
 // 运行：build\nxunit.exe；全部通过退出 0，失败打印用例位置并退出 1。
 // 纪律（roadmap P5）：只测纯函数——IO/线程/GUI 归属性测试（run_tests.py）与 fuzz。
+// 例外：res/ RAII 语义（批次 5）与批次 3 的过滤器真实路径集成——内核级语义
+// （DELETE_ON_CLOSE 等）只有真实 Win32 IO 才验得动，在此一并维护。
 #include "outcome.hpp"
 #include "util.hpp"
 #include "format.hpp"
@@ -688,8 +690,9 @@ void test_res_types() {
     // DeleteGuard：dismiss 保留、未 dismiss 析构删除（.part 半成品语义）
     std::wstring p1 = make_temp_file_path(L"");
     {
-        res::UniqueFile f1(CreateFileW(p1.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                       FILE_ATTRIBUTE_NORMAL, nullptr));
+        res::UniqueFile f1 = res::adopt_file(
+            CreateFileW(p1.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                        FILE_ATTRIBUTE_NORMAL, nullptr));
         CHECK(f1.valid());
     }
     CHECK(GetFileAttributesW(p1.c_str()) != INVALID_FILE_ATTRIBUTES);

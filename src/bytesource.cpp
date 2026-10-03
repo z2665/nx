@@ -10,7 +10,7 @@ namespace nx {
 
 FileSource::FileSource(const std::wstring& path, InputMeter* meter) : meter_(meter) {
     std::wstring p = win_long_path(path);
-    handle_ = res::UniqueFile(CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+    handle_ = res::adopt_file(CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                                           OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!handle_.valid())
         throw Error("打开文件失败: " + wide_to_utf8(path) + " " + wide_to_utf8(win32_last_error_text()));
