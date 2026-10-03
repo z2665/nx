@@ -4,6 +4,8 @@
 #include "diag.hpp"
 #include "format.hpp"
 #include "password.hpp"
+#include "spool.hpp"
+#include <map>
 #include <memory>
 #include <string>
 
@@ -42,6 +44,18 @@ struct EngineOptions {
     size_t spoolRam = 64 << 20;
     std::wstring tempDir;
     InputMeter* meter = nullptr;   // 根输入计量（进度窗分母/分子；根层直读视图挂，spool 卷不挂）
+};
+
+// 一个卷的数据来源（三选一）：文件系统路径 / spool 窗口（条目级多卷）/
+// 父视图区间（嵌套容器免 spool 直读：stored 条目在父支撑中的连续字节）。
+// 引擎契约层类型（原居 szcom.hpp：engines 门面签名需要它，放这里免得门面
+// 渗漏 7z.dll 适配器的内部头）——szcom/open/walker 三方共用
+struct VolumeSource {
+    std::wstring fsPath;
+    uint64_t fsBase = 0;   // FS 卷起始偏移（隐写窗口：文件 = [fsBase, EOF)）
+    std::shared_ptr<SpoolBuffer> spool;   // 随窗口保活
+    uint64_t winStart = 0, winLen = 0;
+    std::shared_ptr<RegionSource> region;   // 父视图区间（与上两者互斥）
 };
 
 } // namespace nx

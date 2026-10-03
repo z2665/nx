@@ -1,9 +1,11 @@
 // open.cpp：容器打开策略（批次 4 自 engines.cpp 拆分）——try_open 探测、密码迭代、
-// spool 兜底、zip 中央目录模式、R 类 7z.dll 优先与回退、S/Z 类流式优先
+// spool 兜底、zip 中央目录模式、R 类 7z.dll 优先与回退、S/Z 类流式优先。
+// engines.hpp 门面的实现（组合根）：szcom/laseq/zipcd 的装配与回退策略都在本文件
 #include "engines.hpp"
 #include "diag.hpp"
 #include "laimp.hpp"
 #include "laseq.hpp"
+#include "szcom.hpp"
 #include "zipcd.hpp"
 #include "log.hpp"
 #include <windows.h>
@@ -146,13 +148,16 @@ std::shared_ptr<LaSeqReader> password_loop(Format fmt,
 
 // 原生多卷入口（RAR）：直接走 7z.dll（§3.3 原生卷型不拼接）
 std::shared_ptr<ContainerReader> open_container_volumes(
-    Format fmt, const std::map<std::wstring, sz::VolumeSource>& volumes,
+    Format fmt, const std::map<std::wstring, VolumeSource>& volumes,
     const std::wstring& firstVol, const LayerId& layer, PasswordProvider& pw,
     const EngineOptions& opt) {
     if (!sz::dll_available())
         throw Error(wide_to_utf8(sz::dll_error()) + "（原生多卷需要 7z.dll）");
     return sz::open_archive(fmt, volumes, firstVol, layer, pw, opt);
 }
+
+// 门面探测（engines.hpp）：walker 的路由决策（fsDirectOpen 快路径门禁等）
+bool sevenzip_dll_available() { return sz::dll_available(); }
 
 // Zip 根文件直读（中央目录模式 + 码表探测；文件本身可 seek，免 spool）。
 // base/length：隐写窗口（EOCD 精确区间，排除尾部伪装数据）；默认整文件。
@@ -249,8 +254,8 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         // R 类：优先父区间直交 7z.dll（免 spool）；失败回退全量 spool
         if (region && (fmt == Format::SevenZip || fmt == Format::Rar) && sz::dll_available()) {
             try {
-                std::map<std::wstring, sz::VolumeSource> vols;
-                sz::VolumeSource v;
+                std::map<std::wstring, VolumeSource> vols;
+                VolumeSource v;
                 v.region = region;
                 vols[L""] = std::move(v);
                 auto r = sz::open_archive(fmt, vols, L"", layer, pw, opt);
@@ -268,8 +273,8 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
         // 7z/rar：优先 7z.dll（全特性 + RAR 解码）；密码耗尽直抛，其余失败回退 libarchive
         if ((fmt == Format::SevenZip || fmt == Format::Rar) && sz::dll_available()) {
             try {
-                std::map<std::wstring, sz::VolumeSource> vols;
-                sz::VolumeSource v;
+                std::map<std::wstring, VolumeSource> vols;
+                VolumeSource v;
                 v.spool = spool;
                 v.winStart = 0;
                 v.winLen = spool->size();

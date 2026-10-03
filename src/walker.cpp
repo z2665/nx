@@ -232,14 +232,14 @@ void flush_pending_set(Session& s, const LayerCtx& ctx, PendingSet& ps) {
 
     // ---- RAR 原生卷：7z.dll 卷回调（不拼接，§3.3/D3）----
     if (ps.native) {
-        std::map<std::wstring, sz::VolumeSource> vols;
+        std::map<std::wstring, VolumeSource> vols;
         std::wstring firstVol;
         for (auto& mem : ps.members) {
             // 卷名 = 条目名最后一段（7z.dll 按基名请求兄弟卷）
             std::string base = mem.name;
             size_t slash = base.find_last_of("/\\");
             if (slash != std::string::npos) base = base.substr(slash + 1);
-            sz::VolumeSource v;
+            VolumeSource v;
             v.spool = ps.spool;
             v.winStart = mem.start;
             v.winLen = mem.len;
@@ -377,7 +377,7 @@ bool Walker::fsDirectOpen(const std::wstring& path, const std::string& rootName)
     auto pb = std::make_unique<PushbackSource>(std::make_unique<SharedView>(fsSrc), 64 << 10);
     Detection d = detect(*pb, rootName);
     if (d.fmt != Format::SevenZip && d.fmt != Format::Rar && d.fmt != Format::Zip) return false;
-    if (d.fmt != Format::Zip && !sz::dll_available())
+    if (d.fmt != Format::Zip && !sevenzip_dll_available())
         return false;   // 惰性：tar 等输入不触发 7z.dll 加载
     if (s.opt.maxDepth < 1) {
         s.stats.limitTripped = true;
@@ -391,11 +391,11 @@ bool Walker::fsDirectOpen(const std::wstring& path, const std::string& rootName)
         // Zip 根：中央目录模式 + 码表探测（§3.2 文件名修复），文件可 seek 免 spool
         reader = open_zip_file(path, layer, s.pw, s.engineOpt());
     } else {
-        std::map<std::wstring, sz::VolumeSource> vols;
-        sz::VolumeSource v;
+        std::map<std::wstring, VolumeSource> vols;
+        VolumeSource v;
         v.fsPath = path;
         vols[utf8_to_wide(rootName)] = std::move(v);
-        reader = sz::open_archive(d.fmt, vols, utf8_to_wide(rootName), layer, s.pw, s.engineOpt());
+        reader = open_container_volumes(d.fmt, vols, utf8_to_wide(rootName), layer, s.pw, s.engineOpt());
     }
     s.stats.containers.fetch_add(1);
     LayerCtx ctx;
@@ -440,13 +440,13 @@ void Walker::runStego(const std::wstring& inputPath) {
             reader = open_zip_file(inputPath, layer, s.pw, s.engineOpt(),
                                    hit->offset, hit->length);
         } else {
-            if (!sz::dll_available())
+            if (!sevenzip_dll_available())
                 throw Error("隐写 " + fmtName + " 需要 7z.dll（未找到）");
-            sz::VolumeSource v;
+            VolumeSource v;
             v.fsPath = inputPath;
             v.fsBase = hit->offset;   // [offset, EOF) 窗口 = 干净 7z/rar 流
-            std::map<std::wstring, sz::VolumeSource> vols{{L"", std::move(v)}};
-            reader = sz::open_archive(hit->fmt, vols, L"", layer, s.pw, s.engineOpt());
+            std::map<std::wstring, VolumeSource> vols{{L"", std::move(v)}};
+            reader = open_container_volumes(hit->fmt, vols, L"", layer, s.pw, s.engineOpt());
         }
     } catch (CorruptError& e) {
         // EOCD/原子头假阳性：按未检测到反馈（密码耗尽等仍照常上抛）
@@ -502,10 +502,10 @@ void Walker::run(const std::wstring& inputPath) {
         rootName = set->canonicalName;
         if (set->nativeRar) {
             // RAR 原生分卷（FS 级）：7z.dll 卷回调直接读各卷文件，免 spool（§3.3/D3）
-            std::map<std::wstring, sz::VolumeSource> vols;
+            std::map<std::wstring, VolumeSource> vols;
             std::wstring firstVol;
             for (auto& m : set->ordered) {
-                sz::VolumeSource v;
+                VolumeSource v;
                 v.fsPath = (dir / fs::path(utf8_to_wide(m.name))).wstring();
                 vols[utf8_to_wide(m.name)] = std::move(v);
                 if (firstVol.empty()) firstVol = utf8_to_wide(m.name);

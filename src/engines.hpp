@@ -1,8 +1,9 @@
-// engines.hpp：容器引擎 —— libarchive（tar/cpio/ar/zip/iso/cab）+ 7z.dll（7z/rar）
+// engines.hpp：容器引擎门面 —— libarchive（tar/cpio/ar/zip/iso/cab）+ 7z.dll（7z/rar）
+// 实现在 open.cpp（组合根：laseq/zipcd/szcom 的装配与回退策略）。
+// 门面不 include szcom.hpp——7z.dll 适配器类型不渗漏给下游（walker 经本头开卷与探测）
 #pragma once
 #include "container.hpp"
 #include "spool.hpp"
-#include "szcom.hpp"
 #include <map>
 #include <memory>
 #include <string>
@@ -27,9 +28,13 @@ std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> 
 // 原生多卷（RAR）打开：volumes 各卷数据（FS 路径或 spool 窗口），firstVol 主卷名。
 // 走 7z.dll 卷回调路径（§3.3：原生卷型不拼接）。
 std::shared_ptr<ContainerReader> open_container_volumes(
-    Format fmt, const std::map<std::wstring, sz::VolumeSource>& volumes,
+    Format fmt, const std::map<std::wstring, VolumeSource>& volumes,
     const std::wstring& firstVol, const LayerId& layer, PasswordProvider& pw,
     const EngineOptions& opt);
+
+// 7z.dll 可用性探测（含惰性加载语义：首次调用即尝试加载）。walker 的路由决策用
+// （fsDirectOpen 快路径 / 隐写 7z-rar 路径的门禁）；实际开卷一律走上面两个入口。
+bool sevenzip_dll_available();
 
 
 // Zip 根文件直读（中央目录 + 码表探测，免 spool）。
