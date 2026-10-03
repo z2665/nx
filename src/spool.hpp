@@ -27,7 +27,8 @@ public:
 
     // 独立随机访问读视图已删（F3 死代码：全仓零调用，引擎侧统一走 SeekView 体系）
 
-    // 子窗口视图：[start, start+len) 的独立顺序流（条目级分片组暂存用）
+    // 子窗口视图：[start, start+len) 的独立顺序流（条目级分片组暂存用）——
+    // 顺序流形态；随机访问形态 = views.hpp SpoolWindowView（同一区间两类消费方）
     class Window : public ByteSource {
     public:
         Window(std::shared_ptr<SpoolBuffer> s, uint64_t start, uint64_t len)

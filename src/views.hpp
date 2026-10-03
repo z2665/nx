@@ -13,15 +13,17 @@
 
 namespace nx {
 
-// 可 seek 只读视图（RegionSource 的随机访问特化契约）
-class SeekView : public RegionSource {
-public:
-    ~SeekView() override = default;
-    virtual size_t read_at(uint64_t pos, std::span<byte> buf) = 0;
-    virtual uint64_t size() const = 0;
-};
+// 可 seek 只读视图：RegionSource 契约的"完整视图"标记（挂锁实现的三态：
+// 文件/spool/区间链）。标记的实质契约有两层——
+//   ① 并发安全：read_at 可多线程并发调用（FileSeekView 持锁、spool 读经
+//     SpoolBuffer::ioM_ 串行化、RegionView 转发到同样满足本契约的父视图）；
+//   ② 类型筛选：open.cpp 经 dynamic_pointer_cast<SeekView> 确保免 spool 直读的
+//     区间支撑是三态视图之一，而非任意 RegionSource。
+// 不再重声明基类纯虚函数（原样重写一遍即噪声——两契约全在注释与类型身份上）
+class SeekView : public RegionSource {};
 
-// spool 窗口视图：[start, start+len)（len=0 到 spool 末尾）
+// spool 窗口视图：[start, start+len)（len=0 到 spool 末尾）——随机访问形态；
+// 同一区间的顺序流形态 = SpoolBuffer::Window（spool.hpp），两形态各服务一类消费方
 class SpoolWindowView : public SeekView {
 public:
     SpoolWindowView(std::shared_ptr<SpoolBuffer> s, uint64_t start, uint64_t len);
