@@ -6,6 +6,7 @@
 #include "outcome.hpp"
 #include "util.hpp"
 #include "format.hpp"
+#include "pushback.hpp"
 #include "detect.hpp"
 #include "filter.hpp"
 #include "layer.hpp"

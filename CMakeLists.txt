@@ -47,6 +47,7 @@ set_target_properties(nxshell PROPERTIES OUTPUT_NAME "nxshell")
 set(NX_CORE_SOURCES
   src/util.cpp
   src/bytesource.cpp
+  src/pushback.cpp
   src/pipes.cpp
   src/spool.cpp
   src/diag.cpp

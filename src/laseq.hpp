@@ -1,6 +1,7 @@
 // laseq.hpp：LaSeqReader——libarchive 顺序条目读取器（批次 4 拆分）
 #pragma once
 #include "container.hpp"
+#include "pushback.hpp"
 #include "laimp.hpp"
 #include "namecodec.hpp"
 #include "spool.hpp"

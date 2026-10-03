@@ -3,6 +3,7 @@
 // 门面不 include szcom.hpp——7z.dll 适配器类型不渗漏给下游（walker 经本头开卷与探测）
 #pragma once
 #include "container.hpp"
+#include "pushback.hpp"
 #include "spool.hpp"
 #include <map>
 #include <memory>

@@ -3,6 +3,7 @@
 // 关键：gzip/bz2/xz/zstd/lz4 允许多成员串联，成员结束时窥探后续 magic 决定重启解码器。
 #pragma once
 #include "bytesource.hpp"
+#include "pushback.hpp"
 #include "format.hpp"
 #include "pipes.hpp"
 #include <atomic>

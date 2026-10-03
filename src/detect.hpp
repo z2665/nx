@@ -1,6 +1,7 @@
 // detect.hpp：内容嗅探（设计 D1：magic 表 + 轻量结构校验，扩展名仅辅助）
 #pragma once
 #include "bytesource.hpp"
+#include "pushback.hpp"
 #include "format.hpp"
 #include <optional>
 #include <string>
