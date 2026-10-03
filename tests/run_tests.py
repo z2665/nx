@@ -165,6 +165,38 @@ def main():
         if notes:
             r.check(False, "TLA+/TLC 门结论与预期不符:\n" + "\n".join(notes))
 
+    # 硬门（批次 6 遗留收口）：BoundedQueue abandon 协议（roadmap §7.4）——
+    # DeadRelease（dead ⇒ 双侧无驻留）/ParkedSanity（驻留=while 前提纪律）。
+    # 校准反例：closeNoWake 违 ParkedSanity、abandonNoWake 违 DeadRelease
+    # （两个校准变体必须违例——证明模型能抓住它存在所要防的 bug 类）
+    bq_spec = os.path.join(ROOT, "tools", "boundedqueue.tla")
+    r = add("boundedqueue_tla")
+    if not os.path.exists(tla_jar):
+        r.check(False, "缺 tools/tla2tools.jar——先运行 tools/fetch_tla.cmd（或手动下载放入 tools/）")
+    else:
+        ok = True
+        notes = []
+        for variant, expect in (("closenowake", False), ("abandonnowake", False), ("fixed", True)):
+            cfg = os.path.join(ROOT, "tools", f"boundedqueue_{variant}.cfg")
+            try:
+                p = subprocess.run(["java", "-jar", tla_jar, "-nowarning", "-config", cfg,
+                                    bq_spec], capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=300,
+                                   cwd=os.path.join(ROOT, "tools"))
+                clean = p.returncode == 0
+                detail = (p.stdout or "")[-300:]
+            except FileNotFoundError:
+                r.check(False, "缺 java（TLC 运行时）——安装 JDK 11+ 后重试")
+                ok = False
+                break
+            except subprocess.TimeoutExpired:
+                clean, detail = False, "TLC 超时"
+            if clean != expect:
+                ok = False
+                notes.append(f"{variant}: returncode={p.returncode}（期望{'通过' if expect else '违例'}）\n{detail}")
+        if notes:
+            r.check(False, "BoundedQueue TLC 门结论与预期不符:\n" + "\n".join(notes))
+
     # M1：zip/7z/rar 三主流格式（带密码参数）
     for case, entry, args, want in [
         ("rar5_plain", "data.rar", [], 0),

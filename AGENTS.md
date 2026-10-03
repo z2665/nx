@@ -26,7 +26,7 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 测试 54/54（unit_core 325 项 + 所有权双门 + clang-tidy 基线门 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/run_tests.py        # 测试 55/55（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
 python tests/release_gate.py     # 发布门：合成语料（真实案例结构重建，D-4 隐私纪律——真实样本/密码不入仓）端到端哈希比对；--update 固化基线
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例

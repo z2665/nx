@@ -2,7 +2,7 @@
 
 设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.2 + M0–M3 实施记录 + v1 后续）。
 重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0–6 已完成，2026-10-03）。
-**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0–6（全部）**。54/54 测试（unit_core 325 项 + 所有权双门 + clang-tidy 基线门 + 50 属性）+ GUI 冒烟 9/9 + 合成发布门通过。
+**当前状态：M0–M3 完成 + 真实语料验证 + GUI 进度/隐写解压 + 性能优化/嵌套免 spool 直读 + 重构批次 0–6（全部）**。55/55 测试（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）+ GUI 冒烟 9/9 + 合成发布门通过。
 
 ## 构建（Windows + VS 2026 + vcpkg）
 
@@ -341,8 +341,12 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   细节，影子回退路径已覆盖——见 gen_release_corpus 注释）
 - **AGENTS 所有权纪律一节**（P1-P6 操作化清单 + 三层验证分工）+ **D-3 决策**
   （圈禁名单定界五项，CRT/内存分配器族豁免）
-- 历史遗留：BoundedQueue abandon 协议的 TLA+ 模型（0.5d，roadmap §7.4）
-  未随批次 6 落地——run_tests 的 ownership_tla 门已覆盖所有权主线
+- **历史遗留收口（同日）**：BoundedQueue abandon 协议的 TLA+ 模型（roadmap §7.4，
+  批次 6 原遗留项）——`tools/boundedqueue.tla` 单规范三变体：fixed 零违例零死锁
+  （DeadRelease：dead ⇒ 双侧无驻留；ParkedSanity：驻留=while 前提纪律——
+  NoLostWake 的安全形态；含伪唤醒迁移=while 复查纪律验证）；closeNoWake /
+  abandonNoWake 两个校准反例必违（模型能抓住它要防的 bug 类）。run_tests
+  `boundedqueue_tla` 硬门，55/55
 
 
 
@@ -351,7 +355,7 @@ python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读
 python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
 python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 54/54（unit_core 325 项 + 所有权双门 + clang-tidy 基线门 + 50 属性）
+python tests/run_tests.py        # 55/55（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）
 python tests/release_gate.py     # 发布门：合成语料（真实案例结构重建）端到端哈希比对
 python tests/gen_release_corpus.py  # 发布语料生成（确定性种子，缺则 release_gate 自动重建）
 cmd /c build-analyze.cmd         # MSVC /analyze 排雷（低噪子集，非门；当前零警告）
