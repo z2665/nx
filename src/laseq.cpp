@@ -8,8 +8,9 @@ namespace nx {
 
 class LaEntrySource : public ByteSource {
 public:
-    // token = 迭代位置（领域 #10 契约：源经 token 显式索取，失效由读取器拒绝）
-    LaEntrySource(std::shared_ptr<LaSeqReader> r, EntryToken token)
+    // token = 迭代位置（领域 #10 契约：源经 token 显式索取，失效由读取器拒绝）；
+    // const&：仅弱引用转换，不需要所有权
+    LaEntrySource(const std::shared_ptr<LaSeqReader>& r, EntryToken token)
         : r_(r), token_(token) {}
     size_t read(std::span<byte> buf) override {
         auto r = r_.lock();

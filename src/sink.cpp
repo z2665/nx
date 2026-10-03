@@ -65,8 +65,10 @@ struct Sha256 {
         if (alg) BCryptCloseAlgorithmProvider(alg, 0);
     }
     void update(const void* p, size_t n) {
-        if (ok) BCryptHashData(h, static_cast<PUCHAR>(const_cast<void*>(p)),
-                               static_cast<ULONG>(n), 0);
+        // 失败即失能（finish 返回空）——绝不静默给出错误哈希
+        if (ok && BCryptHashData(h, static_cast<PUCHAR>(const_cast<void*>(p)),
+                                 static_cast<ULONG>(n), 0) != 0)
+            ok = false;
     }
     std::string finish() {
         unsigned char md[32];

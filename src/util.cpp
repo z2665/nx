@@ -82,7 +82,9 @@ std::wstring win32_last_error_text() {
 }
 
 std::wstring make_temp_file_path(const std::wstring& tempDir) {
-    wchar_t base[MAX_PATH * 2];
+    // 零初始化兜底：GetTempPath2W/wcsncpy_s(_TRUNCATE) 语义上都写终止符，
+    // 但 SAL 推断不认（/analyze C6054）——末字节恒 0 即恒终止
+    wchar_t base[MAX_PATH * 2] = {};
     if (!tempDir.empty()) {
         wcsncpy_s(base, tempDir.c_str(), _TRUNCATE);
     } else {
@@ -90,14 +92,14 @@ std::wstring make_temp_file_path(const std::wstring& tempDir) {
         if (!GetTempPath2W(MAX_PATH, base)) GetTempPathW(MAX_PATH, base);
     }
     GUID g;
-    if (CoCreateGuid(&g) != S_OK) {
-        std::swprintf(base, MAX_PATH, L"%u-%lu.tmp", GetCurrentProcessId(), GetTickCount());
-        return utf8_to_wide("nx-") + base;
-    }
     wchar_t guid[64];
-    StringFromGUID2(g, guid, 64) ;
     std::wstring dir(base);
     if (!dir.empty() && dir.back() != L'\\') dir += L"\\";
+    // StringFromGUID2 返回值须检（/analyze C6031/C6054）：失败则 pid+tick 兜底
+    // ——理论不可达，且兜底名仍落原目录（原死路径会覆盖目录串导致落 CWD）
+    if (CoCreateGuid(&g) != S_OK || StringFromGUID2(g, guid, 64) == 0)
+        return dir + L"nx-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+               std::to_wstring(GetTickCount()) + L".tmp";
     return dir + L"nx-" + guid + L".tmp";
 }
 

@@ -31,13 +31,15 @@ void ThreadPool::submit(std::function<void()> f) {
         q_.push_back(Task{std::move(f)});
     }
     while (started_ < workers_) {   // 惰性启动
-        threads_.emplace_back([this](std::stop_token st) { worker(st); });
+        // NOLINT：jthread 回调惯例——stop_token 按值收（轻量：一次原子 incref）
+        threads_.emplace_back([this](std::stop_token st) { worker(st); });   // NOLINT(performance-unnecessary-value-param)
         ++started_;
     }
     cv_.notify_all();
 }
 
-void ThreadPool::worker(std::stop_token st) {
+// NOLINT：线程入口惯例——stop_token 按值收（本实现停机走 stop_ 标志 + join）
+void ThreadPool::worker([[maybe_unused]] std::stop_token st) {   // NOLINT(performance-unnecessary-value-param)
     for (;;) {
         Task t;
         {

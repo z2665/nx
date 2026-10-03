@@ -364,7 +364,8 @@ public:
             if (it == st_->volumes.end()) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         }
         try {
-            *inStream = new InStreamImpl(volume_input(it->second, st_->meter));
+            // NOLINT：COM out 参数——引用计数随裸指针移交（ref=1 交给 7z.dll）
+            *inStream = new InStreamImpl(volume_input(it->second, st_->meter));   // NOLINT(cppcoreguidelines-owning-memory)
             return S_OK;
         } catch (...) {
             return E_FAIL;
@@ -449,7 +450,8 @@ public:
         if (askExtractMode == kAskSkip) return S_OK;
         auto it = targets_.find(index);
         if (it == targets_.end()) return S_OK;   // 非本批目标 → 不接流（丢弃）
-        *outStream = new OutStreamImpl(it->second);
+        // NOLINT：COM out 参数——引用计数随裸指针移交（ref=1 交给 7z.dll）
+        *outStream = new OutStreamImpl(it->second);   // NOLINT(cppcoreguidelines-owning-memory)
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE PrepareOperation(I32) override { return S_OK; }
@@ -554,8 +556,8 @@ private:
 class EntrySource : public ByteSource {
 public:
     // 批次 4（所有权模型 fixed 变体）：对读取器只持弱引用——异步写出的存活由
-    // Sink 任务经 keepAlive() 令牌配套保活
-    EntrySource(std::shared_ptr<SevenZipReader> r, EntryToken token)
+    // Sink 任务经 keepAlive() 令牌配套保活（const&：仅弱引用转换，不需要所有权）
+    EntrySource(const std::shared_ptr<SevenZipReader>& r, EntryToken token)
         : r_(r), token_(token) {}
     size_t read(std::span<byte> buf) override {
         auto r = r_.lock();

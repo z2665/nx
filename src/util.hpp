@@ -17,8 +17,9 @@ template <class T>
 using Result = std::expected<T, std::string>;
 
 // ---- 错误类型（决定退出码语义，见设计 §8）----
+// NOLINT：sink 参数惯用法——按值收下再 move 入基类，非浪费拷贝
 struct Error : std::runtime_error {
-    explicit Error(std::string m) : std::runtime_error(std::move(m)) {}
+    explicit Error(std::string m) : std::runtime_error(std::move(m)) {}   // NOLINT(performance-unnecessary-value-param)
 };
 struct LimitError : Error {            // 超限熔断 / 磁盘水位 → 退出码 3
     explicit LimitError(std::string m) : Error(std::move(m)) {}

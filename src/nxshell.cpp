@@ -7,7 +7,7 @@
 //
 // 依官方指南：learn.microsoft.com/windows/apps/desktop/modernize/
 //             integrate-packaged-app-with-file-explorer
-#define WIN32_LEAN_AND_MEAN
+// WIN32_LEAN_AND_MEAN/NOMINMAX 由 CMake 全局定义，此处不再重复（曾致 C4005）
 #include <windows.h>
 #include <shobjidl_core.h>
 #include <shlwapi.h>
@@ -77,7 +77,7 @@ static void launch_nx(const wchar_t* verb, IShellItemArray* items) {
     if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr,
                        dll_dir().c_str(), &si, &pi)) {
         // P2 圈禁（批次 5）：进程/线程句柄 RAII——作用域结束自动关闭
-        res::UniqueFile piThread(pi.hThread), piProcess(pi.hProcess);
+        res::UniqueKernelObject piThread(pi.hThread), piProcess(pi.hProcess);
     }
 }
 
@@ -220,7 +220,8 @@ IEnumExplorerCommand* NxCommand::MakeEnumerator(std::initializer_list<IExplorerC
     for (auto* p : list) {
         if (n < 8) arr[n++] = p;   // 保留调用方引用（new 出来的 ref=1），枚举器释放时 Release
     }
-    return new NxEnum(arr, n);
+    // NOLINT：COM 边界——引用计数随裸指针移交（ref=1 交给调用方，Release 即释放）
+    return new NxEnum(arr, n);   // NOLINT(cppcoreguidelines-owning-memory)
 }
 
 // ---------------- COM 工厂 ----------------

@@ -61,10 +61,15 @@ inline void free_module(HMODULE h) noexcept { FreeLibrary(h); }
 using UniqueFile = UniqueHandle<HANDLE, nullptr, close_handle>;
 using UniqueRegKey = UniqueHandle<HKEY, nullptr, close_reg_key>;
 using UniqueModule = UniqueHandle<HMODULE, nullptr, free_module>;
+// 进程/线程等内核对象句柄：与文件句柄同关闭函数，仅语义命名区分
+// （CreateProcessW 失败时整体返回 FALSE、不产生句柄——无归一需求）
+using UniqueKernelObject = UniqueHandle<HANDLE, nullptr, close_handle>;
 
 // CreateFileW 族返回值的接入点（评审 C-1）：失败值 INVALID_HANDLE_VALUE 归一为
-// 空哨兵。接收 owner 标注（传入即所有权转移）；直造 UniqueFile(h) 仅限已验有效的句柄
-inline UniqueFile adopt_file(gsl::owner<HANDLE> h) noexcept {
+// 空哨兵。传入即所有权转移——参数不用 gsl::owner：Win32 API 返回值无 owner 标注，
+// 此处即无标注世界与 owner 纪律的边界（cppcoreguidelines-owning-memory 语义上
+// 属边界豁免，非缺陷）；直造 UniqueFile(h) 仅限已验有效的句柄
+inline UniqueFile adopt_file(HANDLE h) noexcept {
     return UniqueFile(h == INVALID_HANDLE_VALUE ? nullptr : h);
 }
 

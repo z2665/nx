@@ -524,6 +524,14 @@ def main():
                        errors="replace", timeout=1800)
     r.check(p.returncode == 0, "所有权审计失败:\n" + (p.stdout or "")[-800:])
 
+    # clang-tidy 基线门（批次 6，硬门）：roadmap §7.3 推荐集四检查，零警告基线
+    # （存量已清零或 NOLINT 附理由）。缺 clang-tidy 组件直接 FAIL——门就是门
+    r = add("tidy_check")
+    p = subprocess.run([sys.executable, os.path.join(HERE, "tidy_check.py")],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=1800)
+    r.check(p.returncode == 0, "clang-tidy 基线失败:\n" + (p.stdout or "")[-800:])
+
     # 汇总
     print()
     fails = 0

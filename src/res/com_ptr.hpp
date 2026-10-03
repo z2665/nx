@@ -11,7 +11,9 @@ template <typename T>
 class com_ptr {
 public:
     com_ptr() = default;
-    explicit com_ptr(T* p) noexcept : p_(p) {}   // 接管既有引用（计数已归我）
+    // 接管既有引用（计数已归我）——参数为 owner：所有权从此处转入，
+    // 裸 new 的结果可直入，get() 的借用值传入会被 owning-memory 检查拦下
+    explicit com_ptr(gsl::owner<T*> p) noexcept : p_(p) {}
     ~com_ptr() {
         if (p_) p_->Release();
     }

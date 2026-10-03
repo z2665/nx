@@ -21,7 +21,7 @@ std::atomic<bool> g_quiet{false};
 
 void close_log() {
     if (g_logFile) {
-        std::fclose(g_logFile);
+        std::fclose(g_logFile);   // NOLINT(cppcoreguidelines-owning-memory) CRT FILE* 圈禁豁免（决策 D-3）
         g_logFile = nullptr;
     }
 }

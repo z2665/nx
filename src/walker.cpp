@@ -78,7 +78,7 @@ struct PendingSet {
 };
 
 void flush_pending_set(Session& s, const LayerCtx& ctx, PendingSet& ps);
-void walk(Session& s, std::unique_ptr<ByteSource> src, LayerCtx ctx,
+void walk(Session& s, std::unique_ptr<ByteSource> src, const LayerCtx& ctx,
           const std::shared_ptr<RegionSource>& region = nullptr);
 
 // ---- 单条目处理 ----
@@ -113,7 +113,9 @@ void process_entry(Session& s, ContainerEntry& e, const LayerCtx& ctx) {
 }
 
 // ---- 容器迭代（含条目级分片分组） ----
-void iterate_container(Session& s, std::shared_ptr<ContainerReader> reader,
+// reader const&：调用方（walk）在同步调用期间天然持有强引用；异步写出的存活由
+// keepAlive 令牌管（批次 4），本参数无需再持所有权
+void iterate_container(Session& s, const std::shared_ptr<ContainerReader>& reader,
                        const LayerCtx& ctx) {
     std::vector<PendingSet> pending;
     auto flushAll = [&]() {
@@ -277,7 +279,8 @@ void flush_pending_set(Session& s, const LayerCtx& ctx, PendingSet& ps) {
 // ---- walk：策略核心 ----
 // region：父视图区间（免 spool 直读；经 detect peek 后由流侧 seekRegion() 提供；
 // 过滤器链会剥离——解压后的字节无区间语义）
-void walk(Session& s, std::unique_ptr<ByteSource> src, LayerCtx ctx,
+// ctx const&：只读载体——递归层经 forFilter/descend 工厂派生新 LayerCtx（批次 2）
+void walk(Session& s, std::unique_ptr<ByteSource> src, const LayerCtx& ctx,
           const std::shared_ptr<RegionSource>& region) {
     const std::string& origin = ctx.origin;
     auto pb = std::make_unique<PushbackSource>(std::move(src), s.opt.histCap);
@@ -314,7 +317,8 @@ void walk(Session& s, std::unique_ptr<ByteSource> src, LayerCtx ctx,
         // F4：QueueSource 必须先于泵线程构造——若 make_unique 抛出（OOM 窗口），
         // 泵已阻塞在 q.push 且永远等不到消费者，jthread 析构 join 即死锁
         auto qs = std::make_unique<QueueSource>(*q);
-        std::jthread pump([&](std::stop_token) {
+        // NOLINT：jthread 回调惯例——stop_token 按值收（本处未用，仅为签名）
+        std::jthread pump([&](std::stop_token) {   // NOLINT(performance-unnecessary-value-param)
             filter_decode(d.fmt, *pb, *q, pumpErr, lim);
         });
         // 过滤输出：无区间；qs 随 walk 栈析构（正常/异常皆然）→ abandon → 泵解阻塞

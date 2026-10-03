@@ -48,7 +48,7 @@ def configure_and_build() -> int:
         f'-DCMAKE_BUILD_TYPE=RelWithDebInfo -DNX_FUZZ=ON '
         f'-DCMAKE_TOOLCHAIN_FILE="{TOOLCHAIN}" '
         f'-DVCPKG_TARGET_TRIPLET=x64-windows-static '
-        f'-DVCPKG_INSTALL_OPTIONS=--overlay-ports={ROOT}/ports-overlay'
+        f'-DVCPKG_INSTALL_OPTIONS="--overlay-ports={ROOT}/ports-overlay"'
     )
     if rc != 0:
         return rc

@@ -4,6 +4,7 @@
 #pragma once
 #include "bytesource.hpp"
 #include "spool.hpp"
+#include "res/unique_handle.hpp"
 #include <memory>
 #include <mutex>
 #include <span>

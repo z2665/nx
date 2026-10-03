@@ -1,0 +1,14 @@
+# clang-tidy 基线（批次 6，roadmap §7.3 推荐集起步）
+# 门：tests/tidy_check.py（run_tests 硬门用例）——零警告基线：存量已清零或
+# NOLINT（附理由），新增警告即 FAIL。检查集只增不减；扩充须同步清基线并记 commit。
+# 运行无需 vcvars：clang 自主发现 MSVC/Windows SDK 头（tests/tidy_check.py 传
+# clang 风格 flags——/EHsc 等 cl 旗标经 clang-tidy 不生效，见脚本注释）。
+Checks: >
+  -*,
+  cppcoreguidelines-owning-memory,
+  bugprone-dangling-handle,
+  concurrency-mt-unsafe,
+  performance-unnecessary-value-param
+# 只看仓库 src/ 头文件的警告（路径含正/反斜杠两种形态都匹配）
+HeaderFilterRegex: '.*[\\/]src[\\/].*'
+FormatStyle: file

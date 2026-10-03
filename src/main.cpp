@@ -146,7 +146,8 @@ int main() {
     SetConsoleOutputCP(CP_UTF8);
     // §3.2 关键：UTF-8 locale —— 否则 libarchive 的文件名转换整体失效
     //（C locale 下非 ASCII 名直接得到 NULL pathname → 下游消毒成 "_"）
-    setlocale(LC_ALL, ".UTF8");
+    // NOLINT：main 单线程初始化阶段（工作线程尚未启动）
+    setlocale(LC_ALL, ".UTF8");   // NOLINT(concurrency-mt-unsafe)
     int argc = 0;
     auto args = get_args(argc);
     log_open(argc, nullptr);   // 默认日志（M3 需求 6）：始终开启
@@ -202,7 +203,8 @@ int main() {
             auto need = [&](const char* what) -> std::string {
                 if (i + 1 >= argc) {
                     log_err("[nx] %s 缺少参数\n", what);
-                    std::exit(64);
+                    // NOLINT：参数解析在 main 单线程；exit(64) 即进程退出契约
+                    std::exit(64);   // NOLINT(concurrency-mt-unsafe)
                 }
                 return args[++i];
             };
@@ -310,7 +312,10 @@ int main() {
         return 64;
     }
     // ---- GUI 语境判定（提前到输出目录创建处即需使用）----
-    // 无标准输入句柄 = 资源管理器/右键启动（脚本与 CLI 不弹）
+    // 无标准输入句柄 = 资源管理器/右键启动（脚本与 CLI 不弹）。
+    // GetStdHandle 两种"无句柄"形态都合法：NULL（该类型未关联）与
+    // INVALID_HANDLE_VALUE（出错）——6329 对 NULL 比较的告警在此为有意语义
+#pragma warning(suppress : 6329)
     bool explorerLaunched = GetStdHandle(STD_INPUT_HANDLE) == nullptr ||
                             GetStdHandle(STD_INPUT_HANDLE) == INVALID_HANDLE_VALUE;
 
