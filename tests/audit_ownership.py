@@ -5,9 +5,12 @@
 （shared_ptr/unique_ptr 目标展开到全部传递派生类——环常经基类静态类型达成，
  replayQ_ 事故即如此）→ F* 验证 + KaRaMeL 抽取的 closure_check.exe 判定
  esft 类的成员强闭包是否含自身（= 类型级自引用环）。
-圈禁：CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release() 等释放调用
- 只允许出现在 src/res/（含调用括号匹配，注释中的提及不误报；
- IUnknown::Release override 是 COM 接口实现，不属手工释放）。
+圈禁口径（写死五名单，评审 M-5）：CloseHandle / DeleteFileW / RegCloseKey /
+ FreeLibrary / ->Release() 不得出现在 src/res/ 之外（匹配"名字+调用括号"，
+ 剥注释防误报；IUnknown::Release override 是 COM 接口实现，不属手工释放）。
+ 已知边界：点调用 x.Release()、经函数指针/宏的间接调用不匹配（当前代码无此形态）；
+ fclose/LocalFree/CoTaskMemFree/archive_read_free 暂不在圈禁名单（批次 6 评估）。
+ 每次 audit 先跑圈禁门自检（正/负样本注入），防 regex 失效后空转通过。
 
 用法：
   python tests/audit_ownership.py                 # 审计 HEAD src/，违例退出 1
@@ -50,23 +53,38 @@ def last_component(qt: str) -> str:
 
 
 def run_clang_dump(src_dir: str, tu: str) -> dict | None:
-    """经临时 .cmd（vcvars + clang-cl）产出 ast-dump=json。
-    直接拼 cmd /c 字符串的引号/重定向解析与脚本文件不一致——实测只有脚本文件路径可靠。"""
+    """经临时 .cmd（vcvars + clang-cl）产出 ast-dump=json；clang 退出码非 0 即失败。
+    直接拼 cmd /c 字符串的引号/重定向解析与脚本文件不一致——实测只有脚本文件路径可靠。
+    评审 M-2 加固（原实现两缺陷曾致验收门非确定）：
+    ①输出/脚本按 TU+pid 独立命名且先删旧——原固定名 nx_ast.json 会在 clang 失败时
+      读到上一 TU 的陈旧 dump（张冠李戴伪成功）；
+    ②clang 退出码透传（原 `exit /b 0` 吞错）；
+    ③补真实构建的编译定义（与 CMakeLists 一致）——基线时代 18/52 TU 因 std::min 被
+      windows.h 的 min 宏污染而解析失败即此因。"""
     inc = os.path.join(ROOT, "build", "vcpkg_installed", "x64-windows-static", "include")
-    out = os.path.join(tempfile.gettempdir(), "nx_ast.json")
-    script = os.path.join(tempfile.gettempdir(), "nx_ast_dump.cmd")
+    stem = re.sub(r"[^A-Za-z0-9_]", "_", os.path.splitext(tu)[0])
+    out = os.path.join(tempfile.gettempdir(), f"nx_ast_{stem}_{os.getpid()}.json")
+    script = os.path.join(tempfile.gettempdir(), f"nx_ast_dump_{stem}_{os.getpid()}.cmd")
+    for p in (out, script):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
     body = ("\n".join([
         "@echo off",
         f'call "{VSROOT}\\VC\\Auxiliary\\Build\\vcvars64.bat" >nul 2>&1',
         f'"{CLANG}" /nologo /std:c++latest /EHsc -fsyntax-only -Wno-everything ^',
+        f'  /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_WIN32_WINNT=0x0A00 /DCRT_SECURE_NO_WARNINGS ^',
         f'  -I"{src_dir}" -I"{inc}" "{os.path.join(src_dir, tu)}" ^',
         f'  -Xclang -ast-dump=json > "{out}" 2>nul',
-        "exit /b 0",
+        "exit /b %ERRORLEVEL%",
     ]) + "\r\n").replace("\n", "\r\n").replace("\r\r", "\r")
     with open(script, "w", encoding="utf-8", newline="") as f:
         f.write(body)
-    subprocess.run(["cmd", "/c", script], capture_output=True, timeout=300)
+    r = subprocess.run(["cmd", "/c", script], capture_output=True, timeout=300)
     try:
+        if r.returncode != 0:
+            return None
         with open(out, encoding="utf-8", errors="replace") as f:
             if f.read(1) != "{":
                 return None
@@ -74,6 +92,12 @@ def run_clang_dump(src_dir: str, tu: str) -> dict | None:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
+    finally:
+        for p in (out, script):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def walk_ast(node, records, esft):
@@ -221,16 +245,22 @@ def textual_bases(src_dir: str) -> dict:
 def build_graph(src_dir: str):
     records, esft = {}, set()
     tus = sorted(f for f in os.listdir(src_dir) if f.endswith((".cpp", ".hpp")))
-    parsed = 0
+    failed = []
     for tu in tus:
         ast = run_clang_dump(src_dir, tu)
         if ast is None:
-            print(f"[audit] ! {tu} AST 解析失败（跳过——校准零误报前提下可接受）")
+            failed.append(tu)
             continue
-        parsed += 1
         walk_ast(ast, records, esft)
-    if parsed == 0:
-        print("[audit] 无可解析 TU——clang-cl/包含路径异常")
+    if failed:
+        # 评审 M-2：fail-loud。原"跳过——校准零误报前提下可接受"曾让覆盖面逐次
+        # 抖动、同一 HEAD 判定在 52/53↔53/53 翻转——TU 不在图上即盲区，不可跳过
+        print(f"[audit] ❌ {len(failed)} 个 TU AST 解析失败（盲区即失败，不跳过）:")
+        for t in failed:
+            print(f"        {t}")
+        return None, None, None, None
+    if not tus:
+        print("[audit] 无 TU——src 目录异常")
         return None, None, None, None
 
     children = {}
@@ -281,9 +311,43 @@ def quarantine_violations(src_dir):
             text = COMMENT_BLOCK.sub(" ", COMMENT_LINE.sub(" ", text))
             for ln, line in enumerate(text.splitlines(), 1):
                 if RELEASE_CALL.search(line):
-                    rel = os.path.relpath(p, ROOT)
+                    try:
+                        rel = os.path.relpath(p, ROOT)
+                    except ValueError:
+                        rel = p   # 跨盘（--src 在另一盘）——退回绝对路径
                     bad.append(f"{rel}:{ln}: {line.strip()}")
     return bad
+
+
+def selftest_quarantine() -> bool:
+    """圈禁门自检（评审 M-3）：正/负样本注入临时目录——regex 被改坏（空转）或
+    误报即 False。每次 audit 运行前执行（秒级），防门失效后 53/53 照绿的假通过。"""
+    import shutil
+    d = tempfile.mkdtemp(prefix="nx_qa_selftest_")
+    try:
+        os.makedirs(os.path.join(d, "res"))
+        cases = {
+            "a.cpp": "void f() { HANDLE h; CloseHandle(h); }\n",
+            "b.cpp": "struct S { long Release(); }; void g(S* p) { p->Release(); }\n",
+            "res/c.cpp": ("void h() { CloseHandle(nullptr); DeleteFileW(nullptr);"
+                          " RegCloseKey(nullptr); FreeLibrary(nullptr); }\n"),
+            "d.cpp": "// 提及 CloseHandle 与 DeleteFileW 但非调用\nvoid i() {}\n",
+        }
+        for rel, text in cases.items():
+            with open(os.path.join(d, rel), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        bad = quarantine_violations(d)
+        # 路径含盘符冒号——从右侧切 ":行号: 内容"
+        hit_files = {b.rsplit(":", 2)[0] for b in bad}
+        if len(bad) != 2 or not any("CloseHandle" in b for b in bad) \
+                or not any("Release" in b for b in bad) \
+                or not hit_files == {os.path.join(d, "a.cpp"), os.path.join(d, "b.cpp")}:
+            print(f"[audit] ❌ 圈禁门自检失败（检出 {bad!r}——期望恰 a.cpp/b.cpp 各一处）")
+            return False
+        print("[audit] ✅ 圈禁门自检：正/负样本检出与豁免全部正确")
+        return True
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def run_kernel(nodes, edges, queries):
@@ -333,6 +397,8 @@ def main():
 
 def audit(src_dir, expect, quarantine=True):
     rc = 0
+    if not selftest_quarantine():
+        return 1
     if quarantine:
         bad = quarantine_violations(src_dir)
         if bad:
