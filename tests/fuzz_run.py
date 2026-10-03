@@ -8,8 +8,10 @@
   python tests/fuzz_run.py --rerun <file>   # 复现单个崩溃工件
 
 种子语料：tests/cases（gen_corpus* 产物，gitignore）中 ≤1MiB 的文件全量拷入
-tests/fuzz-corpus-seeds/；累积语料 tests/fuzz-corpus/ 跨次运行增长（libFuzzer
-第一个目录为主语料，其余为种子）。崩溃工件（crash-*/timeout-*）落在仓库根。
+tests/fuzz-corpus-seeds/；tests/fuzz-regression/（git 跟踪）的历史崩溃工件每次
+回灌为 reg_* 种子（回归防线，评审 M-1）；累积语料 tests/fuzz-corpus/ 跨次运行
+增长（libFuzzer 第一个目录为主语料，其余为种子）。崩溃工件（crash-*/timeout-*）
+落在仓库根——修复后移入 fuzz-regression/ 并登记其 README。
 
 构建目录 build-fuzz/（gitignore）与 build/ 完全独立：RelWithDebInfo + NX_FUZZ=ON，
 vcpkg 依赖经二进制缓存复用，不重复编译。
@@ -29,6 +31,7 @@ FUZZ_EXE = os.path.join(BUILD, "nxfuzz.exe")
 CORPUS = os.path.join(HERE, "fuzz-corpus")
 SEEDS = os.path.join(HERE, "fuzz-corpus-seeds")
 CASES = os.path.join(HERE, "cases")
+REGRESSION = os.path.join(HERE, "fuzz-regression")   # 持久回归种子（git 跟踪，评审 M-1）
 
 MAX_SEED = 1 << 20  # 种子上限 1MiB（-max_len 同值）
 
@@ -67,6 +70,14 @@ def populate_seeds() -> int:
                 except OSError:
                     continue
                 shutil.copy2(full, os.path.join(SEEDS, f"seed_{n:05d}"))
+                n += 1
+    # 持久回归种子回灌（评审 M-1）：SEEDS 每次重建，历史崩溃工件只活在
+    # fuzz-regression/（git 跟踪）——不回灌则回归种子被本函数静默抹掉
+    if os.path.isdir(REGRESSION):
+        for fn in sorted(os.listdir(REGRESSION)):
+            full = os.path.join(REGRESSION, fn)
+            if os.path.isfile(full) and not fn.startswith("README"):
+                shutil.copy2(full, os.path.join(SEEDS, "reg_" + fn))
                 n += 1
     return n
 
