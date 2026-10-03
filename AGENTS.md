@@ -1,6 +1,6 @@
 # AGENTS.md — nx 工作区须知
 
-`nx`：Windows 专属的流式嵌套压缩包解压器（C++20，单 exe `build\nx.exe`）。
+`nx`：Windows 专属的流式嵌套压缩包解压器（C++23，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
 重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-5 已完成，2026-10-02；剩批次 6 验证常态化）。
 进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-5，53/53 测试通过；C++23）。
@@ -26,7 +26,7 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 测试 51/51（unit_core 纯函数单测 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/run_tests.py        # 测试 53/53（unit_core 325 项单测 + 所有权 TLA/审计双门 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
 ```
@@ -48,8 +48,11 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
 
 - `src/res/` 是**资源圈禁区（P2，批次 5）**：Win32 句柄/COM/临时文件的 RAII 唯一来源
   （UniqueFile/UniqueRegKey/UniqueModule/TempFile/com_ptr/DeleteGuard，header-only）。
-  `CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release()` 不得出现在 res/ 之外——
-  `tests/audit_ownership.py` 的 grep 圈禁门是硬门，新代码违例直接 FAIL。
+  口径=五名单：`CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release()` 不得出现在
+  res/ 之外——`tests/audit_ownership.py` 的 grep 圈禁门是硬门（每次运行先跑正/负样本
+  自检），新代码违例直接 FAIL。名单外资源（fclose/LocalFree/CoTaskMemFree/
+  archive_read_free）暂不圈禁，批次 6 评估归属。文件句柄接入一律走
+  `res::adopt_file(CreateFileW(...))`（INVALID_HANDLE_VALUE 归一——哨兵是 nullptr）。
 
 - `ByteSource` 是唯一流抽象；R 类（需 seek 的）容器经 `SpoolStore`（RAM 环形自适应 → 磁盘溢出），
   **stored 嵌套条目例外**——可经 `RegionSource` 区间直读免 spool（见下）。

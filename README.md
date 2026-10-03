@@ -284,16 +284,35 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
   IInArchive/回调/类工厂 + nxshell 全部手工 Release）；`DeleteGuard` 半成品守卫
   （sink `.part` 原两段 catch 手工清理归一——声明序=先关句柄后删文件的契约，
   GUI 用例 6 曾实证抓住反序残留）。**audit_ownership.py 增 grep 圈禁硬门**
-  （CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release() 越出 res/ 即 FAIL，
-  剥注释防误报；res/ 豁免、COM Release override 豁免），负样本自测通过
+  （口径=五名单：CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release()
+  越出 res/ 即 FAIL，剥注释防误报；res/ 豁免、COM Release override 豁免；
+  fclose/LocalFree/CoTaskMemFree/archive_read_free 暂不圈禁——批次 6 评估）。
+  **门自检自动化**：每次 audit 先向临时目录注入正/负样本断言检出/豁免——
+  regex 被改坏即 abort，防线不会空转（评审 M-3）
 - **gsl::owner 标注**（零依赖自带 `res/gsl_owner.hpp`）：所有权逃逸点显式化——
   `UniqueHandle::release()`/`com_ptr::release()` 返回值与 7z.dll 进程级缓存
 - **M1 顺手修复**：write_report_file 短写/写失败原先静默——现报"报告写入失败（短写）"
-- **fuzz 实证回归**：COM 释放顺序契约——Open 失败后 7z.dll 仍持流引用，必须
-  先 `arc.reset()` 再清 `mainStream_`（反序 = heap-use-after-free，ASan 抓获、
-  修复后工件入库为 fuzz 回归种子）
+- **COM 释放顺序契约**（评审 M-4 更正叙事：缺陷只存在于迁移开发期**未提交的
+  中间态**，提交史上顺序从未错过——`arc->Release()` 恒先于 `mainStream_.reset()`）：
+  com_ptr 把归档对象释放推迟到循环迭代末尾的中间态先清了 mainStream_ →
+  Open 失败后 7z.dll Release 悬空流指针（ASan heap-use-after-free，711 次迭代
+  即抓）。提交保持了基线顺序并将契约注释化（`arc.reset()` 必须先于
+  `mainStream_.reset()`）；工件入 `tests/fuzz-regression/`（git 跟踪），
+  populate_seeds 每次回灌为 reg_* 种子
 - nxunit +27 → **325 项检查**（res/ RAII 语义：恰一次关闭/逃逸不关/out 接收/
   move 语义/引用计数/DELETE_ON_CLOSE/DeleteGuard dismiss）
+
+#### 评审修复（2026-10-03，三路 review 后）
+
+- **UniqueFile 哨兵 nullptr 化**：`INVALID_HANDLE_VALUE` 含整数→指针 cast，不是
+  合法 NTTP 常量——MSVC 扩展接受、clang/cl 全家拒绝，曾使 AST 审计门在错误恢复
+  模式下非确定运行（同 HEAD 判定翻转）。现三别名统一 nullptr 哨兵 +
+  `adopt_file()` 归一工厂接入 CreateFileW 族返回值（红队 C-1）
+- **AST 审计 fail-loud**：TU 独立临时输出名（原固定名会读到上一 TU 陈旧 dump）+
+  clang 退出码透传（原 `exit /b 0` 吞错）+ 补真实构建编译定义（NOMINMAX 等——
+  基线时代 18/52 TU 因 min 宏污染解析失败即此因）+ 任一 TU 失败即败不跳过（spec M-2）
+- **fuzz 回归种子入库**：`tests/fuzz-regression/`（git 跟踪）为唯一持久层，
+  populate_seeds 回灌——原"入库"声明不实且种子会被下次运行抹掉（三路同发现）
 
 
 

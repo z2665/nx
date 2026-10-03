@@ -1,12 +1,12 @@
 # nx 现代化重构路线图（refactor-roadmap）
 
-> **版本**：v2.1（2026-10-02 批次 0 完成回填）　**基线**：commit `f647037`（行号引用）
+> **版本**：v2.2（2026-10-03 批次 5 完成回填 + 三路评审修复）　**基线**：commit `f647037`（行号引用）
 > **配套**：[README.md](README.md)（进度权威）· [AGENTS.md](AGENTS.md)（工作区纪律）·
 > [nested-extractor-design.md](nested-extractor-design.md)（设计权威）
 >
 > **阅读指南**：§1–3 看动机与原则；§4 缺陷登记簿（**D1-D8 已全部修复**，含验收记录）；
 > §5 目标架构；§6 四路审计详录（材料库，按需查阅）；§7 形式化验证方案（S1-S5 已落地）；
-> §8 执行计划（单一批次制，批次 0 已完成）；§9 决策记录。全部行号为 f647037 基线。
+> §8 执行计划（单一批次制，**批次 0-5 已完成**，仅剩批次 6）；§9 决策记录。全部行号为 f647037 基线。
 
 ---
 
@@ -162,6 +162,10 @@ src/
                编排壳（walker / sink / main）
   engines 拆分：namecodec / views（两套 seek 视图合并）/ laseq / zipcd / open（策略）
 ```
+（批次 5 落地注记：释放调用名单终态为五项——CloseHandle/DeleteFileW/
+RegCloseKey/FreeLibrary/->Release()，以 `tests/audit_ownership.py` 的
+RELEASE_CALL 为唯一权威；fclose/LocalFree/CoTaskMemFree/archive_read_free
+暂不圈禁，批次 6 评估归属。）
 
 **视图合并**是圈禁的前置：engines.cpp 与 szcom.cpp 各自维护一套
 SeekView/SeekInput（文件/spool/region 三态，近逐行重复，含 meter 挂载点）→
@@ -308,8 +312,8 @@ VolumeGroupBuilder 2-3d，engines 拆分 2d 等）。评估结论：ByteSource �
 | **2 行为敏感** | LayerPath/LayerCtx + Walker 对象化（**密码缓存键语义修正**：深度+basename → 逻辑路径） | 领域 #2/11 | 1.5d | 密码专项回归 + 全量 | ✅ **已完成**（2026-10-02，两步提交：LayerId key/display 拆分 + join_logical 逻辑路径键——修复真实 bug：不同父容器同名分片组共享"深度+名"键，a 组耗尽候选污染共享游标 → b 组假性 PasswordExhausted（0 文件）；LayerCtx 收敛 walk 散参数 + Walker 类 + resolve_runtime_options 装配单点。语料 sibling_pw_cache + nxunit 251 + 51/51 + 案例 L 15GB 复验） |
 | **3 可测性** | PromptSink / MemorySource / 单测壳接入（消毒器·密码链·分片分组·退出码·detect） | 领域 #7 + 测试性 | ~3d | C++ 单测首批入套件 | ✅ **已完成**（2026-10-02：MemorySource 内存源 + 过滤器泵/detect 壳真实路径集成测试；PromptSink 脚本化提示（密码链全语义可单测）；select_group 拆分（group_filesystem 只剩 IO 壳）+ volumeset 三层单测。消毒器/退出码/detect 已随批次 1 落地。nxunit 298 检查，51/51） |
 | **4 契约与所有权** | **先过 Alloy 验收门** → EntryToken 契约 + weak_ptr/KeepAlive + 视图合并（make_* 三工厂 + MeteredViewFactory）+ engines 拆分五文件 + szcom cache_ 预算驱逐 | 领域 #9/10/13 + Phase 1 + F5 | ~1.5 周 | S1-S3 哨兵全绿 + 全量 | ✅ **已完成**（2026-10-02。验收门以可执行穷举模型检查器落地（tests/ownership_model.py，对象≤6/深度≤12 全序列）：legacy 复现 replayQ_ 反例（open→probePush→failOpen）、weakOnly 证"两者必须配套"、fixed 零违例；代码：weak_ptr 条目源 + ByteSource::keepAlive() 令牌（Sink 任务提交时捕获）、EntryToken 契约、views.{hpp,cpp} 唯一实现 + ViewFactory 挂表纪律类型化、engines.cpp 拆五件（namecodec/laimp/zipcd/laseq/open）、szcom cache_ 共享预算 LRU 驱逐（中读豁免）。S1-S5 哨兵诊断构建全静默 + 52/52 + fuzz + 15GB 复验） |
-| **5 资源圈禁** | res/（UniqueFile/TempFile/com_ptr）全量迁移 + gsl::owner 标注 + audit_ownership.py（grep + AST 闭包检查器，校准标准 §7.3） | Phase 2 + M1/M4 | ~1 周 | 审计脚本零违规 + 全量 | ✅ **已完成**（2026-10-02。AST 检查器先行落地并校准（f647037 恰报 LaSeqReader 零误报，run_tests 硬门 53/53）；随后 res/ 圈禁全量：`UniqueHandle<T,Invalid,Closer>` header-only 模板 + UniqueFile/UniqueRegKey/UniqueModule（文件/注册表/DLL 三类 Win32 句柄——含 7z.dll 探测期 UniqueModule 自动卸载、命中后 owner 转移进程缓存）、TempFile 工厂（DELETE_ON_CLOSE 统一）、com_ptr（szcom+nxshell 全部手工 Release）、DeleteGuard（sink .part 两段 catch 归一）；audit_ownership.py 增 grep 圈禁硬门（剥注释，负样本自测）；gsl::owner 标注三个逃逸点（res/gsl_owner.hpp 零依赖自带）；M1 顺手修复 write_report_file 短写静默。**两个实证教训**：①DeleteGuard 声明序=先关句柄后删文件（反序被 GUI 用例 6 抓住）；②COM 释放顺序契约——Open 失败后 7z.dll 仍持流引用，arc.reset() 必须先于 mainStream_.reset()（反序 heap-use-after-free，fuzz ASan 抓获，工件入库为回归种子）。nxunit +27=325，53/53 + 9/9 + fuzz 全绿） |
-| **6 验证常态化** | 哨兵 fuzz 常开 + clang-tidy CI 基线 /analyze 子集 + AGENTS 增"所有权纪律"一节 + 真实样本发布门固化 | Phase 3 | ~1d | CI 全绿 | 待排期（哨兵 fuzz 常开已随批次 0 落地；批次 5 的 fuzz 种子库已含 COM 顺序回归工件） |
+| **5 资源圈禁** | res/（UniqueFile/TempFile/com_ptr）全量迁移 + gsl::owner 标注 + audit_ownership.py（grep + AST 闭包检查器，校准标准 §7.3） | Phase 2 + M1/M4 | ~1 周 | 审计脚本零违规 + 全量 | ✅ **已完成**（2026-10-02 落地 + 03 三路评审修复。AST 检查器先行落地并校准（f647037 恰报 LaSeqReader 零误报）；随后 res/ 圈禁全量：`UniqueHandle<T,Invalid,Closer>` header-only 模板 + UniqueFile/UniqueRegKey/UniqueModule（文件/注册表/DLL 三类 Win32 句柄）、TempFile 工厂（DELETE_ON_CLOSE 统一）、com_ptr（szcom+nxshell 全部手工 Release）、DeleteGuard（sink .part 两段 catch 归一）；audit_ownership.py 增 grep 圈禁硬门；gsl::owner 标注三个逃逸点（res/gsl_owner.hpp 零依赖自带）；M1 顺手修复 write_report_file 短写静默。**两个实证教训**：①DeleteGuard 声明序=先关句柄后删文件（反序被 GUI 用例 6 抓住）；②COM 释放顺序契约——Open 失败后 7z.dll 仍持流引用，arc.reset() 必须先于 mainStream_.reset()（评审更正叙事：该 UAF 只存在于迁移开发期未提交中间态，提交史顺序从未错；契约已注释化）。**三路评审修复（03）**：UniqueFile 哨兵 nullptr 化——INVALID_HANDLE_VALUE 非 NTTP 合法常量、clang 全家拒绝，曾使 AST 门非确定（红队 C-1）；audit fail-loud——TU 独立临时名+退出码透传+补构建定义+失败不跳过（spec M-2）；圈禁门自检自动化（M-3）；fuzz 回归种子入库 tests/fuzz-regression/（git 跟踪，populate_seeds 回灌——原"入库"不实，M-1）。nxunit +27=325，53/53 + 9/9 + fuzz 全绿） |
+| **6 验证常态化** | 哨兵 fuzz 常开 + clang-tidy CI 基线 /analyze 子集 + AGENTS 增"所有权纪律"一节 + 真实样本发布门固化 | Phase 3 | ~1d | CI 全绿 | 待排期（哨兵 fuzz 常开已随批次 0 落地；持久回归种子在 tests/fuzz-regression/（git 跟踪）；顺带评估：fclose/LocalFree/CoTaskMemFree/archive_read_free 是否纳入圈禁、audit 覆盖 gitignored res 外资源口径） |
 
 **顺序依赖**：0 独立可发布 → 1/2/3 可并行排期 → 4 依赖 1（C++23/Result）与 2
 （LayerCtx）→ 5 依赖 4（视图合并先行）→ 6 收尾。
