@@ -1,9 +1,10 @@
 # 流式嵌套压缩包解压工具 —— 调研与设计文档
 
-> 版本 v0.2 ｜ 2026-08-28 ｜ 平台：纯 Windows ｜ 实现：C++20（决策记录见 §7）
-> 实现状态：M0–M3 + v1 后续全量已完成（GUI 进度+真百分比 / 隐写解压 / 性能四项 /
-> 嵌套免 spool 直读 / 4GiB 截断与同名目录修复，44/44 测试 + GUI 冒烟 8/8，详见 README 与 §10 实施记录）
-> v0.2 变更：新增分层密码完整设计（§6）；技术选型从多语言比选改为 C++20 vs .NET 决策；里程碑重排。
+> 版本 v0.3 ｜ 2026-10-03 ｜ 平台：纯 Windows ｜ 实现：C++23（选型决策见 §7）
+> 实现状态：M0–M3 + v1 后续 + 现代化重构批次 0–6 **全部完成**（55/55 测试 + GUI 9/9 +
+> 合成发布门；进度与测试清单见 README，重构纪律与决策见 refactor-roadmap.md，§10 为实施记录）
+> v0.3 变更：语言标准更新为 C++23、工具链与依赖表对齐实现现状、案例代号匿名化（D-4）、
+> §4 补所有权与生命周期指引；历史决策记录（v0.2 选型）保留原貌。
 
 ---
 
@@ -129,7 +130,7 @@ zip 流式读取必须处理的细节：数据描述符（GP bit 3）、zip64 �
                     └────────────────┘
 ```
 
-### 核心抽象（C++20）
+### 核心抽象（C++）
 
 ```cpp
 class ByteSource {                    // 唯一流抽象
@@ -173,6 +174,7 @@ struct Entry {
 - 控制台 `SetConsoleOutputCP(CP_UTF8)` + VT 转义进度（Win10+ 终端原生支持）；
 - 磁盘水位：`GetDiskFreeSpaceEx` 预检 + 解压中周期复查，超限熔断；
 - 线程模型：`std::jthread` + `stop_token`，级间固定容量 MPSC 有界队列（默认 1 MiB `--buffer`）形成背压——内存上界 = 活跃链数 × 级数 × 缓冲，可预测。不引入协程，普通线程池足够且更好调试。
+- **所有权与生命周期（重构后纪律）**：强所有权图为 DAG——条目源对读取器持 weak_ptr、异步写出经 `keepAlive()` 令牌配套保活（EntryToken 契约，container.hpp）；Win32 句柄/COM/临时文件 RAII 唯一来源在 `src/res/`（P2 圈禁，五名单硬门）；各核心类型生命周期状态机与不变式（SpoolBuffer/LaSeqReader/SevenZipReader/Sink/BoundedQueue）的权威定义在 [refactor-roadmap.md](refactor-roadmap.md) §5.1，运行时哨兵见 src/diag.hpp（S1-S10）。
 
 ---
 
@@ -242,7 +244,7 @@ struct Entry {
 
 ---
 
-## 7. 实现技术决策：C++20（v0.2 变更）
+## 7. 实现技术决策：C++（v0.2 选型 C++20 → 批次 1 升格 C++23）
 
 ### 7.1 C++20 vs .NET 8 决策记录
 
@@ -255,19 +257,22 @@ struct Entry {
 | 开发速度 | 慢约 2×，依赖管理用 vcpkg 化解 | 快，`System.Threading.Channels` 写管道很顺手 |
 | GUI 后路 | 核心导出 C ABI DLL，壳另做 | WPF/WinUI 原生顺手 |
 
-**决定：核心与 CLI 用 C++20。** 理由：① 这个工具的本质是"原生解码库的编排器"，三个关键引擎全是 C/C++ API，选 .NET 意味着所有重活仍然经过 interop，只省了策略层开发量；② 纯 Windows 定位下 .NET 的跨平台优势归零；③ 单文件小体积对"右键菜单/脚本/绿色软件"形态的 Windows 工具是实际竞争力。
+**决定：核心与 CLI 用 C++（选型时 C++20，现为 C++23——std::expected 承接 Result 别名，ABI 无影响）。** 理由：① 这个工具的本质是"原生解码库的编排器"，三个关键引擎全是 C/C++ API，选 .NET 意味着所有重活仍然经过 interop，只省了策略层开发量；② 纯 Windows 定位下 .NET 的跨平台优势归零；③ 单文件小体积对"右键菜单/脚本/绿色软件"形态的 Windows 工具是实际竞争力。
 **保留后路**：核心做成 `nxcore.dll`（纯 C ABI），未来 GUI 用 C# WPF 薄壳调用——两全。若团队 C# 产能远高于 C++，可切换到".NET 壳 + P/Invoke libarchive"方案，架构文档其余部分不受影响。
 
-### 7.2 依赖与引擎分工
+### 7.2 依赖与引擎分工（对齐实现现状）
 
 | 引擎 | 职责 | 引入方式 | 许可 |
 |---|---|---|---|
-| **libarchive** | tar/cpio/ar/zip（双模式）/cab/iso + 过滤器 gz/bz2/xz/zstd/lz4/.Z；zip ZipCrypto/AES、7z AES 读 | vcpkg（静态） | BSD |
-| **7z.dll**（IInArchive COM） | 7z 全特性（**原生分卷** + AES + 头加密）+ RAR 解码兜底 | 随程序分发的独立 DLL | LGPL + unRAR 限制（独立 DLL 形态即满足隔离） |
-| **unRAR**（可选插件） | RAR 原生卷/恢复记录 | 可选 `nxrar.dll` | freeware，非 OSI（禁止用于重建 RAR 压缩算法；解压用途合法） |
-| **brotli** | .br（无 magic，试探解码） | vcpkg | MIT |
+| **libarchive** | tar/cpio/ar/zip（双模式）/cab/iso + 过滤器 gz/bz2/xz/zstd/lz4/.Z；zip ZipCrypto/AES、7z AES 读 | vcpkg（静态，overlay 两补丁见 README） | BSD |
+| **zlib-ng[compat]**/bzip2/liblzma/zstd/lz4 | 过滤器直连（不经 libarchive，五解码器 RAII 适配） | vcpkg（静态） | 各自 |
+| **7z.dll**（IInArchive COM） | 7z 全特性（**原生分卷** + AES + 头加密）+ RAR 解码兜底 | 运行时按需加载的独立 DLL | LGPL + unRAR 限制（独立 DLL 形态即满足隔离） |
 
-工具链：Visual Studio 2022、`/std:c++20 /MT`、vcpkg manifest 固定版本（供应链审计友好）、CMake 或 VS 工程。
+未实现（v0.2 规划项，评估后搁置）：unRAR 可选插件（7z.dll 已覆盖 RAR 主线）、
+brotli/.br（无 magic 试探解码，暂无真实需求）。
+
+工具链：Visual Studio 2026、`/std:c++23 /MT`（v0.2 选型时为 C++20，批次 1 升格
+C++23 承接 std::expected）、vcpkg manifest 固定版本（供应链审计友好）、CMake + Ninja。
 
 ---
 
@@ -337,7 +342,8 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
   未命中 → exit 0 + GUI「nx 隐写解压」信息框；EOCD 假阳性由试开 CorruptError 兜回未命中。
   8 属性用例 + GUI 冒烟用例 8（43/43 + 8/8）。
-- **【实施记录】真实隐写样本三重陷阱**（D:\…\1.mp4，2.5 GB，"7-Zip `#` 模式可开"）：
+- **【实施记录】真实隐写样本三重陷阱**（案例 S：2.5GB 隐写 MP4 真实案例，已匿名化，
+  "7-Zip `#` 模式可开"）：
   ① EOCD 之后拖 18 KB 伪装数据，且文件末尾补一个 `size=8` 假 mdat 原子头——专门对付
   "EOCD 必须精确到 EOF"的尾部回扫类检测（libarchive 整文件直开也拒收）；
   ② zip 起点前有 76 字节诱饵（首见 `PK\x03\x04` 偏移 ≠ 真实基址）；
@@ -421,7 +427,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   PR 已含上游风格测试（aes128/256_multiblock：块边界尺寸 + 多批次 + 7B 流式/seek 读回逐字节校验；
   破坏性对照证实其能抓住跨批跳块类 bug；全量 866 用例无本补丁引入的失败，
   唯一失败的 test_archive_read_support_twice 在 pristine master 同样失败）。
-- **【实施记录】文件名编码三层根因**（D:\…\2.zip 真实案例，已修复）：
+- **【实施记录】文件名编码三层根因**（案例 N：本地 zip 真实案例，已匿名化）：
   ① libarchive 字符转换依赖进程 locale——C locale 下非 ASCII 名直接返回 NULL pathname，
   `setlocale(LC_ALL, ".UTF8")` 为主修复；② 本地头与中央目录文件名可不一致（本例本地头 EUC-JP、
   中央目录 UTF-8），流式读头必错——zip 已改中央目录模式（SeekView 免 spool 直读）；
@@ -455,7 +461,8 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 | M2（+2 周） | 并发/背压调优、安全完备、`--tree/--report`、基准报告 | 基准不劣于 bsdtar 管道，峰值磁盘 0 中间 | ✅ 完成（链式快于手工 33-34%；附带发现 bsdtar 管道在 Windows 原生管道下解流式 zip 静默丢条目） |
 | M3（正式发布） | unRAR 可选插件、`nxcore.dll` C ABI 导出、安装器/右键菜单、可选 WPF 壳 | 分发物 + 全量测试矩阵 | ✅ 完成（便携打包/右键级联/GUI 密码/默认日志；nxcore.dll 与 WPF 未做，非必需） |
 | 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | ✅ 均已完成（GUI 进度窗+真百分比、extract-stego 隐写解压，见 §10 实施记录） |
-| v1 后续 | 性能四项（zlib-ng/spool 自适应/批量 CTR/LTO）、嵌套免 spool 直读、真实案例稳定性修复 | — | ✅ 完成（44/44 + 8/8；AES 12×、bench B 反超手工、stored 嵌套免搬运；见 §10 实施记录） |
+| v1 后续 | 性能四项（zlib-ng/spool 自适应/批量 CTR/LTO）、嵌套免 spool 直读、真实案例稳定性修复 | — | ✅ 完成（AES 12×、bench B 反超手工、stored 嵌套免搬运；见 §10 实施记录） |
+| 现代化重构（2026-10-02/03） | 缺陷登记簿 D1-D8、领域类型化、纯核心/效果壳、所有权 DAG（weak_ptr+KeepAlive/EntryToken/res 圈禁）、验证体系（双 TLA+ 模型 / AST 闭包检查器 + F\* / clang-tidy 基线 / fuzz 哨兵 / 合成发布门） | 全量回归全绿 | ✅ 批次 0-6 全部完成（55/55 + 9/9；详 refactor-roadmap.md） |
 
 ---
 

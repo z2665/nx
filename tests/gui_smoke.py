@@ -31,7 +31,7 @@ def main():
     okAll = True
 
     # ---- 用例 1：前缀弹窗，直接用默认前缀（真实右键路径；默认=去扩展名 stem，
-    # 避免输出目录与输入文件同名——案例 Z 真实案例回归） ----
+    # 避免输出目录与输入文件同名——案例 Z 回归） ----
     tmp = fresh("t1")
     shutil.copy(os.path.join(ROOT, "tests/cases/plain_zip/plain.zip"),
                 os.path.join(tmp, "plain.zip"))
@@ -213,7 +213,7 @@ def main():
     shutil.rmtree(tmp, ignore_errors=True)
 
     # ---- 用例 9：extract-into 无扩展名输入，默认前缀=完整文件名 → 撞名创建失败，
-    # 错误弹窗告知（GUI 交互流不可只见 stderr；案例 X 真实案例回归） ----
+    # 错误弹窗告知（GUI 交互流不可只见 stderr；案例 X 回归） ----
     tmp = fresh("t9")
     shutil.copy(os.path.join(ROOT, "tests/cases/plain_zip/plain.zip"),
                 os.path.join(tmp, "noext"))

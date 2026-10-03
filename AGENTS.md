@@ -2,8 +2,8 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++23，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读）。
-重构计划：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-6 全部完成，2026-10-03）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，54/54 测试通过；C++23）。
+重构记录与纪律：[refactor-roadmap.md](refactor-roadmap.md)（批次 0-6 完成态：P1-P6 原则、现行架构、验证体系、决策 D-1~D-4 权威）。
+进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，55/55 测试通过；C++23）。
 
 ## 构建与打包
 
@@ -88,7 +88,7 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
    （run_tests `tidy_check` 用例，零警告）会拦 owning 裸指针与值拷贝浪费——
    真修优先，语义边界（sink 参数/jthread stop_token/COM 移交/CRT 豁免）才 NOLINT。
 5. **纯核心/效果壳（P5）**：解析、推导、打分、消毒、决策写成纯函数进 nxunit；
-   IO/日志/GUI/线程留在壳层（热路径红线见 roadmap §6.3，不纯化）。
+   IO/日志/GUI/线程留在壳层（热路径红线见 roadmap §2.2，不纯化）。
 6. **不变式显式化（P6）**：生命周期不变式落成注释契约或断言——如 sink writeOne
    的 DeleteGuard 声明序（先关句柄后删文件）、szcom tryOpen 的 COM 释放顺序
    （`arc.reset()` 先于 `mainStream_.reset()`）——不留在口头。
