@@ -83,6 +83,9 @@ def strip_top(tree: dict[str, str]) -> dict[str, str]:
 
 
 def main() -> int:
+    # CI runner 的 Python stdout 可能是 cp1252——中文消息直接 UnicodeEncodeError
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     if len(sys.argv) != 2:
         print("usage: ci_smoke.py <nx.exe>")
         return 2
