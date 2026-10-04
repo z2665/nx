@@ -17,7 +17,7 @@ enum class Format {
 
 enum class FormatClass { None, Filter, SeqContainer, TailContainer, RandContainer };
 
-// 格式知识表（领域 #1）：格式 → {类属, 名称} 的唯一事实源——
+// 格式知识表：格式 → {类属, 名称} 的唯一事实源——
 // 原 classify()/format_name() 两个平行 switch 各自维护一份映射，改一处漏一处
 struct FormatInfo {
     Format fmt;

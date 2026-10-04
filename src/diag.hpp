@@ -1,8 +1,8 @@
-// diag.hpp：泄漏观测哨兵（roadmap §7.2 S1-S5）
+// diag.hpp：泄漏观测哨兵（S1-S10）
 //
 // 编译宏 NX_DIAG_LEAKS 启用（fuzz 目标常开，CMake option 亦可对 nx 主程序开启）；
 // 关闭时全部调用为内联空体，零开销。纪律：泄漏验证只能用退出转储/注册表断言——
-// 加日志会翻转泄漏的时序表现（roadmap §1.2 教训）。
+// 加日志会翻转泄漏的时序表现。
 //
 //   S1  SpoolBuffer 活性注册表      —— 进程退出/fuzz 每迭代断言全灭
 //   S2  ContainerReader 活性注册表  —— 同上（LaSeq/SevenZip 经基类一处覆盖）

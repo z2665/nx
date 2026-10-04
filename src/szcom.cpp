@@ -1,5 +1,5 @@
 #include "szcom.hpp"
-#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）
+#include "res/unique_handle.hpp"   // P2 圈禁
 #include "res/com_ptr.hpp"
 #include "res/gsl_owner.hpp"
 #include <objbase.h>
@@ -110,7 +110,7 @@ PDllGetClassObject g_getClassObject = nullptr;
 std::wstring g_loadedPath, g_error;
 
 std::wstring try_load(const std::wstring& path) {
-    // P2 圈禁（批次 5）：探测期 UniqueModule 兜底——无入口点的 DLL 自动卸载；
+    // P2 圈禁：探测期 UniqueModule 兜底——无入口点的 DLL 自动卸载；
     // 命中后 release() 交给进程级缓存 g_dll（终身持有，不卸载）
     res::UniqueModule m(LoadLibraryW(path.c_str()));
     if (!m.valid()) return L"";
@@ -190,7 +190,7 @@ public:
     }
     uint64_t size() const override { return size_; }
 private:
-    res::UniqueFile h_;   // P2 圈禁（批次 5）：RAII 句柄
+    res::UniqueFile h_;   // P2 圈禁：RAII 句柄
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
     uint64_t base_ = 0;
@@ -523,11 +523,11 @@ private:
     Format fmt_;
     std::map<std::wstring, VolumeSource> volumes_;   // 键小写
     std::wstring firstVol_;
-    LayerId layer_;                    // key = 缓存/游标键，display = 提示（批次 2）
+    LayerId layer_;                    // key = 缓存/游标键，display = 提示
     PasswordProvider& pw_;
     EngineOptions opt_;
 
-    res::com_ptr<Z7_IInArchive> arc_;   // P2 圈禁（批次 5）：Release 收编；关闭仍走 closeArc()（先 Close 后放）
+    res::com_ptr<Z7_IInArchive> arc_;   // P2 圈禁：Release 收编；关闭仍走 closeArc()（先 Close 后放）
     std::shared_ptr<SharedOpenState> openState_;
     std::shared_ptr<InStreamImpl> mainStream_;
     std::vector<Item> items_;
@@ -542,7 +542,7 @@ private:
         uint64_t pos = 0;
     };
     std::map<uint32_t, Cached> cache_;
-    // cache_ 预算驱逐（F5，批次 4）：与 materializeBatch 共享 batchBudget() 的 LRU。
+    // cache_ 预算驱逐（F5）：与 materializeBatch 共享 batchBudget() 的 LRU。
     // 只驱逐未开始读（pos==0）或已读完（pos>=size）的条目——中读条目被驱逐会在
     // 重物化时 pos 归零导致内容错乱；全为中读时允许暂时超预算（写出完成后回落）
     std::list<uint32_t> lru_;    // 头 = 最近读；尾 = 驱逐对象
@@ -555,7 +555,7 @@ private:
 
 class EntrySource : public ByteSource {
 public:
-    // 批次 4（所有权模型 fixed 变体）：对读取器只持弱引用——异步写出的存活由
+    // （所有权模型 fixed 变体）：对读取器只持弱引用——异步写出的存活由
     // Sink 任务经 keepAlive() 令牌配套保活（const&：仅弱引用转换，不需要所有权）
     EntrySource(const std::shared_ptr<SevenZipReader>& r, EntryToken token)
         : r_(r), token_(token) {}

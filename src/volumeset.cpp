@@ -273,7 +273,7 @@ std::optional<VolumeSet> group_filesystem(const std::wstring& inputPath, std::st
     return select_group(fname, key, self, names, groups, wantSpanTerminal, wantRarFirst, errOut);
 }
 
-// 纯（批次 3 拆分）：决策半部——组命中/单卷退化/终卷首卷意图/成员校验/预检
+// 纯（函数拆分）：决策半部——组命中/单卷退化/终卷首卷意图/成员校验/预检
 std::optional<VolumeSet> select_group(const std::string& fname, const std::string& key,
                                       const std::optional<NameMatch>& self,
                                       const std::map<std::string, uint64_t>& names,

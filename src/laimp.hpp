@@ -1,4 +1,4 @@
-// laimp.hpp：libarchive 侧内部共享件（批次 4 拆分）——错误分类、访问记录、
+// laimp.hpp：libarchive 侧内部共享件——错误分类、访问记录、
 // 回调上下文与读/seek 回调。仅 laseq/zipcd/open 实现内部使用，勿在公共头引用
 #pragma once
 #include "bytesource.hpp"
@@ -24,7 +24,7 @@ inline FailKind classify_msg(const char* m) {
     return FailKind::Other;
 }
 
-// 数据相位视图访问记录（领域 #3 / 免 spool 直读的区间推导依据）：私有状态机
+// 数据相位视图访问记录（免 spool 直读的区间推导依据）：私有状态机
 // idle → active（条目首次数据访问激活）→ 下一条目重置。read/seek 双记——
 // libarchive read-ahead 缓冲（256KB）命中时 read 回调不触发，seek 是唯一信号；
 // 只消费起点（stored 条目 = 本地头+载荷连续读的锚点，越界无害）

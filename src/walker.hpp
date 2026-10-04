@@ -1,5 +1,5 @@
 // walker.hpp：递归策略引擎（设计 §4 Walker：分支语义 + Limiter + 密码约束）
-// 批次 2（领域 #11）：递归主干收敛为 Walker 类；运行期选项装配单点 resolve_runtime_options
+// 递归主干收敛为 Walker 类；运行期选项装配单点 resolve_runtime_options
 #pragma once
 #include "engines.hpp"
 #include "layer.hpp"
@@ -49,7 +49,7 @@ private:
 // 兼容自由入口（main / fuzz 调用形态不变）
 void run_input(Session& s, const std::wstring& inputPath);
 
-// 运行期选项装配单点（批次 2）：spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）
+// 运行期选项装配单点：spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）
 // + 溢出临时目录默认=输出目录（tree 无输出目录 → 系统临时目录）
 void resolve_runtime_options(Options& opt, std::wstring& tempDir,
                              const std::wstring& outDir, bool dryRun);

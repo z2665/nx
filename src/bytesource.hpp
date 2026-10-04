@@ -39,7 +39,7 @@ public:
     // 可选：底层为可 seek 区间支撑时返回之（嵌套容器免 spool 直读）。
     // 仅在消费方已开始 read（如 detect 已 peek）后有意义——区间推导依赖读取位置记录。
     virtual std::shared_ptr<RegionSource> seekRegion() const { return nullptr; }
-    // KeepAlive 令牌（批次 4，所有权模型 fixed 变体）：条目源对读取器只持弱引用，
+    // KeepAlive 令牌（所有权模型 fixed 变体）：条目源对读取器只持弱引用，
     // 异步写出任务须在提交时捕获本令牌以延长底层读者生命周期（同步路径不需要
     // ——调用栈天然持有）。无底层读者（文件/spool/内存）返回空
     virtual std::shared_ptr<void> keepAlive() const { return nullptr; }
@@ -61,7 +61,7 @@ public:
     size_t read(std::span<byte> buf) override;
     std::optional<uint64_t> sizeHint() const override { return size_; }
 private:
-    res::UniqueFile handle_;   // P2 圈禁（批次 5）：RAII 句柄，析构自动关闭
+    res::UniqueFile handle_;   // P2 圈禁：RAII 句柄，析构自动关闭
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
 };
@@ -85,7 +85,7 @@ public:
     size_t read(std::span<byte>) override { return 0; }
 };
 
-// 内存字节流（批次 3 可测性）：持有字节副本——测试/管线内嵌免文件系统；
+// 内存字节流（可测性）：持有字节副本——测试/管线内嵌免文件系统；
 // 零拷贝直通（read_direct）指向内部缓冲
 class MemorySource : public ByteSource {
 public:

@@ -1,4 +1,4 @@
-// views.hpp：seekable 三态视图（唯一实现，批次 4：engines.cpp 与 szcom.cpp
+// views.hpp：seekable 三态视图（唯一实现：engines.cpp 与 szcom.cpp
 // 两套逐行重复的 SeekView/SeekInput 家族合并）+ 工厂与挂表纪律类型化。
 // 用途：zip 中央目录模式、7z.dll 卷回调、嵌套免 spool 直读的随机访问支撑
 #pragma once
@@ -42,7 +42,7 @@ public:
     size_t read_at(uint64_t pos, std::span<byte> buf) override;
     uint64_t size() const override { return size_; }
 private:
-    res::UniqueFile h_;   // P2 圈禁（批次 5）：RAII 句柄（move-only ⇒ 本类不可复制）
+    res::UniqueFile h_;   // P2 圈禁：RAII 句柄（move-only ⇒ 本类不可复制）
     uint64_t size_ = 0;
     InputMeter* meter_ = nullptr;
     uint64_t base_ = 0;
@@ -67,7 +67,7 @@ private:
     uint64_t base_, len_;
 };
 
-// ---- 工厂：挂表纪律类型化（roadmap §5.2"视图合并"的收口）----
+// ---- 工厂：挂表纪律类型化（挂表纪律的类型化收口）----
 // 纪律（原散于各构造点注释）：根输入文件视图挂 meter（进度/压缩比分母）；
 // 码表探测视图不挂（多候选各重读一遍中央目录，会虚增根消耗）；spool/区间
 // 派生视图不挂（字节来自外层已计量流，再计即重复）。经命名方法强制选择

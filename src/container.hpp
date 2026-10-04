@@ -21,7 +21,7 @@ struct ContainerEntry {
     std::shared_ptr<ByteSource> data;   // 顺序条目流：independent=false 时 next() 前有效
 };
 
-// 迭代位置令牌（领域 #10，批次 4）：条目在读取器内的身份 = 单调迭代序号。
+// 迭代位置令牌：条目在读取器内的身份 = 单调迭代序号。
 // 契约（replayQ_ 环修复后的形态）：
 //   · 预取/重放只携带 {token, meta}，绝不携带条目源——源在 next() 现场按 token 重建
 //   · 条目源经 token 显式索取数据（readEntryData/readEntry），token 失效

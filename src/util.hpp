@@ -1,4 +1,4 @@
-// nx - 流式嵌套压缩包解压工具（M0）
+// nx - 流式嵌套压缩包解压工具
 // util.hpp：通用工具 —— 转换、路径、解析。错误分类学与 Result 在 outcome.hpp
 //（util.hpp 经 include 转发，既有包含点无需改动）
 #pragma once

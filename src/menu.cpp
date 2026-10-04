@@ -1,7 +1,7 @@
 #include "menu.hpp"
 #include "log.hpp"
 #include "util.hpp"
-#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）：注册表键 RAII
+#include "res/unique_handle.hpp"   // P2 圈禁：注册表键 RAII
 #include <shlwapi.h>
 
 #pragma comment(lib, "Advapi32.lib")

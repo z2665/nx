@@ -1,7 +1,7 @@
-// unit_main.cpp：纯核心单元测试（批次 1 起的 C++ 单测壳 nxunit）
+// unit_main.cpp：纯核心单元测试（C++ 单测壳 nxunit）
 // 运行：build\nxunit.exe；全部通过退出 0，失败打印用例位置并退出 1。
-// 纪律（roadmap P5）：只测纯函数——IO/线程/GUI 归属性测试（run_tests.py）与 fuzz。
-// 例外：res/ RAII 语义（批次 5）与批次 3 的过滤器真实路径集成——内核级语义
+// 纪律（P5 纯核心/效果壳）：只测纯函数——IO/线程/GUI 归属性测试（run_tests.py）与 fuzz。
+// 例外：res/ RAII 语义与过滤器真实路径集成——内核级语义
 // （DELETE_ON_CLOSE 等）只有真实 Win32 IO 才验得动，在此一并维护。
 #include "outcome.hpp"
 #include "util.hpp"
@@ -46,7 +46,7 @@ void check(bool cond, const char* what, int line) {
 #define CHECK(cond) check((cond), #cond, __LINE__)
 #define CHECK_EQ(a, b) check((a) == (b), #a " == " #b, __LINE__)
 
-// ---- derive_exit_code（领域 #4）：退出码契约全分支 ----
+// ---- derive_exit_code：退出码契约全分支 ----
 void test_derive_exit_code() {
     CHECK_EQ(derive_exit_code({}), 0);
     OutcomeFlags f;
@@ -138,7 +138,7 @@ void test_match_split_name() {
     CHECK(!match_split_name("x.zip.abcdef"));  // 非纯数字
 }
 
-// ---- format_info 表（领域 #1）：类属/名称查询与表完整性 ----
+// ---- format_info 表：类属/名称查询与表完整性 ----
 void test_format_info() {
     CHECK_EQ(classify(Format::Gzip), FormatClass::Filter);
     CHECK_EQ(classify(Format::Brotli), FormatClass::Filter);
@@ -314,14 +314,14 @@ void test_sanitize_rel() {
     CHECK_EQ(sanitize_rel("d./t.. .txt"), std::string("d/t.. .txt"));  // 非整段 .. 不改写
 }
 
-// ---- LayerCtx / 层身份派生（领域 #2，批次 2）----
+// ---- LayerCtx / 层身份派生----
 void test_layer_ctx() {
     // join_logical：空父 = 根；逐层延伸
     CHECK_EQ(join_logical("", "outer.zip"), std::string("outer.zip"));
     CHECK_EQ(join_logical("outer.tar.gz/a.tar.gz", "data.zip"),
              std::string("outer.tar.gz/a.tar.gz/data.zip"));
 
-    // 兄弟分支键区分（批次 2 语义修正的核心性质）
+    // 兄弟分支键区分（层身份键语义的核心性质）
     LayerId a = make_layer_id("o.tar.gz/a.tar.gz", "data.zip", 3, "zip");
     LayerId b = make_layer_id("o.tar.gz/b.tar.gz", "data.zip", 3, "zip");
     CHECK(a.key != b.key);
@@ -357,7 +357,7 @@ void test_layer_ctx() {
     CHECK(flt.throughFilter);
 }
 
-// ---- MemorySource + 过滤器泵/detect 壳集成（批次 3：免文件系统的管线内测试）----
+// ---- MemorySource + 过滤器泵/detect 壳集成（免文件系统的管线内测试）----
 namespace {
 // 在本线程消费泵输出（真实 filter_decode + BoundedQueue 背压路径）
 std::string pump_filter(Format fmt, std::vector<byte> input, std::exception_ptr& err) {
@@ -459,7 +459,7 @@ void test_detect_shell() {
     CHECK(d.sfxOffset && *d.sfxOffset == (100 << 10) - 64);
 }
 
-// ---- 密码解析链（§6.2，批次 3 PromptSink 可脚本化）----
+// ---- 密码解析链（§6.2，PromptSink 可脚本化）----
 void test_password_chain() {
     using Opt = std::optional<SecureStr>;
     PasswordProvider pw;
@@ -477,7 +477,7 @@ void test_password_chain() {
     CHECK(a2 && a2->view() == "beta");
     CHECK(!pw.nextAttempt(l1));   // 耗尽（no-prompt）
 
-    // 每层游标独立（批次 2 语义：键 = 逻辑路径）
+    // 每层游标独立（键 = 逻辑路径）
     Opt b1 = pw.nextAttempt(l2);
     CHECK(b1 && b1->view() == "alpha");
 
@@ -513,7 +513,7 @@ void test_password_chain() {
     CHECK_EQ(seenDisplay, std::string("第 4 层 prompt (zip)"));
 }
 
-// ---- volumeset 三层纯函数（批次 3 补齐批次 1 顺延项）----
+// ---- volumeset 三层纯函数----
 void test_volumeset() {
     // group_volumes：numbered 拼接型
     auto groups = group_volumes({{"x.001", 100}, {"x.002", 100}});
@@ -617,7 +617,7 @@ void test_parse_size() {
     CHECK(threw);
 }
 
-// ---- res/ RAII 类型（批次 5 P2 圈禁）：关闭/转移/守卫语义 ----
+// ---- res/ RAII 类型（P2 圈禁）：关闭/转移/守卫语义 ----
 int g_resClosed = 0;
 void res_close_count(int) noexcept { ++g_resClosed; }
 

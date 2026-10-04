@@ -1,4 +1,4 @@
-// outcome.hpp：错误分类学 + 会话终态 → 退出码推导（纯核心，批次 1 领域 #4）
+// outcome.hpp：错误分类学 + 会话终态 → 退出码推导（纯核心）
 // 退出码契约（设计 §8 / AGENTS）：0 成功 | 1 部分失败 | 2 密码缺失或耗尽（含用户取消）
 // | 3 超限熔断 | 4 缺分片 | 64 用法错误
 // 错误家族原居 util.hpp（领域语义住进"工具"头，靠 util 是全量基座才无害）——
@@ -10,7 +10,7 @@
 
 namespace nx {
 
-// 值错误二元表达（批次 1 试点，roadmap §6.3）：std::expected 别名隔离——
+// 值错误二元表达：std::expected 别名隔离——
 // 纯解析/冷路径优先；跨线程 exception_ptr、中止/熔断/密码耗尽控制流仍走异常
 template <class T>
 using Result = std::expected<T, std::string>;
@@ -34,7 +34,7 @@ struct MissingVolumes : Error {        // 缺分片 → 退出码 4
 struct CorruptError : Error {          // 数据损坏（keep-going 可隔离）→ 记入退出码 1
     explicit CorruptError(std::string m) : Error(std::move(m)) {}
 };
-struct Cancelled : Error {             // 用户取消（GUI X/取消）→ 直接退出（M3 需求 5）
+struct Cancelled : Error {             // 用户取消（GUI X/取消）→ 直接退出
     explicit Cancelled(std::string m) : Error(std::move(m)) {}
 };
 

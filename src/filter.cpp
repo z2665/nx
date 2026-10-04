@@ -198,7 +198,7 @@ struct Lz4Dec {
     Lz4Dec& operator=(const Lz4Dec&) = delete;
 };
 
-// 三段式多成员解码主循环（gzip/bzip2/xz·lzma 同构；M2 模板合并——三段 ~40 行
+// 三段式多成员解码主循环（gzip/bzip2/xz·lzma 同构；模板合并——三段 ~40 行
 // 逐字重复的多成员循环归一，异常/弃置路径的释放全部交给 Dec 的 RAII）
 template <class Dec, class Emit>
 void pump_members(Format fmt, CompressedIn& ci, std::vector<byte>& obuf, Emit&& emit) {

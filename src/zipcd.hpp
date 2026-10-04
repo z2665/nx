@@ -1,4 +1,4 @@
-// zipcd.hpp：zip 文件名码表探测（§3.2，批次 4 拆分）——无 EFS 标志 + 无
+// zipcd.hpp：zip 文件名码表探测（§3.2）——无 EFS 标志 + 无
 // hdrcharset 时 libarchive 对无法按 UTF-8 校验的名字返回 NULL → 下游消毒成 "_"。
 // 对候选码表逐一试开（seekable 遍历中央目录，不读数据），按"零空名 + 假名加分"择优
 #pragma once

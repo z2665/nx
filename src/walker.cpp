@@ -61,7 +61,7 @@ void handle_branch_error(Session& s, const std::string& where) {
     }
 }
 
-// 条目级分片组的暂存（M0：按到达序缓存（RAM→溢出），非成员条目到达即封组）
+// 条目级分片组的暂存（按到达序缓存（RAM→溢出），非成员条目到达即封组）
 // M1：native=true 为 RAR 原生卷（不拼接，走 7z.dll 卷回调）
 struct PendingSet {
     std::string key;
@@ -114,7 +114,7 @@ void process_entry(Session& s, ContainerEntry& e, const LayerCtx& ctx) {
 
 // ---- 容器迭代（含条目级分片分组） ----
 // reader const&：调用方（walk）在同步调用期间天然持有强引用；异步写出的存活由
-// keepAlive 令牌管（批次 4），本参数无需再持所有权
+// keepAlive 令牌管，本参数无需再持所有权
 void iterate_container(Session& s, const std::shared_ptr<ContainerReader>& reader,
                        const LayerCtx& ctx) {
     std::vector<PendingSet> pending;
@@ -152,7 +152,7 @@ void iterate_container(Session& s, const std::shared_ptr<ContainerReader>& reade
             continue;
         }
         if (e.isSymlink) {
-            log_err("[nx] ! 跳过符号链接 %s（v1 降级策略，M0 不落地）\n", e.name.c_str());
+            log_err("[nx] ! 跳过符号链接 %s（降级策略：跳过不落地）\n", e.name.c_str());
             continue;
         }
         auto m = match_split_name(e.name);
@@ -163,7 +163,7 @@ void iterate_container(Session& s, const std::shared_ptr<ContainerReader>& reade
             continue;
         }
         if (m) {
-            // 分片成员：暂存（不同 key 到达 → 先封组；M0 限制：成员须连续到达）
+            // 分片成员：暂存（不同 key 到达 → 先封组；成员须连续到达）
             if (pending.empty() || pending.back().key != m->key) {
                 flushAll();
                 pending.emplace_back();
@@ -279,7 +279,7 @@ void flush_pending_set(Session& s, const LayerCtx& ctx, PendingSet& ps) {
 // ---- walk：策略核心 ----
 // region：父视图区间（免 spool 直读；经 detect peek 后由流侧 seekRegion() 提供；
 // 过滤器链会剥离——解压后的字节无区间语义）
-// ctx const&：只读载体——递归层经 forFilter/descend 工厂派生新 LayerCtx（批次 2）
+// ctx const&：只读载体——递归层经 forFilter/descend 工厂派生新 LayerCtx
 void walk(Session& s, std::unique_ptr<ByteSource> src, const LayerCtx& ctx,
           const std::shared_ptr<RegionSource>& region) {
     const std::string& origin = ctx.origin;
@@ -481,7 +481,7 @@ void Walker::run(const std::wstring& inputPath) {
     fs::path dir = p.parent_path();
     if (dir.empty()) dir = L".";
 
-    // 进度分母（待办 #2）：根输入总大小（分片组=各卷之和；多输入在 Stats 上累计）。
+    // 进度分母：根输入总大小（分片组=各卷之和；多输入在 Stats 上累计）。
     // 取不到大小则累计 0 → 进度窗回退动画条。
     {
         std::error_code ec;
@@ -533,7 +533,7 @@ void Walker::run(const std::wstring& inputPath) {
     } else {
         if (!volErr.empty()) throw MissingVolumes(volErr);
         rootName = wide_to_utf8(p.filename().wstring());
-        // M2 快路径：根文件是 7z/rar 且 7z.dll 可用 → 免 spool 直读（IInStream over 文件）
+        // 快路径：根文件是 7z/rar 且 7z.dll 可用 → 免 spool 直读（IInStream over 文件）
         if (fsDirectOpen(inputPath, rootName))
             return;
         parts.push_back(std::make_shared<FileSource>(inputPath, &s.meter));
@@ -543,7 +543,7 @@ void Walker::run(const std::wstring& inputPath) {
     }
 }
 
-// 运行期选项装配单点（批次 2 / 领域 #11）：从 main 内联块迁入——spool RAM 自适应
+// 运行期选项装配单点：从 main 内联块迁入——spool RAM 自适应
 // （空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（tree → 系统临时）
 void resolve_runtime_options(Options& opt, std::wstring& tempDir,
                              const std::wstring& outDir, bool dryRun) {

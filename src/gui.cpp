@@ -33,7 +33,7 @@ unsigned short class_atom(const wchar_t* cls) {
     return 0x0082;   // STATIC
 }
 
-// 内存 DLGTEMPLATE：提示 + 编辑框 + 确定/取消（无资源文件，M3 便携形态）
+// 内存 DLGTEMPLATE：提示 + 编辑框 + 确定/取消（无资源文件，便携形态）
 class TplBuilder {
 public:
     TplBuilder() : p_(reinterpret_cast<UINT_PTR>(buf_)) {
@@ -187,7 +187,7 @@ INT_PTR CALLBACK ask_proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
             }
             break;
         }
-        case WM_CLOSE:      // X → 取消（M3 需求 5）
+        case WM_CLOSE:      // X → 取消
             EndDialog(h, 0);
             return TRUE;
         default:
@@ -210,7 +210,7 @@ std::optional<std::wstring> run_input_dialog(const AskCtx& ctx) {
     return std::nullopt;   // 取消 / X / 关闭
 }
 
-// ---- 进度窗（待办 #1）----
+// ---- 进度窗 ----
 
 struct ProgressState {
     std::mutex m;                       // 保护 hwnd/closeReq/curLine/caption/thread

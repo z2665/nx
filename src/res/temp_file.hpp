@@ -1,4 +1,4 @@
-// res/temp_file.hpp —— 唯一临时文件工厂（批次 5 P2 圈禁，roadmap §5.2）。
+// res/temp_file.hpp —— 唯一临时文件工厂（P2 圈禁）。
 // TempFile：FILE_FLAG_DELETE_ON_CLOSE——句柄一关（正常析构/异常退出/进程被杀）
 // 内核即删，清理责任不再依赖对象生命周期（15GB spool 残留案例的教训）。
 // DeleteGuard："临时名 → 成功 rename 终名"模式的半成品守卫——句柄已关、

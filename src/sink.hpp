@@ -12,7 +12,7 @@ namespace nx {
 // 段消毒：控制字符、ADS 冒号、保留名、尾部点/空格、..、绝对路径
 std::string sanitize_segment(const std::string& seg);
 
-// 逐段消毒相对路径（纯，批次 1：dedupe 的消毒半部与重名登记状态分离；
+// 逐段消毒相对路径（纯：dedupe 的消毒半部与重名登记状态分离；
 // '/' 分隔逐段、空段跳过、全空回退 "_"）
 std::string sanitize_rel(const std::string& rel);
 

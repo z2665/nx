@@ -1,4 +1,4 @@
-// namecodec.cpp：码表探测与评分实现（批次 4 自 engines.cpp 拆分）
+// namecodec.cpp：码表探测与评分实现（自 engines.cpp 拆分）
 #include "namecodec.hpp"
 #include "util.hpp"
 #include <windows.h>

@@ -1,4 +1,4 @@
-// laseq.hpp：LaSeqReader——libarchive 顺序条目读取器（批次 4 拆分）
+// laseq.hpp：LaSeqReader——libarchive 顺序条目读取器
 #pragma once
 #include "container.hpp"
 #include "pushback.hpp"
@@ -175,7 +175,7 @@ private:
     bool dataPhase_ = false;     // 当前条目已开始数据读取（激活视图访问记录）
 };
 
-// 条目源：对读取器只持弱引用（批次 4，所有权模型 fixed 变体——父方向强边消除，
+// 条目源：对读取器只持弱引用（所有权模型 fixed 变体——父方向强边消除，
 // 强所有权图从此无环；异步存活由 Sink 任务经 keepAlive() 令牌配套保活）
 
 } // namespace nx

@@ -1,4 +1,4 @@
-// laseq.cpp：LaSeqReader 实现（批次 4 自 engines.cpp 拆分）
+// laseq.cpp：LaSeqReader 实现（自 engines.cpp 拆分）
 #include "laseq.hpp"
 #include "diag.hpp"
 #include "log.hpp"
@@ -8,7 +8,7 @@ namespace nx {
 
 class LaEntrySource : public ByteSource {
 public:
-    // token = 迭代位置（领域 #10 契约：源经 token 显式索取，失效由读取器拒绝）；
+    // token = 迭代位置（EntryToken 契约：源经 token 显式索取，失效由读取器拒绝）；
     // const&：仅弱引用转换，不需要所有权
     LaEntrySource(const std::shared_ptr<LaSeqReader>& r, EntryToken token)
         : r_(r), token_(token) {}

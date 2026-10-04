@@ -1,5 +1,5 @@
-// gui.hpp：M3 GUI 弹窗 —— 密码输入 / 输出前缀输入（内存对话框模板，无资源文件）
-// + 进度窗（待办 #1：GUI 模式解压的中间反馈与取消）。
+// gui.hpp：GUI 弹窗 —— 密码输入 / 输出前缀输入（内存对话框模板，无资源文件）
+// + 进度窗（GUI 模式解压的中间反馈与取消）。
 // X 或取消 → 返回 nullopt（调用方语义：取消整个任务并退出）
 #pragma once
 #include "bytesource.hpp"
@@ -23,7 +23,7 @@ void notify_done(bool ok, const std::string& detailUtf8,
 // ---- 进度窗（独立 GUI 线程上的无模式对话框；--gui 或 Explorer 启动时显示）----
 // GUI 线程定时轮询 Stats/InputMeter 原子量（只读），取消时置 abortFlag（原子写）。
 // 百分比 = meter.bytes / stats.inputTotal（根输入消耗比；直读视图已挂计量），
-// 无分母或重读超出时封顶 99% 至收尾，分母未知回退动画条（设计 §10 待办 #2）。
+// 无分母或重读超出时封顶 99% 至收尾，分母未知回退动画条。
 void progress_show(const std::wstring& caption, Stats* stats, const InputMeter* meter);
 void progress_hide();                              // 幂等；join GUI 线程
 bool progress_cancelled();                         // 用户点了取消/X

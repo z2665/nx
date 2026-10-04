@@ -1,4 +1,4 @@
-// res/unique_handle.hpp —— P2 泄漏圈禁（批次 5，roadmap §5.2）：Win32 句柄的唯一 RAII 形态。
+// res/unique_handle.hpp —— P2 泄漏圈禁（P2 圈禁）：Win32 句柄的唯一 RAII 形态。
 // 纪律：释放调用只允许出现在 src/res/——名单以 tests/audit_ownership.py 的
 // RELEASE_CALL 为准（CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release()），
 // 其余代码一律经 UniqueFile/UniqueRegKey/UniqueModule 持有句柄（audit 硬门）。

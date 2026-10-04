@@ -1,4 +1,4 @@
-// views.cpp：seekable 三态视图唯一实现（批次 4 合并；原 engines.cpp/szcom.cpp 两份）
+// views.cpp：seekable 三态视图唯一实现（合并原 engines.cpp/szcom.cpp 两份重复实现）
 #include "views.hpp"
 
 namespace nx {

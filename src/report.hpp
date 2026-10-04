@@ -1,4 +1,4 @@
-// report.hpp：--report JSON 组装（纯渲染，批次 1 纯化：snapshot + render 分离）
+// report.hpp：--report JSON 组装（纯渲染：snapshot + render 分离）
 // gather（Stats/Sink 快照）在 main；此处只有值 → 文本，可单测。
 // 纪律（设计 D8）：不含任何密码信息。
 #pragma once

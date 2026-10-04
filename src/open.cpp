@@ -1,4 +1,4 @@
-// open.cpp：容器打开策略（批次 4 自 engines.cpp 拆分）——try_open 探测、密码迭代、
+// open.cpp：容器打开策略（自 engines.cpp 拆分）——try_open 探测、密码迭代、
 // spool 兜底、zip 中央目录模式、R 类 7z.dll 优先与回退、S/Z 类流式优先。
 // engines.hpp 门面的实现（组合根）：szcom/laseq/zipcd 的装配与回退策略都在本文件
 #include "engines.hpp"

@@ -148,13 +148,13 @@ Detection detect_from_bytes(std::span<const byte> p, std::optional<uint64_t> siz
         }
     }
 
-    // brotli 无 magic（设计 §3.1）——M0 不支持试探解码
+    // brotli 无 magic（设计 §3.1）——不支持试探解码
     return d;
 }
 
 // 壳：决定窥探窗口——64KiB 首扫；未命中且窗口未达 SFX 扫描上限（4MiB）→ 补拉重扫
 Detection detect(PushbackSource& src, const std::string& nameHint) {
-    (void)nameHint;   // M0：内容优先；扩展名仅分片排序用（volumeset）
+    (void)nameHint;   // 内容优先；扩展名仅分片排序用（volumeset）
     auto p = src.peek(64 << 10);
     Detection d = detect_from_bytes(p, src.sizeHint());
     if (d.fmt != Format::Unknown) return d;

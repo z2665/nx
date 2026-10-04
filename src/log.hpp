@@ -1,4 +1,4 @@
-// log.hpp：默认日志（M3 需求 6）—— nx.exe 所在目录 nx.log
+// log.hpp：默认日志—— nx.exe 所在目录 nx.log
 // 始终 append；超过 5 MiB 截断从 0 开始；控制台与文件双写。
 #pragma once
 #include <cstdarg>

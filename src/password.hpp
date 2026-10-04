@@ -1,4 +1,4 @@
-// password.hpp：分层密码解析（设计 §6，M0：候选列表 + 交互 + 缓存/LRU）
+// password.hpp：分层密码解析（设计 §6）
 #pragma once
 #include "util.hpp"
 #include <functional>
@@ -46,7 +46,7 @@ private:
     size_t len_ = 0;
 };
 
-// 层身份（批次 2，领域 #2）：key 与 display 职责分离——
+// 层身份：key 与 display 职责分离——
 //   key     = 密码缓存/游标键：容器逻辑路径（"outer.tar.gz/a.tar.gz/data.zip"），
 //             兄弟分支（不同父容器下的同名同深）不再共享缓存与游标；
 //   display = 交互提示与错误消息（"第 3 层 data.zip (zip)"）。
@@ -57,7 +57,7 @@ struct LayerId {
     std::string display;
 };
 
-// 提示注入（批次 3 / 领域 #7）：默认走控制台/GUI（promptInteractive 内建）；
+// 提示注入：默认走控制台/GUI（promptInteractive 内建）；
 // 测试注入脚本化应答（返回 nullopt = 无输入，等价读取失败 → 进入耗尽）。
 // 携带层身份（display 展示文本），可按层断言提示内容
 using PromptSink = std::function<std::optional<std::string>(const LayerId&)>;

@@ -63,7 +63,7 @@ private:
     size_t ramCap_;
     std::wstring tempDir_;
     std::vector<byte> ram_;
-    res::TempFile tmp_;   // P2 圈禁（批次 5）：溢出卷唯一工厂（DELETE_ON_CLOSE）
+    res::TempFile tmp_;   // P2 圈禁：溢出卷唯一工厂（DELETE_ON_CLOSE）
     uint64_t total_ = 0;
     bool overflowed_ = false;
     bool finished_ = false;

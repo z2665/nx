@@ -1,4 +1,4 @@
-// nxshell.cpp：Windows 11 新版右键菜单扩展（M3 增补）
+// nxshell.cpp：Windows 11 新版右键菜单扩展
 //
 // IExplorerCommand COM DLL + 稀疏 MSIX 包（ExternalLocation 指向 dist\nx）：
 //   父命令「nx 解压」（EnumSubCommands 提供子命令 → 新版右键级联）
@@ -13,7 +13,7 @@
 #include <shlwapi.h>
 #include <objbase.h>
 #include <initguid.h>   // DEFINE_GUID 生成定义（而非 extern 声明）
-#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）：句柄/COM RAII
+#include "res/unique_handle.hpp"   // P2 圈禁：句柄/COM RAII
 #include "res/com_ptr.hpp"
 #include <cstring>
 #include <string>
@@ -23,7 +23,7 @@
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "User32.lib")
 
-// 本 DLL 不在 nx 命名空间内——RAII 类型经别名引用（P2 圈禁，批次 5）
+// 本 DLL 不在 nx 命名空间内——RAII 类型经别名引用（P2 圈禁）
 namespace res = ::nx::res;
 
 // {7A3E9C41-5B2D-4E8A-9F60-3C1D84B2A501} 父命令（级联入口）
@@ -76,7 +76,7 @@ static void launch_nx(const wchar_t* verb, IShellItemArray* items) {
     PROCESS_INFORMATION pi{};
     if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr,
                        dll_dir().c_str(), &si, &pi)) {
-        // P2 圈禁（批次 5）：进程/线程句柄 RAII——作用域结束自动关闭
+        // P2 圈禁：进程/线程句柄 RAII——作用域结束自动关闭
         res::UniqueKernelObject piThread(pi.hThread), piProcess(pi.hProcess);
     }
 }
@@ -210,7 +210,7 @@ public:
     }
 
 private:
-    res::com_ptr<IExplorerCommand> arr_[8];   // P2 圈禁（批次 5）：析构自动 Release
+    res::com_ptr<IExplorerCommand> arr_[8];   // P2 圈禁：析构自动 Release
     ULONG n_, i_, ref_ = 1;
 };
 

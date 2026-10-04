@@ -11,7 +11,7 @@
 #include "log.hpp"
 #include "outcome.hpp"
 #include "report.hpp"
-#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）
+#include "res/unique_handle.hpp"   // P2 圈禁
 #include <shellapi.h>
 #include <charconv>
 #include <cstdio>
@@ -60,8 +60,8 @@ void usage() {
         "退出码: 0 成功 | 1 部分失败 | 2 密码缺失或耗尽/用户取消 | 3 超限熔断 | 4 缺分片 | 64 用法错误\n");
 }
 
-// --report 快照（D8）：统计/耗时/校验；不含任何密码信息。始终进日志（M3 需求 6）。
-// 渲染在 report.cpp 纯函数（批次 1：snapshot 与 render 分离，可单测）
+// --report 快照（D8）：统计/耗时/校验；不含任何密码信息。始终进日志。
+// 渲染在 report.cpp 纯函数（snapshot 与 render 分离，可单测）
 std::string build_report(Session& s, const std::vector<std::wstring>& inputs,
                          ULONGLONG elapsedMs, const std::string& tool) {
     ReportData d;
@@ -94,7 +94,7 @@ void write_report_file(const std::wstring& path, const std::string& content) {
         return;
     }
     DWORD w = 0;
-    // M1（批次 5 顺手修复）：短写/写失败原先静默——报告不完整须可见
+    // 短写/写失败原先静默——报告不完整须可见
     if (!WriteFile(h.get(), content.data(), static_cast<DWORD>(content.size()), &w, nullptr) ||
         w != content.size())
         log_err("[nx] 报告写入失败（短写）: %s\n", wide_to_utf8(path).c_str());
@@ -121,7 +121,7 @@ bool console_attached() {
     return GetConsoleWindow() != nullptr;
 }
 
-// 数值参数解析（D2 + 批次 1 Result 试点）：from_chars + 全量消费校验——非法/越界
+// 数值参数解析（D2 + Result）：from_chars + 全量消费校验——非法/越界
 // 输入以 Result 错误值返回，调用方转 Error → 退出码 64（原 stoi/stoull 抛标准异常
 // 未被捕获 → std::terminate，违反退出码契约）
 Result<int> parse_int_arg(std::string_view v, const char* opt) {
@@ -150,13 +150,13 @@ int main() {
     setlocale(LC_ALL, ".UTF8");   // NOLINT(concurrency-mt-unsafe)
     int argc = 0;
     auto args = get_args(argc);
-    log_open(argc, nullptr);   // 默认日志（M3 需求 6）：始终开启
+    log_open(argc, nullptr);   // 默认日志：始终开启
     std::atexit(nx::diag::exit_check);   // S1/S2 退出哨兵（宏关闭时 no-op）：main 栈对象析构后运行
     if (argc < 2) { usage(); return 64; }
     std::string cmd = args[1];
     if (cmd == "--help" || cmd == "-h" || cmd == "help") { usage(); return 0; }
 
-    // ---- 右键菜单管理（M3 需求 2）----
+    // ---- 右键菜单管理----
     if (cmd == "menu") {
         std::string action = argc >= 3 ? args[2] : "";
         std::string err;
@@ -258,7 +258,7 @@ int main() {
     if (dryRun) { s.opt.dryRun = true; outDir = L""; }
     if (forceNoRoot) s.opt.noRoot = true;
 
-    // ---- extract-here / extract-into 的输出目录语义（M3 需求 3）----
+    // ---- extract-here / extract-into 的输出目录语义----
     std::wstring prefixDir;
     if (cmd == "extract-here") {
         if (!haveOut) {
@@ -362,10 +362,10 @@ int main() {
     s.sink = std::make_unique<Sink>(outDir, s.opt, s.stats, dryRun);
 
     // ---- spool 资源策略 ----
-    // 运行期选项装配单点（批次 2 / 领域 #11）：spool RAM 自适应 + 溢出目录默认
+    // 运行期选项装配单点：spool RAM 自适应 + 溢出目录默认
     resolve_runtime_options(s.opt, s.tempDir, outDir, dryRun);
 
-    // ---- 进度窗（待办 #1）：GUI 模式（--gui 或 Explorer/右键启动）且非 tree 时显示 ----
+    // ---- 进度窗：GUI 模式（--gui 或 Explorer/右键启动）且非 tree 时显示 ----
     // 判据与完成弹窗一致；explorerLaunched 已在输出目录创建前判定
     struct ProgressGuard {
         ~ProgressGuard() { gui::progress_hide(); }   // 异常路径兜底（幂等）
@@ -384,7 +384,7 @@ int main() {
         try {
             run_input(s, in);
         } catch (Cancelled&) {
-            cancelled = true;   // GUI 取消：静默退出（M3 需求 5）
+            cancelled = true;   // GUI 取消：静默退出
             break;
         } catch (LimitError& e) {
             log_err("[nx] ✗ 超限熔断：%s\n", e.what());
@@ -412,7 +412,7 @@ int main() {
         cancelled = true;
     ULONGLONG elapsedMs = GetTickCount64() - t0;
 
-    // 报告：始终入日志；--report 时另存文件（M3 需求 6 + D8）
+    // 报告：始终入日志；--report 时另存文件（D8）
     std::string report = build_report(s, inputs, elapsedMs, argc ? args[0] : "nx");
     if (!reportPath.empty())
         write_report_file(reportPath, report);
@@ -437,7 +437,7 @@ int main() {
     }
     log_out("  耗时 %.2fs\n", elapsedMs / 1000.0);
 
-    // 退出码推导（领域 #4）：纯函数 + Stats 终态快照——原 main 内 if 链，无类型无测试
+    // 退出码推导：纯函数 + Stats 终态快照——原 main 内 if 链，无类型无测试
     OutcomeFlags outcome;
     outcome.cancelled = cancelled;
     outcome.limitTripped = s.stats.limitTripped.load();

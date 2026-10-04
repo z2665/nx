@@ -2,7 +2,7 @@
 #include "sink.hpp"
 #include "diag.hpp"
 #include "gui.hpp"
-#include "res/temp_file.hpp"   // P2 圈禁（批次 5）：UniqueFile + DeleteGuard
+#include "res/temp_file.hpp"   // P2 圈禁：UniqueFile + DeleteGuard
 #include <bcrypt.h>
 #pragma comment(lib, "Bcrypt.lib")
 #include <algorithm>
@@ -142,7 +142,7 @@ std::string sanitize_rel(const std::string& rel) {
 
 std::string Sink::dedupe(const std::string& rel) {
     // 消毒（纯，sanitize_rel；D6：..、绝对路径、保留名、ADS、尾部点/空格、控制字符）
-    // + 大小写不敏感重名登记（状态在本对象，批次 1 两者分离）
+    // + 大小写不敏感重名登记（状态在本对象，消毒与登记分离）
     std::string r = sanitize_rel(rel);
     std::lock_guard<std::mutex> lk(m_);
     std::string low = ascii_lower(r);
@@ -190,7 +190,7 @@ std::string Sink::emitFile(const std::string& rel, std::shared_ptr<ByteSource> s
 
     if (independent && pool_) {
         // D4：独立源（spool/文件支撑，不受迭代前进影响）→ 线程池异步写。
-        // KeepAlive（批次 4，所有权模型 fixed 变体）：条目源对读取器只持弱引用，
+        // KeepAlive（所有权模型 fixed 变体）：条目源对读取器只持弱引用，
         // 任务期保活令牌在此捕获——任务可超出 walker 栈帧存活，读者不可先亡
         Sink* self = this;
         auto keepAlive = src->keepAlive();
@@ -233,7 +233,7 @@ void Sink::writeOne(const std::string& r, const std::wstring& finalPath, uint64_
     // 真实案例：251 字符最终路径 + .nxpart 后缀超限，目录全建成、文件全失败
     std::wstring tmpL = win_long_path(tmp);
     std::wstring finalL = win_long_path(finalPath);
-    // .part 半成品守卫（P2 圈禁，批次 5）：落名成功（dismiss）前任何失败路径
+    // .part 半成品守卫（P2 圈禁）：落名成功（dismiss）前任何失败路径
     // 自动删除不留盘——原两段 catch 手工清理归一。
     // 声明必须先于句柄：逆序析构 = 先关句柄再删文件（独占句柄未关则删除必败）
     res::DeleteGuard part(tmpL);

@@ -18,7 +18,7 @@ namespace nx {
 // - 加密层：候选密码迭代（§6.2）；zip 流式失败/SFX → D2 回退 spool+seek 重试
 // region：可选——父视图中的连续 stored 区间（免 spool 窗口直读，见 bytesource.hpp
 // RegionSource）；zip/R 类命中时直接在区间上开，失败自动回退 spool 原路径
-// 层身份 layer（LayerId：key = 逻辑路径缓存键，display = 提示文本；批次 2）
+// 层身份 layer（LayerId：key = 逻辑路径缓存键，display = 提示文本）
 std::shared_ptr<ContainerReader> open_container(std::unique_ptr<PushbackSource> src,
                                                 Format fmt,
                                                 const LayerId& layer,

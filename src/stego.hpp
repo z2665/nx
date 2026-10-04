@@ -1,4 +1,4 @@
-// stego.hpp：根文件隐写压缩包检测（README 待办 #1：MP4 尾部 / 文件尾拼接归档）
+// stego.hpp：根文件隐写压缩包检测（设计 §5 D9：MP4 尾部 / 文件尾拼接归档）
 // 仅根文件系统层（需 seek 跳过 GB 级 mdat，流式 detect 做不到）。
 // 两条路：
 //   ① MP4 atom 步进——逐原子头小读、按 size 跳越，走到非法头即隐写候选起点
@@ -24,7 +24,7 @@ struct Hit {
     std::string desc;  // 诊断（"eocd" / "mp4+zip" …）
 };
 
-// ---- 纯核心（批次 1 纯化）----
+// ---- 纯核心（纯化）----
 
 inline constexpr uint32_t be32(const byte* p) {
     return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |

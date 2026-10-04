@@ -1,6 +1,6 @@
 #include "log.hpp"
 #include "util.hpp"
-#include "res/unique_handle.hpp"   // P2 圈禁（批次 5）
+#include "res/unique_handle.hpp"   // P2 圈禁
 #include <shellapi.h>
 #include <atomic>
 #include <cstdio>
@@ -16,7 +16,7 @@ constexpr uint64_t kMaxLogBytes = 5ull * 1024 * 1024;   // 5 MiB：超过截断�
 std::mutex g_logMx;
 FILE* g_logFile = nullptr;
 std::wstring g_logPath;
-// fuzz 静音/GUI/写出线程并发读写（roadmap D5）——普通 bool 是数据竞争 UB
+// fuzz 静音/GUI/写出线程并发读写——普通 bool 是数据竞争 UB
 std::atomic<bool> g_quiet{false};
 
 void close_log() {

@@ -1,4 +1,4 @@
-// res/com_ptr.hpp —— COM 引用收编（批次 5 P2 圈禁，roadmap §5.2）。
+// res/com_ptr.hpp —— COM 引用收编（P2 圈禁）。
 // 纪律：Release 调用自此只允许出现在 src/res/ 与 COM 接口实现体内
 // （IUnknown::Release override 是接口契约，不属手工释放）。
 #pragma once
