@@ -145,8 +145,10 @@ jobs:
           rem 无累积，顺序与本地文档相反）；m1 自跳过 WinRAR 依赖的 rar 用例
           rem （Rar.exe 专有仅本地），其 7z/zip 用例正常生成
           rem rar 族用例：LFS 冻结语料补入（生成器无法在 CI 产 rar；读取引擎无关）
+          rem robocopy 退出码 0-7 均为成功（1=有复制 2=有重复 3=两者），>=8 才失败
           robocopy tests\cases-rar tests\cases /E /XF SHA256SUMS >nul
           if %ERRORLEVEL% GEQ 8 exit /b 1
+          exit /b 0
 
       - name: 全量测试门（run_tests：单元+属性+所有权双门+tidy+GUI 冒烟）
         shell: cmd
