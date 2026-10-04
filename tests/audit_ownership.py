@@ -15,7 +15,7 @@
 用法：
   python tests/audit_ownership.py                 # 审计 HEAD src/，违例退出 1
   python tests/audit_ownership.py --src <dir>     # 审计指定源目录（校准用）
-  python tests/audit_ownership.py --calibrate     # 校准模式：对 f647037 须恰报
+  python tests/audit_ownership.py --calibrate     # 校准模式：对 2d20794 须恰报
                                                   # LaSeqReader 一处零误报（roadmap §7.3）
                                                   # （圈禁检查不参与校准——其标准是
                                                   #   HEAD 零违规，基线时代尚未圈禁）
@@ -35,7 +35,7 @@ ROOT = os.path.dirname(HERE)
 VSROOT = r"C:\Program Files\Microsoft Visual Studio\18\Community"
 CLANG = os.path.join(VSROOT, "VC", "Tools", "Llvm", "x64", "bin", "clang-cl.exe")
 KERNEL = os.path.join(ROOT, "tools", "proofs", "closure_check.exe")
-CALIBRATE_REF = "f647037"
+CALIBRATE_REF = "2d20794"
 
 STD_SMART = ("shared_ptr", "unique_ptr")
 STD_CONTAINERS = ("deque", "vector", "list", "set", "unordered_set",
@@ -374,11 +374,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=os.path.join(ROOT, "src"))
     ap.add_argument("--calibrate", action="store_true",
-                    help="对 git 基线 f647037 校准：恰报 LaSeqReader 一处零误报")
+                    help="对 git 基线 2d20794 校准：恰报 LaSeqReader 一处零误报")
     args = ap.parse_args()
 
     if args.calibrate:
-        worktree = os.path.join(ROOT, "tmp", "cal_f647037")
+        worktree = os.path.join(ROOT, "tmp", "cal_2d20794")
         subprocess.run(["git", "worktree", "remove", "--force", worktree],
                        capture_output=True)
         r = subprocess.run(["git", "worktree", "add", "--detach", worktree,

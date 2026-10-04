@@ -91,7 +91,7 @@ package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + me
 | 2 | LayerId key/display 拆分——密码缓存键=容器逻辑路径，修复兄弟分片组共享游标 → 假性 PasswordExhausted 真 bug；LayerCtx 收敛散参数 + Walker 类 |
 | 3 | MemorySource 管线免文件系统测试、PromptSink 脚本化密码链（全语义单测）、select_group 三层单测 |
 | 4 | TLA+ 前置验收门（legacy/weakOnly/fixed 三变体）、weak_ptr 条目源 + keepAlive() 令牌（配套）、EntryToken 契约、views 唯一实现 + ViewFactory 挂表纪律类型化、engines 拆五件、szcom cache_ 共享预算 LRU |
-| 5 | res/ 资源圈禁（UniqueHandle 三别名/TempFile/com_ptr/DeleteGuard/gsl::owner，五名单 grep 硬门）；AST 强闭包检查器（clang-cl → F\* 验证 closure_check.exe，校准 f647037 恰报 LaSeqReader 零误报）；M1 短写修复。三路评审修复：UniqueFile 哨兵 nullptr 化（INVALID_HANDLE_VALUE 非 NTTP 合法常量）、audit fail-loud、fuzz 回归种子真正入库 |
+| 5 | res/ 资源圈禁（UniqueHandle 三别名/TempFile/com_ptr/DeleteGuard/gsl::owner，五名单 grep 硬门）；AST 强闭包检查器（clang-cl → F\* 验证 closure_check.exe，校准 2d20794 恰报 LaSeqReader 零误报）；M1 短写修复。三路评审修复：UniqueFile 哨兵 nullptr 化（INVALID_HANDLE_VALUE 非 NTTP 合法常量）、audit fail-loud、fuzz 回归种子真正入库 |
 | 6 | clang-tidy 基线硬门（四检查零警告）、/analyze 排雷零警告、合成发布语料 + release_gate 哈希门（决策 D-4：真实样本不入仓，按结构重建）、AGENTS 所有权纪律节、文档匿名化（案例代号）、BoundedQueue abandon 协议 TLA+ 模型（DeadRelease/ParkedSanity + 双校准反例） |
 
 **仍生效的两条 RAII 化契约教训**：①DeleteGuard 声明序=先关句柄后删文件（反序被 GUI 用例 6 抓住 .part 残留）；②COM 释放顺序——Open 失败后 7z.dll 仍持流引用，`arc.reset()` 必须先于 `mainStream_.reset()`。

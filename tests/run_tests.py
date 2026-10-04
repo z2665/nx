@@ -549,7 +549,7 @@ def main():
 
     # 所有权 AST 强闭包审计（批次 5，硬门）：esft 类的成员强闭包含自身 = 类型级
     # 自引用环。链路 = clang-cl ast-dump → 边表（shared_ptr→派生展开）→ F* 验证
-    # closure_check.exe。校准标准（f647037 恰报 LaSeqReader 零误报）见 --calibrate
+    # closure_check.exe。校准标准（2d20794 恰报 LaSeqReader 零误报）见 --calibrate
     r = add("ownership_audit")
     p = subprocess.run([sys.executable, os.path.join(HERE, "audit_ownership.py")],
                        capture_output=True, text=True, encoding="utf-8",

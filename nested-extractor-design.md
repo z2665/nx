@@ -334,7 +334,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
   fixed 零违例零死锁（DeadRelease + ParkedSanity）；
 - **AST 强闭包检查器**（`tests/audit_ownership.py`，硬门）：clang-cl ast-dump →
   类→成员强边表 → **F\* 验证 + KaRaMeL 抽取的 closure_check.exe**（Closure.fst
-  四引理全 VC）判定 esft 类成员强闭包含自身；校准 f647037 恰报 LaSeqReader
+  四引理全 VC）判定 esft 类成员强闭包含自身；校准 2d20794 恰报 LaSeqReader
   零误报；同脚本含 P2 圈禁 grep 门（五名单 + 每次运行正/负样本自检）；
 - **clang-tidy 基线门**（`tests/tidy_check.py` + `.clang-tidy`）：owning-memory/
   dangling-handle/mt-unsafe/unnecessary-value-param 四检查零警告；
