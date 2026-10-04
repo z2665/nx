@@ -104,6 +104,21 @@ jobs:
         shell: cmd
         run: tools\build_closure_kernel.cmd || exit /b 1
 
+      - name: 钉 7-Zip 22.01（语料生成器版本对齐 manifest 基准）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # runner 自带 7-Zip 26.x：其 AES zip 产物结构（extra 字段布局）与 manifest
+          # 冻结时的 22.01 不同——语料生成与 7z.dll 运行时统一钉回 22.01（本地基准）。
+          # 7-Zip 26 AES zip 经 nx 读取失败另案登记（见 plan/）。
+          $installer = Join-Path $env:RUNNER_TEMP '7z2201-x64.exe'
+          curl -sS -L -o $installer https://www.7-zip.org/a/7z2201-x64.exe
+          if ($LASTEXITCODE -ne 0) { throw '7z2201 下载失败' }
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          $ver = (& 'C:\Program Files\7-Zip\7z.exe' | Select-Object -First 2 | Out-String)
+          Write-Host $ver
+          if ($ver -notmatch '22\.01') { throw '7-Zip 22.01 安装未生效' }
+
       - name: 生成测试语料
         shell: cmd
         run: |
