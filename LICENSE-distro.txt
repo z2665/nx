@@ -4,7 +4,7 @@ nx — 流式嵌套压缩包解压工具（便携发行说明）
 
 组件与许可
 ----------
-nx.exe     本项目代码，静态链接以下库（经 vcpkg）：
+nx.exe     本项目代码（MIT，见仓库 LICENSE），静态链接以下库（经 vcpkg）：
              libarchive (BSD) · zlib (Zlib) · bzip2 (BSD) · liblzma (公有领域)
              zstd (BSD/GPLv2 双许可) · lz4 (BSD/GPLv2 双许可)
 7z.dll     7-Zip（作者 Igor Pavlov），LGPL。

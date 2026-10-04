@@ -66,8 +66,9 @@ nx extract-stego video.mp4 -O out\             & :: 解出视频内藏的压缩�
 | 4 | tar 内符号链接 | 跳过并告警，不落盘 |
 | 5 | Win11 新版右键菜单 | 经典级联菜单完整可用；新版菜单（MSIX）未启用 |
 
-## 组件与许可
+## 许可
 
+本项目代码采用 **MIT 许可**（[LICENSE](LICENSE)）。
 nx.exe 静态链接 libarchive（BSD）、zlib（Zlib）、bzip2（BSD）、liblzma（公有领域）、zstd 与 lz4（BSD/GPLv2 双许可）。
 7z.dll 为 7-Zip（Igor Pavlov，LGPL），独立 DLL 按需加载、可选放置——发行物组件许可见 [LICENSE-distro.txt](LICENSE-distro.txt)。
 
