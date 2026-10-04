@@ -215,7 +215,7 @@ struct Entry {
 - **D7 加密与分层密码**：详见 §6——每层独立解析密码，支持"层 A 与层 B 密码不同"，密码不落日志。
 - **D8 可观测性**：`--tree` 干跑嵌套结构树；`--progress` 树形进度 + 各级吞吐；`--report json` 输出层级/格式/耗时/校验结果（**不含任何密码信息**）。
 - **D9 隐写解压（extract-stego / --stego，显式动词）**：只解根文件内藏的压缩包，根文件本体不落盘；未命中 exit 0 + 提示，默认解压行为零变化。检测两条路（仅根 FS 层——流式 detect 无法跳过 GB 级 mdat，需 seek）：① MP4 atom 步进——逐原子头小读、按 size 跳越，非法头处即候选起点（size=1 走 64 位扩展长度，size=0 延伸到 EOF；7z/rar 尾部无结束标记只能经此发现）；② EOCD 反向扫描——末窗口回扫 `PK\x05\x06`，不要求精确到 EOF（允许尾部伪装），区间结果须 CD 签名 `PK\x01\x02` 自证，不可信（zip64 影子值）则回退魔数锚点窗口由 libarchive 依 EOCD64 真值定位。打开：尾接 zip 走 FileSeekView 精确窗口；7z/rar 走 fsBase 窗口交 7z.dll；EOCD 假阳性由试开失败兜回未命中。
-- **D10 嵌套容器免 spool 窗口直读**：父视图 seekable 且条目 **stored** 时，嵌套 zip/7z/rar 直接在父区间随机访问（RegionView 可链式套窗口），免全量 spool 往返。机制：数据相位的 read+seek 双记（libarchive 256KB read-ahead 缓冲命中时 read 回调不触发，seek 是唯一信号）→ 从首读位置回溯 512KiB 定位本地头（PK\x03\x04 + method==0 + 未加密 + 区间精确覆盖条目尺寸）→ 区间直读。安全网：任何失败（deflate 父条目/加密/推导误判/子打开失败）**自动回退 spool 原路径**——回退语义是硬边界（AGENTS 行为红线）。
+- **D10 嵌套容器免 spool 窗口直读**：父视图 seekable 且条目 **stored** 时，嵌套 zip/7z/rar 直接在父区间随机访问（RegionView 可链式套窗口），免全量 spool 往返。机制：数据相位的 read+seek 双记（libarchive 256KB read-ahead 缓冲命中时 read 回调不触发，seek 是唯一信号）→ 从首读位置回溯 512KiB 定位本地头 → **本地头自证**：魔数 + 未加密 + method==0 之外，还须 `csize==usize==条目尺寸`——压缩流/相邻结构里偶合出现的 stored 头（典型：嵌套 zip 自己的 stored 目录条目原样出现在外层 deflate 的 stored 块中）在此排除，曾因缺自证推出错位区间致子打开中途损坏、且触发随流字节巧合漂移 → 区间直读。安全网：任何失败（deflate 父条目/加密/推导误判/子打开失败）**自动回退 spool 原路径**——回退语义是硬边界（AGENTS 行为红线）。
 
 ---
 

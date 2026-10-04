@@ -15,6 +15,7 @@ import io
 import json
 import lzma
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -522,6 +523,37 @@ def case_nested_zip_stored():
                 "outer.zip/loose.txt": sha256(loose.encode())})
 
 
+def case_region_decoy():
+    """区间推导诱饵回归（regionOf 头自证，P0 修复）：外层 deflate 条目的载荷是
+    一个首条目为 stored 目录条目（method0、csize=usize=0）的内层 zip——载荷近乎
+    不可压缩，外层 deflate 退化为 stored 块，内层首条目头原样进压缩流且落在数据
+    相位回溯窗口内。修复前 regionOf 无头自证：把它当本条目的 stored 本地头，推
+    出"内层去掉前若干字节"的错位区间，子打开后 CD 偏移全错中途读头失败（真实
+    形态：嵌套 AES zip 的目录条目；触发随流字节巧合漂移，曾致 CI 发布门环境
+    依赖性失败）。期望：本地头自证（csize==usize==条目尺寸）识破 → 回退 spool
+    正确解出。"""
+    rng = random.Random(20261004)   # 跨再生成确定（区别于 os.urandom 用例）
+    data = rng.randbytes(320 * 1024)
+    ib = io.BytesIO()
+    with zipfile.ZipFile(ib, "w") as zf:
+        di = zipfile.ZipInfo("d/")
+        di.compress_type = zipfile.ZIP_STORED
+        zf.writestr(di, b"")                    # stored 目录条目 = 诱饵头
+        fi = zipfile.ZipInfo("d/data.bin")
+        fi.compress_type = zipfile.ZIP_STORED
+        zf.writestr(fi, data)
+    payload = ib.getvalue()
+
+    def build(d):
+        with zipfile.ZipFile(os.path.join(d, "outer.zip"), "w",
+                             zipfile.ZIP_DEFLATED) as z:
+            z.writestr("archive.zip", payload)  # 不可压缩 → stored 块，诱饵保真
+            z.writestr("top.txt", "decoy case" + chr(10))
+    write_case("region_decoy", build,
+               {"outer.zip/archive.zip/d/data.bin": sha256(data),
+                "outer.zip/top.txt": sha256("decoy case\n".encode())})
+
+
 def case_stego_disguise():
     inner = make_files({"payload/game.exe": "disguised\n" * 200,
                         "docs/manual.txt": "trailer junk beyond EOCD\n" * 40})
@@ -623,6 +655,7 @@ ALL = [
     case_stego_disguise_pw,
     case_stego_zip64_shadow,
     case_nested_zip_stored,
+    case_region_decoy,
 ]
 
 if __name__ == "__main__":

@@ -85,6 +85,18 @@ public:
             if (method != 0) continue;   // 仅 stored
             unsigned nlen = scan[p + 26] | (scan[p + 27] << 8);
             unsigned elen = scan[p + 28] | (scan[p + 29] << 8);
+            // 头自证（P0 修复）：stored 条目的本地头 csize==usize==条目尺寸——
+            // 压缩流/相邻结构里偶合出现的 PK\x03\x04+method0 垃圾魔数在此排除。
+            // 修复前 deflate 外层条目可被误推区间（垃圾头位置当载荷起点），错误
+            // 窗口打开内层后中途读头失败/状态机违反——触发随流字节巧合漂移。
+            // zip64 影子值（0xFFFFFFFF 对）与数据描述符形态（字段为 0）同样
+            // 不匹配而回退 spool——保守正确，>4GiB stored 直读留待需要时加
+            // extra 字段解析
+            unsigned csize = scan[p + 18] | (scan[p + 19] << 8) |
+                             (scan[p + 20] << 16) | (static_cast<unsigned>(scan[p + 21]) << 24);
+            unsigned usize = scan[p + 22] | (scan[p + 23] << 8) |
+                             (scan[p + 24] << 16) | (static_cast<unsigned>(scan[p + 25]) << 24);
+            if (csize != usize || csize != static_cast<unsigned>(esz)) continue;
             uint64_t payload = from + p + 30 + nlen + elen;
             if (payload > first) continue;                     // 载荷须始于首读前
             if (first >= payload + esz) continue;              // 首读须落在载荷内

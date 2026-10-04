@@ -255,6 +255,7 @@ def main():
         ("stego_disguise_pw", "vault.mp4", ["--stego", "-p", "StegoPw@2024", "--no-prompt"], 0),
         ("stego_zip64_shadow", "ghost.mp4", ["--stego"], 0),
         ("nested_zip_stored", "outer.zip", [], 0),
+        ("region_decoy", "outer.zip", [], 0),
     ]:
         d = os.path.join(CASES, case)
         if not os.path.isdir(d):
