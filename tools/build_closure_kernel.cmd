@@ -12,8 +12,8 @@ set "CLANG=%VSROOT%\VC\Tools\Llvm\x64\bin\clang-cl.exe"
 if not exist "%CLANG%" set "CLANG=C:\Program Files\LLVM\bin\clang-cl.exe"
 if not exist "%CLANG%" (echo [kernel] 找不到 clang-cl（VS Clang 组件或独立 LLVM） & exit /b 1)
 cd /d "%~dp0proofs"
-"%CLANG%" /nologo /O2 /W4 /Ikrml_glue /Ikrml_out /Ikrml_runtime\include\krml /Ikrml_runtime\dist ^
-   shim_main.c krml_out\Closure.c krml_runtime\c\prims.c krml_runtime\dist\fstar_int32.c /Fe:closure_check.exe /link /nologo
+"%CLANG%" /nologo /O2 /W4 /Ikrml_glue /Ikrml_out /Ikrml_runtime\include\krml /Ikrml_runtime\karamel ^
+   shim_main.c krml_out\Closure.c krml_runtime\c\prims.c krml_runtime\karamel\fstar_int32.c /Fe:closure_check.exe /link /nologo
 if errorlevel 1 (echo [kernel] 编译失败 & exit /b 1)
 echo [kernel] closure_check.exe 就绪（%CLANG%）
 endlocal

@@ -5,7 +5,8 @@
 在任何环境（含 CI）可从仓库内容复现，不依赖本地 F\* 安装。
 
 - `include/krml/`：krml 伞形头与 `krml/internal/*`（类型/兼容/目标层）
-- `dist/`：KaRaMeL 抽取的模块头与实现（closure_check 实际链接 `fstar_int32.c`）
+- `karamel/`：KaRaMeL 抽取的模块头与实现（closure_check 实际链接 `fstar_int32.c`；
+  目录名避开仓库 `.gitignore` 的 `dist/` 规则）
 - `c/prims.c`：Primitives 运行时实现
 
 出处：F\* 发行包（https://fstar-lang.org/ ，KaRaMeL 运行时，Apache License 2.0）。
