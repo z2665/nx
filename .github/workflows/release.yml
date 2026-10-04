@@ -129,9 +129,12 @@ jobs:
         run: |
           python tests\gen_corpus.py || exit /b 1
           python tests\gen_corpus_fn.py || exit /b 1
+          python tests\gen_corpus_m1.py || exit /b 1
           python tests\gen_corpus_m2.py || exit /b 1
           python tests\gen_release_corpus.py || exit /b 1
-          rem gen_corpus_m1 需 WinRAR（专有，不入 CI）——rar 用例缺席由 run_tests 显式跳过
+          rem m1 自跳过 WinRAR 依赖的 rar 用例（Rar.exe 专有，仅本地）；
+          rem 其 7z/zip 用例（7z_encrypted/mhe/split/solid_many、zip_sfx、
+          rem stego_mp4_7z 复用语料）正常生成——勿因 rar 缺席整脚本跳过
 
       - name: 全量测试门（run_tests：单元+属性+所有权双门+tidy+GUI 冒烟）
         shell: cmd
