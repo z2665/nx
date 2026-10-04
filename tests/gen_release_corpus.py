@@ -84,7 +84,9 @@ def _deflate_marked(entries: dict) -> bytes:
 def _aes_zip(files: dict, pw: str, workdir: str) -> bytes:
     s = build_staging(workdir, make_files(files), "_staging")
     zp = os.path.abspath(os.path.join(workdir, "_aes.zip"))
-    subprocess.run([SEVEN_ZIP, "a", "-tzip", "-mem=AES256", f"-p{pw}", zp, "."],
+    # -mcu=on：文件名一律 UTF-8+EFS——否则 7z 按系统代码页编码（本语料含 CJK/emoji
+    # 名，中文区机器与 CI 的 cp1252 runner 产出的 zip 结构不同，发布门不可复现）
+    subprocess.run([SEVEN_ZIP, "a", "-tzip", "-mem=AES256", "-mcu=on", f"-p{pw}", zp, "."],
                    check=True, capture_output=True, cwd=s)
     data = open(zp, "rb").read()
     os.remove(zp)
