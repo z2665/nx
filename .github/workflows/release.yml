@@ -30,8 +30,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
-      - name: 检出
+      - name: 检出（含 LFS：rar 冻结语料）
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Python 3.14（语料确定性：zipfile 所链 zlib 的 deflate 流随版本漂移）
         uses: actions/setup-python@v5
@@ -73,8 +75,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $vcpkg = Join-Path $env:RUNNER_TEMP 'vcpkg'
-          git clone https://github.com/microsoft/vcpkg.git $vcpkg
-          if ($LASTEXITCODE -ne 0) { throw 'git clone vcpkg 失败' }
+          # 钉扎到 vcpkg.json 的 builtin-baseline 提交（可复现 + 浅取提速）；
+          # baseline 解析要求该 commit 可达——checkout 的正是它
+          git init $vcpkg
+          if ($LASTEXITCODE -ne 0) { throw 'git init vcpkg 失败' }
+          git -C $vcpkg remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $vcpkg fetch --depth 1 origin e03dc9b29710050cd1018bc5674688108658d327
+          if ($LASTEXITCODE -ne 0) { throw 'fetch vcpkg baseline 失败' }
+          git -C $vcpkg checkout FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'checkout vcpkg baseline 失败' }
           & (Join-Path $vcpkg 'bootstrap-vcpkg.bat') -disableMetrics
           if ($LASTEXITCODE -ne 0) { throw 'bootstrap-vcpkg 失败' }
           "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
@@ -135,6 +144,9 @@ jobs:
           rem m1 先跑：gen_corpus 的 stego_mp4_7z/rar 复用 m1 语料（全新 checkout
           rem 无累积，顺序与本地文档相反）；m1 自跳过 WinRAR 依赖的 rar 用例
           rem （Rar.exe 专有仅本地），其 7z/zip 用例正常生成
+          rem rar 族用例：LFS 冻结语料补入（生成器无法在 CI 产 rar；读取引擎无关）
+          robocopy tests\cases-rar tests\cases /E /XF SHA256SUMS >nul
+          if %ERRORLEVEL% GEQ 8 exit /b 1
 
       - name: 全量测试门（run_tests：单元+属性+所有权双门+tidy+GUI 冒烟）
         shell: cmd

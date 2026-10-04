@@ -19,11 +19,14 @@ NX_EXE = os.environ.get("NX_EXE", os.path.join(HERE, "..", "build", "nx.exe"))
 WORK = os.path.join(HERE, "work")
 
 
-def run_nx(args, timeout=300):
+def run_nx(args, timeout=300, extra_env=None):
     t0 = time.time()
+    env = {**os.environ, "NX_PROMPT_TEST": "1"}
+    if extra_env:
+        env.update(extra_env)
     p = subprocess.run([NX_EXE] + args, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=timeout,
-                       env={**os.environ, "NX_PROMPT_TEST": "1"})
+                       env=env)
     return p.returncode, p.stdout, p.stderr, time.time() - t0
 
 
@@ -82,12 +85,14 @@ def find_input(case_dir, want):
     raise AssertionError(f"输入 {want} 不存在")
 
 
-def run_extract_and_compare(r, case, input_file, extra_args, expect_code):
+def run_extract_and_compare(r, case, input_file, extra_args, expect_code,
+                            extra_env=None):
     case_dir = os.path.join(CASES, case)
     out = fresh_out(case)
     tmp = fresh_tmp(case)
     code, stdout, stderr, dt = run_nx(
-        ["extract", input_file, "-O", out, "--temp-dir", tmp] + extra_args)
+        ["extract", input_file, "-O", out, "--temp-dir", tmp] + extra_args,
+        extra_env=extra_env)
     r.check(code == expect_code,
             f"退出码 {code}（期望 {expect_code}）stderr={stderr.strip()[:400]}")
     expected = json.load(open(os.path.join(case_dir, "expected.json"), encoding="utf-8"))["files"]
@@ -217,6 +222,20 @@ def main():
             continue
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), args, want)
+
+    # libarchive 7z/rar 回退路径（NX_NO_7ZDLL=1 强制无 7z.dll）：该回退仅在
+    # 7z.dll 缺失/打开失败时自然触发，套件外无法到达。rar4/rar5 明文与 solid
+    # 经 libarchive 读取；加密（rar5 crypto 支持有限）与分卷（libarchive 无
+    # 多卷）依赖 7z.dll，不在此列
+    for case, entry in [("rar5_plain", "data.rar"),
+                        ("rar_solid", "solid.rar")]:
+        d = os.path.join(CASES, case)
+        if not os.path.isdir(d):
+            print(f"[run] 跳过缺失用例 {case}_la")
+            continue
+        r = add(case + "_la")
+        run_extract_and_compare(r, case, find_input(d, entry), [], 0,
+                                extra_env={"NX_NO_7ZDLL": "1"})
 
     # solid 批量抽取性能回归（szcom materializeBatch）：逐条目单独 Extract 会对
     # solid 块逐文件从头重解码（O(N²)）——600 文件语料分钟级；批量后秒级

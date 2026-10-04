@@ -31,7 +31,8 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 
 ```bash
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
-python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
+python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI（无 WinRAR 时 rar 用例由 LFS 冻结语料 tests/cases-rar/ 补入——freeze_rar_corpus.py 产物）
+python tests/freeze_rar_corpus.py # 重冻结 rar 语料到 LFS 目录（需先本地生成；--force 覆盖）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
 python tests/run_tests.py        # 硬门：55 用例全绿（构成与门的语义见 DEVELOP「CI 硬门」）；NX_EXE 环境变量可覆盖被测 exe 路径
 python tests/release_gate.py     # 发布门：合成语料端到端哈希比对；--update 固化基线

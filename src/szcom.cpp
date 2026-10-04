@@ -6,6 +6,7 @@
 #include <oleauto.h>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <list>
 #include <mutex>
@@ -126,6 +127,11 @@ std::wstring try_load(const std::wstring& path) {
 } // namespace
 
 bool dll_available() {
+    // 测试钩子（默认关闭）：NX_NO_7ZDLL=1 强制视为不可用——覆盖 libarchive 的
+    // 7z/rar 回退路径（该路径仅在 7z.dll 缺失/打开失败时自然触发，套件外无法
+    // 强制到达）。只影响探测结果，不改变任何回退语义本身
+    // NOLINT：进程内从不并发修改环境（无 setenv/putenv），CRT getenv 只读安全
+    if (std::getenv("NX_NO_7ZDLL")) return false;   // NOLINT(concurrency-mt-unsafe)
     if (g_dll) return true;
     if (!g_error.empty()) return false;
     std::wstring r = try_load(L"7z.dll");   // 默认搜索：exe 目录、PATH

@@ -1,0 +1,5 @@
+# rar 族冻结语料（tests/freeze_rar_corpus.py 产物）：二进制入 LFS；
+# expected.json / SHA256SUMS 保持普通文本（可 diff 审阅）
+tests/cases-rar/** filter=lfs diff=lfs merge=lfs -text
+tests/cases-rar/**/expected.json -filter -diff -merge
+tests/cases-rar/SHA256SUMS -filter -diff -merge

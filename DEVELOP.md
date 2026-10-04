@@ -100,7 +100,9 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 `.github/workflows/release.yml`：**推送 `v*` 标签触发**，在 CI 上跑**与本地相同的门体系**（run_tests 全量 + release_gate）后产出 `nx-<tag>-windows-x64.zip` 并创建 GitHub Release；手动 `workflow_dispatch` 可试跑（只出 artifact 不发布）。要点：
 
 - **CI 自装工具链**：Java+`tla2tools.jar`（TLA+ 门）、LLVM（clang-cl/clang-tidy——VS Clang 组件缺席时 choco 兜底；`audit_ownership.py`/`tidy_check.py`/`build_closure_kernel.cmd` 均为可移植发现：`NX_VSROOT` → 本机默认 → vswhere → 独立 LLVM）、闭包内核（`tools/proofs/krml_runtime/` 收编 KaRaMeL 运行时，无需本地 F*）。
-- **已知缺口（唯一）**：WinRAR 专有不入 CI——rar 生成类语料缺席，run_tests 对应用例显式打印"跳过缺失用例"；**这些用例属本地发版前必跑**（`gen_corpus_m1.py` 需 `tests/tools/winrar/Rar.exe`）。
+- **rar 语料 = LFS 冻结入库**（`tests/cases-rar/`，`freeze_rar_corpus.py` 产物 + SHA256SUMS 清单）：rar 只能由 WinRAR 试用版生成（专有），CI 把冻结目录拷入 `tests/cases/` 后照跑全部 rar 用例（读取引擎 7z.dll/libarchive 与生成工具无关）。本地有 WinRAR 时 `gen_corpus_m1.py` 实时重生成，冻结目录不受影响；`--force` 重冻需本地 WinRAR。
+- **libarchive 7z/rar 回退覆盖**：`NX_NO_7ZDLL=1` 测试钩子（szcom `dll_available`）强制视为无 7z.dll——`rar5_plain_la`/`rar_solid_la` 用例走 libarchive 读取；加密（rar5 crypto 有限）与分卷（libarchive 无多卷）仍依赖 7z.dll，不在此列。
+- 唯一残余缺口：rar4/旧命名卷——WinRAR 7.x 已不支持 `-ma4`，无语料生成渠道（README 已知限制 #3）。
 - 便携包不含 nxshell.dll/menupkg（Win11 新版菜单雏形未启用；在用 = 经典级联菜单）。
 - 发一个版本：本地全量门跑绿（含 WinRAR 语料）→ `git tag v0.x.y && git push origin v0.x.y`。
 
