@@ -22,6 +22,8 @@ permissions:
 
 env:
   VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
+  # runner 的 Python stdio 默认 cp1252——中文消息直接 UnicodeEncodeError
+  PYTHONIOENCODING: utf-8
 
 jobs:
   build-and-release:
