@@ -244,7 +244,7 @@ def main():
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), [], 0)
 
-    # 隐写（README 待办 #1）：--stego 模式解出根文件内藏压缩包（根文件本体不落盘）
+    # 隐写（DEVELOP 待办 #1）：--stego 模式解出根文件内藏压缩包（根文件本体不落盘）
     for case, entry, args, want in [
         ("stego_mp4_zip", "video.mp4", ["--stego"], 0),
         ("stego_jpg_zip", "photo.jpg", ["--stego"], 0),

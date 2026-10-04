@@ -396,7 +396,7 @@ def case_mixed_filters():
     write_case("mixed_filters", build, expected)
 
 
-# ---------------------------------------------------------------- 隐写（README 待办 #1）
+# ---------------------------------------------------------------- 隐写（DEVELOP 待办 #1）
 
 def mp4_atom(typ: bytes, payload: bytes) -> bytes:
     return (8 + len(payload)).to_bytes(4, "big") + typ + payload

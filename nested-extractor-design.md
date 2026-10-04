@@ -2,7 +2,7 @@
 
 > 版本 v0.3 ｜ 2026-10-03 ｜ 平台：纯 Windows ｜ 实现：C++23（选型决策见 §7）
 > 实现状态：M0–M3 + v1 后续 + 现代化重构批次 0–6 **全部完成**（55/55 测试 + GUI 9/9 +
-> 合成发布门；进度与测试清单见 README，工作区纪律见 AGENTS.md，§10 为实施记录）
+> 合成发布门；进度与测试清单见 DEVELOP，工作区纪律见 AGENTS.md，§10 为实施记录）
 > v0.3 变更：语言标准更新为 C++23、工具链与依赖表对齐实现现状、案例代号匿名化（D-4）、
 > §4.1 所有权与生命周期/§9.6 验证体系收编自重构路线图（该文件已退役删除）；历史决策记录（v0.2 选型）保留原貌。
 
@@ -289,7 +289,7 @@ struct Entry {
 
 | 引擎 | 职责 | 引入方式 | 许可 |
 |---|---|---|---|
-| **libarchive** | tar/cpio/ar/zip（双模式）/cab/iso + 过滤器 gz/bz2/xz/zstd/lz4/.Z；zip ZipCrypto/AES、7z AES 读 | vcpkg（静态，overlay 两补丁见 README） | BSD |
+| **libarchive** | tar/cpio/ar/zip（双模式）/cab/iso + 过滤器 gz/bz2/xz/zstd/lz4/.Z；zip ZipCrypto/AES、7z AES 读 | vcpkg（静态，overlay 两补丁见 DEVELOP） | BSD |
 | **zlib-ng[compat]**/bzip2/liblzma/zstd/lz4 | 过滤器直连（不经 libarchive，五解码器 RAII 适配） | vcpkg（静态） | 各自 |
 | **7z.dll**（IInArchive COM） | 7z 全特性（**原生分卷** + AES + 头加密）+ RAR 解码兜底 | 运行时按需加载的独立 DLL | LGPL + unRAR 限制（独立 DLL 形态即满足隔离） |
 
@@ -363,7 +363,7 @@ MSVC /analyze 排雷（`build-analyze.cmd`，低噪子集）为非门辅助，�
   取消按钮/X → `abortFlag` → Walker/Sink 抛 `Cancelled`（exit 2 静默退出，与密码弹窗取消同语义）；
   `Sink::writeOne` 大文件写出循环内逐块响应，`.part` 半成品照常清理。
   v1 用动画条而非百分比——根 zip（FileSeekView）与 7z.dll 直读路径绕过 `InputMeter`，
-  真百分比需给两引擎接计量（已列入 README 待办）。
+  真百分比需给两引擎接计量（已列入 DEVELOP 待办）。
   `gui_smoke.py` 扩至 6 用例（出现/自动关闭/取消中止/半成品清理）。
 - **【实施记录】进度条真百分比（原待办 #2，已随待办 #1 完成后补齐）**：
   语义 = 根输入消耗比 `meter.bytes / stats.inputTotal`。`InputMeter*` 经 `EngineOptions`
@@ -507,7 +507,7 @@ MSVC /analyze 排雷（`build-analyze.cmd`，低噪子集）为非门辅助，�
 | M3（正式发布） | unRAR 可选插件、`nxcore.dll` C ABI 导出、安装器/右键菜单、可选 WPF 壳 | 分发物 + 全量测试矩阵 | ✅ 完成（便携打包/右键级联/GUI 密码/默认日志；nxcore.dll 与 WPF 未做，非必需） |
 | 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | ✅ 均已完成（GUI 进度窗+真百分比、extract-stego 隐写解压，见 §10 实施记录） |
 | v1 后续 | 性能四项（zlib-ng/spool 自适应/批量 CTR/LTO）、嵌套免 spool 直读、真实案例稳定性修复 | — | ✅ 完成（AES 12×、bench B 反超手工、stored 嵌套免搬运；见 §10 实施记录） |
-| 现代化重构（2026-10-02/03） | 缺陷登记簿 D1-D8、领域类型化、纯核心/效果壳、所有权 DAG（weak_ptr+KeepAlive/EntryToken/res 圈禁）、验证体系（双 TLA+ 模型 / AST 闭包检查器 + F\* / clang-tidy 基线 / fuzz 哨兵 / 合成发布门） | 全量回归全绿 | ✅ 批次 0-6 全部完成（55/55 + 9/9；交付清单见 README「重构记录」，纪律见 AGENTS） |
+| 现代化重构（2026-10-02/03） | 缺陷登记簿 D1-D8、领域类型化、纯核心/效果壳、所有权 DAG（weak_ptr+KeepAlive/EntryToken/res 圈禁）、验证体系（双 TLA+ 模型 / AST 闭包检查器 + F\* / clang-tidy 基线 / fuzz 哨兵 / 合成发布门） | 全量回归全绿 | ✅ 批次 0-6 全部完成（55/55 + 9/9；交付清单见 DEVELOP「重构记录」，纪律见 AGENTS） |
 
 ---
 

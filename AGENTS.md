@@ -2,7 +2,7 @@
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++23，单 exe `build\nx.exe`）。
 权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读；§4.1 所有权与生命周期、§9.6 验证体系）。
-进度与已知问题以 [README.md](README.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，55/55 测试通过；C++23）。重构已完成，路线图文件已退役——纪律正文即本文件「所有权纪律」节。
+进度与已知问题以 [DEVELOP.md](DEVELOP.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，55/55 测试通过；C++23；[README.md](README.md) 为面向用户的说明）。重构已完成，路线图文件已退役——纪律正文即本文件「所有权纪律」节。
 
 ## 构建与打包
 
