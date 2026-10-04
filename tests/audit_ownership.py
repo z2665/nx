@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nx 所有权审计：AST 强闭包检查器 + P2 圈禁 grep 检查（roadmap §7.3，批次 5）。
+"""nx 所有权审计：AST 强闭包检查器 + P2 圈禁 grep 检查。
 
 链路：clang-cl -Xclang -ast-dump=json 逐 TU 抽取"类→成员强边"表 →
 （shared_ptr/unique_ptr 目标展开到全部传递派生类——环常经基类静态类型达成，
@@ -9,14 +9,14 @@
  FreeLibrary / ->Release() 不得出现在 src/res/ 之外（匹配"名字+调用括号"，
  剥注释防误报；IUnknown::Release override 是 COM 接口实现，不属手工释放）。
  已知边界：点调用 x.Release()、经函数指针/宏的间接调用不匹配（当前代码无此形态）；
- fclose/LocalFree/CoTaskMemFree/archive_read_free 暂不在圈禁名单（批次 6 评估）。
+ fclose/LocalFree/CoTaskMemFree/archive_read_free 暂不在圈禁名单（暂不圈禁）。
  每次 audit 先跑圈禁门自检（正/负样本注入），防 regex 失效后空转通过。
 
 用法：
   python tests/audit_ownership.py                 # 审计 HEAD src/，违例退出 1
   python tests/audit_ownership.py --src <dir>     # 审计指定源目录（校准用）
   python tests/audit_ownership.py --calibrate     # 校准模式：对 2d20794 须恰报
-                                                  # LaSeqReader 一处零误报（roadmap §7.3）
+                                                  # LaSeqReader 一处零误报
                                                   # （圈禁检查不参与校准——其标准是
                                                   #   HEAD 零违规，基线时代尚未圈禁）
 依赖：clang-cl（VS "C++ Clang tools for Windows" 组件）、vcvars、
@@ -286,7 +286,7 @@ def build_graph(src_dir: str):
     return records, esft, edges, children
 
 
-# ---- P2 圈禁（批次 5）：释放调用只允许出现在 src/res/ ----
+# ---- P2 圈禁：释放调用只允许出现在 src/res/ ----
 # 匹配"名字+调用括号"（注释中无括号的提及不误报；先剥注释再扫以稳妥）
 RELEASE_CALL = re.compile(
     r"\b(?:CloseHandle|DeleteFileW|RegCloseKey|FreeLibrary)\s*\(|->Release\s*\(")

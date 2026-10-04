@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nx M0 属性测试运行器（设计 §9.2/§9.3/§9.4）。
+"""nx 属性测试运行器（设计 §9.2/§9.3/§9.4）。
 
 对每个用例：运行 nx → 对比输出树 sha256 与 expected.json → 断言退出码。
 退出码契约：0 成功 | 1 部分失败 | 2 密码 | 3 超限 | 4 缺分片。
@@ -123,7 +123,7 @@ def main():
         results.append(r)
         return r
 
-    # C++ 纯核心单元测试（批次 1 起：退出码推导/消毒/分片命名/单位解析等纯函数）
+    # C++ 纯核心单元测试（退出码推导/消毒/分片命名/单位解析等纯函数）
     unit_exe = os.path.join(os.path.dirname(os.path.abspath(NX_EXE)), "nxunit.exe")
     if os.path.exists(unit_exe):
         r = add("unit_core")
@@ -133,7 +133,7 @@ def main():
     else:
         print("[run] 跳过 nxunit（未构建）")
 
-    # 所有权模型门（TLA+/TLC，唯一权威形态——批次 4 前置验收门常驻）：
+    # 所有权模型门（TLA+/TLC，设计语义唯一权威形态）：
     # legacy 必违 NoLeak、weakOnly 必违 AsyncNoUseAfterDead、fixed 必须全过。
     # 硬门：缺 jar/java 直接判 FAIL（跑 tools/fetch_tla.cmd 获取），不静默跳过
     tla_jar = os.path.join(ROOT, "tools", "tla2tools.jar")
@@ -165,7 +165,7 @@ def main():
         if notes:
             r.check(False, "TLA+/TLC 门结论与预期不符:\n" + "\n".join(notes))
 
-    # 硬门（批次 6 遗留收口）：BoundedQueue abandon 协议（roadmap §7.4）——
+    # 硬门：BoundedQueue abandon 协议——
     # DeadRelease（dead ⇒ 双侧无驻留）/ParkedSanity（驻留=while 前提纪律）。
     # 校准反例：closeNoWake 违 ParkedSanity、abandonNoWake 违 DeadRelease
     # （两个校准变体必须违例——证明模型能抓住它存在所要防的 bug 类）
@@ -223,7 +223,7 @@ def main():
     for r0 in [r for r in results if r.name == "7z_solid_many"]:
         r0.check(r0.dt < 60, f"solid 批量抽取过慢（{r0.dt:.0f}s，疑似逐条目回退）")
 
-    # M0 常规：正确解出 + 零中间
+    # 常规：正确解出 + 零中间
     for case, entry in [
         ("plain_zip", "plain.zip"),
         ("three_layer", "data.tar.gz"),
@@ -244,7 +244,7 @@ def main():
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), [], 0)
 
-    # 隐写（DEVELOP 待办 #1）：--stego 模式解出根文件内藏压缩包（根文件本体不落盘）
+    # 隐写（--stego）：解出根文件内藏压缩包（根文件本体不落盘）
     for case, entry, args, want in [
         ("stego_mp4_zip", "video.mp4", ["--stego"], 0),
         ("stego_jpg_zip", "photo.jpg", ["--stego"], 0),
@@ -334,7 +334,7 @@ def main():
                                    "--temp-dir", tmp, "--no-prompt"])
         r.check(code == 2, f"无密码场景退出码 {code}（期望 2）")
 
-    # 密码缓存键语义（批次 2 / 领域 #2）：不同父容器下的同名分片组——逻辑路径键
+    # 密码缓存键语义（设计 §6.2 层身份）：不同父容器下的同名分片组——逻辑路径键
     # 区分兄弟分支（修复前 a 组耗尽候选污染共享游标，b 组假性耗尽 → 0 文件）
     d = os.path.join(CASES, "sibling_pw_cache")
     if os.path.isdir(d):
@@ -368,7 +368,7 @@ def main():
         r.check(code == 0, f"tree 退出码 {code}")
         r.check("inner.zip" in stdout, "tree 输出缺少 inner.zip")
 
-    # ---- M2 ----
+    # ---- 安全与限额 ----
     # 压缩比熔断（D6）：高膨胀 gz + --max-ratio 50 → exit 3；默认 1000 放行
     d = os.path.join(CASES, "ratio_bomb")
     if os.path.isdir(d):
@@ -429,7 +429,7 @@ def main():
             r = add(case)
             run_extract_and_compare(r, case, find_input(d, "cpnames.zip"), ["--no-prompt"], 0)
 
-    # ---- M3 ----
+    # ---- 布局/GUI/菜单 ----
     # --no-root：条目直接落在输出目录（无根目录层）
     d = os.path.join(CASES, "three_layer")
     if os.path.isdir(d):
@@ -547,7 +547,7 @@ def main():
                        timeout=180)
     r.check(g.returncode == 0, "GUI 冒烟失败: " + (g.stdout or "")[-500:])
 
-    # 所有权 AST 强闭包审计（批次 5，硬门）：esft 类的成员强闭包含自身 = 类型级
+    # 所有权 AST 强闭包审计（硬门）：esft 类的成员强闭包含自身 = 类型级
     # 自引用环。链路 = clang-cl ast-dump → 边表（shared_ptr→派生展开）→ F* 验证
     # closure_check.exe。校准标准（2d20794 恰报 LaSeqReader 零误报）见 --calibrate
     r = add("ownership_audit")
@@ -556,7 +556,7 @@ def main():
                        errors="replace", timeout=1800)
     r.check(p.returncode == 0, "所有权审计失败:\n" + (p.stdout or "")[-800:])
 
-    # clang-tidy 基线门（批次 6，硬门）：roadmap §7.3 推荐集四检查，零警告基线
+    # clang-tidy 基线门（硬门）：四检查零警告基线
     # （存量已清零或 NOLINT 附理由）。缺 clang-tidy 组件直接 FAIL——门就是门
     r = add("tidy_check")
     p = subprocess.run([sys.executable, os.path.join(HERE, "tidy_check.py")],

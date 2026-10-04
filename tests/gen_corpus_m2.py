@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nx M2 测试语料与用例：压缩比熔断（D6）、--verify sha256、--report（D8）。
+"""nx 测试语料与用例（M2 组）：压缩比熔断（D6）、--verify sha256、--report（D8）。
 
 - ratio_bomb：高度可压缩 gz（10MB 零 → ~10KB），--max-ratio 50 触发熔断（exit 3）
 - verify_report：普通 zip 跑 --verify sha256 --report，哈希与 ground truth 对比

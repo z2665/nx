@@ -1,10 +1,11 @@
 # 流式嵌套压缩包解压工具 —— 调研与设计文档
 
-> 版本 v0.3 ｜ 2026-10-03 ｜ 平台：纯 Windows ｜ 实现：C++23（选型决策见 §7）
-> 实现状态：M0–M3 + v1 后续 + 现代化重构批次 0–6 **全部完成**（55/55 测试 + GUI 9/9 +
-> 合成发布门；进度与测试清单见 DEVELOP，工作区纪律见 AGENTS.md，§10 为实施记录）
+> 版本 v0.4 ｜ 2026-10-04 ｜ 平台：纯 Windows ｜ 实现：C++23（选型决策见 §7）
+> 工作区纪律见 AGENTS.md；开发指南（构建/源码地图/CI 硬门）见 DEVELOP.md；
+> 进度与计划一律落 `plan/` 本地文件夹（gitignored，不入仓）——仓库文档只描述系统与开发方式，不记录开发状态。
+> v0.4 变更：移除里程碑表与实施记录（历史细节见 git log 与 AGENTS 踩坑节）；其中机制性内容并入 §5 决策 D9/D10。
 > v0.3 变更：语言标准更新为 C++23、工具链与依赖表对齐实现现状、案例代号匿名化（D-4）、
-> §4.1 所有权与生命周期/§9.6 验证体系收编自重构路线图（该文件已退役删除）；历史决策记录（v0.2 选型）保留原貌。
+> §4.1 所有权与生命周期/§9.6 验证体系为后续补充节；历史决策记录（v0.2 选型）保留原貌。
 
 ---
 
@@ -213,6 +214,8 @@ struct Entry {
 - **D6 安全（默认开）**：深度上限 10（决策 D-1，2026-10-02：原 8；容器嵌套深度与每容器段内过滤器链长共用此限——过滤器链无上界曾是 DoS 面，4MiB 嵌套 gzip 可栈溢出）；累计输出上限 512 GiB；单条目压缩比 >1000 告警/熔断；路径消毒（`..`、绝对路径、Windows 保留名 CON/NUL/COM1…、ADS 冒号、尾部点/空格、大小写不敏感重名）；符号链接默认降级；CRC 失败 `--keep-going` 隔离；先写 `.part` 临时名再原子 rename。
 - **D7 加密与分层密码**：详见 §6——每层独立解析密码，支持"层 A 与层 B 密码不同"，密码不落日志。
 - **D8 可观测性**：`--tree` 干跑嵌套结构树；`--progress` 树形进度 + 各级吞吐；`--report json` 输出层级/格式/耗时/校验结果（**不含任何密码信息**）。
+- **D9 隐写解压（extract-stego / --stego，显式动词）**：只解根文件内藏的压缩包，根文件本体不落盘；未命中 exit 0 + 提示，默认解压行为零变化。检测两条路（仅根 FS 层——流式 detect 无法跳过 GB 级 mdat，需 seek）：① MP4 atom 步进——逐原子头小读、按 size 跳越，非法头处即候选起点（size=1 走 64 位扩展长度，size=0 延伸到 EOF；7z/rar 尾部无结束标记只能经此发现）；② EOCD 反向扫描——末窗口回扫 `PK\x05\x06`，不要求精确到 EOF（允许尾部伪装），区间结果须 CD 签名 `PK\x01\x02` 自证，不可信（zip64 影子值）则回退魔数锚点窗口由 libarchive 依 EOCD64 真值定位。打开：尾接 zip 走 FileSeekView 精确窗口；7z/rar 走 fsBase 窗口交 7z.dll；EOCD 假阳性由试开失败兜回未命中。
+- **D10 嵌套容器免 spool 窗口直读**：父视图 seekable 且条目 **stored** 时，嵌套 zip/7z/rar 直接在父区间随机访问（RegionView 可链式套窗口），免全量 spool 往返。机制：数据相位的 read+seek 双记（libarchive 256KB read-ahead 缓冲命中时 read 回调不触发，seek 是唯一信号）→ 从首读位置回溯 512KiB 定位本地头（PK\x03\x04 + method==0 + 未加密 + 区间精确覆盖条目尺寸）→ 区间直读。安全网：任何失败（deflate 父条目/加密/推导误判/子打开失败）**自动回退 spool 原路径**——回退语义是硬边界（AGENTS 行为红线）。
 
 ---
 
@@ -269,7 +272,7 @@ struct Entry {
 
 ---
 
-## 7. 实现技术决策：C++（v0.2 选型 C++20 → 批次 1 升格 C++23）
+## 7. 实现技术决策：C++（v0.2 选型 C++20，后升格 C++23）
 
 ### 7.1 C++20 vs .NET 8 决策记录
 
@@ -296,7 +299,7 @@ struct Entry {
 未实现（v0.2 规划项，评估后搁置）：unRAR 可选插件（7z.dll 已覆盖 RAR 主线）、
 brotli/.br（无 magic 试探解码，暂无真实需求）。
 
-工具链：Visual Studio 2026、`/std:c++23 /MT`（v0.2 选型时为 C++20，批次 1 升格
+工具链：Visual Studio 2026、`/std:c++23 /MT`（v0.2 选型时为 C++20，后升格
 C++23 承接 std::expected）、vcpkg manifest 固定版本（供应链审计友好）、CMake + Ninja。
 
 ---
@@ -324,7 +327,7 @@ nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 2. **属性测试（正确性金标准）**：任何生成组合，本工具输出 ≡ 逐层手工解压（7-Zip/bsdtar 循环）——全树哈希对比。
 3. **对抗用例**：zip-slip 路径集、Windows 保留名/ADS/超长名、42.zip 风格炸弹（熔断必须触发）、截断流、坏 CRC、缺分片、序号跳号、`.z01+.zip` 顺序陷阱、本地头/中央目录不一致、**7z 头加密（无密码连列表都没有）**、错误密码与损坏数据混叠。
 4. **密码专项**：层身份正确性（同密码复用命中缓存；异密码各自询问且提示文本带层路径）；回显关闭；`--no-prompt` 下密码耗尽的退出码；RAR3 大候选列表的耗时长尾。
-5. **性能基准**：固定 3 组语料 × 3 方案（手工两遍 / bsdtar 管道 / 本工具）；指标 = 墙钟、**峰值磁盘占用**（流水线应为 0 中间）、峰值内存、用户 CPU。机械盘/网络盘环境必测（流水线收益放大器）。
+5. **性能基准**：固定 3 组语料 × 3 方案（手工两遍 / bsdtar 管道 / 本工具）；指标 = 墙钟、**峰值磁盘占用**（流水线应为 0 中间）、峰值内存、用户 CPU。机械盘/网络盘环境必测（流水线收益放大器）。注意：Windows 原生管道下 bsdtar 解流式 zip 存在静默丢条目问题——bsdtar 管道方案的对比数据仅作参考。
 
 ### 9.6 验证体系（重构落地，run_tests 硬门）
 
@@ -357,157 +360,6 @@ MSVC /analyze 排雷（`build-analyze.cmd`，低噪子集）为非门辅助，�
 - **Windows 文件名合规**（大小写不敏感碰撞、尾部点/空格）需专门消毒器。
 - **是否做写入方向**（顺手把嵌套包重打包为单层 tar.zst）v2 评估。
 - **多成员 gzip/xz 串联**与"分片切在成员边界附近"的组合易错，语料生成器显式覆盖。
-- **【已完成】GUI 进度指示（原待办 #1）**：独立 GUI 线程上的无模式进度对话框
-  （输入文件名 + 当前活动行 + 动画条 + 已输出字节/文件数/耗时，200ms 定时轮询 `Stats`
-  原子量），显示条件与完成弹窗一致（Explorer 启动或 `--gui`，非 tree）。
-  取消按钮/X → `abortFlag` → Walker/Sink 抛 `Cancelled`（exit 2 静默退出，与密码弹窗取消同语义）；
-  `Sink::writeOne` 大文件写出循环内逐块响应，`.part` 半成品照常清理。
-  v1 用动画条而非百分比——根 zip（FileSeekView）与 7z.dll 直读路径绕过 `InputMeter`，
-  真百分比需给两引擎接计量（已列入 DEVELOP 待办）。
-  `gui_smoke.py` 扩至 6 用例（出现/自动关闭/取消中止/半成品清理）。
-- **【实施记录】进度条真百分比（原待办 #2，已随待办 #1 完成后补齐）**：
-  语义 = 根输入消耗比 `meter.bytes / stats.inputTotal`。`InputMeter*` 经 `EngineOptions`
-  透传（`Session::engineOpt()` 一处接线），三个挂点：zip 根 `FileSeekView`（正式/密码重试
-  视图；码表探测视图不挂——多候选各重读一遍中央目录会虚增计数）、7z.dll 直读
-  `FileSeekInput`（FS 卷；经 `SharedOpenState` 覆盖 RAR 多卷回调的后续卷）、流式根
-  `FileSource`（原有）。spool 卷明确不挂（字节来自外层已计量流，再计即重复）。
-  `inputTotal` 由 `run_input` 累计（单文件/分片组各卷之和，多输入累加）。
-  重读造成的超出由显示端 99% 封顶吸收；分母未知回退动画条。
-  附带修正：此前 zip 根下嵌套过滤器的压缩比熔断分母虚小（≈64 KiB 检测读），
-  补计量后才是 D6 语义的真实根输入（ratio_bomb 回归通过）。
-  冒烟断言 `PBM_GETPOS` 随解压爬升（zip 直读 0→77%、7z 直读 0→99% 实测）。
-- **【已完成】MP4 隐写压缩包识别（原待办）**：入口为右键第三项 `extract-stego` /
-  CLI `extract --stego`（用户显式选择"解隐写内容"→ 免运行时弹窗决策，语义=只解内藏
-  压缩包、根文件本体不落盘；默认解压路径行为零变化）。检测两条路（`stego.cpp`，
-  仅根 FS 层——流式 detect 无法跳过 GB 级 mdat）：① MP4 atom 步进（逐原子头小读、
-  按 size 跳越，非法头处即候选起点；size=1 走 64 位扩展长度，size=0=延伸到 EOF；
-  7z/rar 尾部无结束标记，只能经此发现）；② EOCD 反向扫描（末 64KiB+22 回扫
-  `PK\x05\x06`，注释长度须精确吃到 EOF；覆盖任意格式尾接 zip 与 mdat size=0 病态）。
-  打开：尾接 zip 整文件直开（libarchive 自 EOCD 反推 SFX 基址）；7z/rar 经
-  `FileSeekInput` 的 `fsBase` 窗口（`[offset, EOF)` 呈现为完整卷）交 7z.dll。
-  未命中 → exit 0 + GUI「nx 隐写解压」信息框；EOCD 假阳性由试开 CorruptError 兜回未命中。
-  8 属性用例 + GUI 冒烟用例 8（43/43 + 8/8）。
-- **【实施记录】真实隐写样本三重陷阱**（案例 S：2.5GB 隐写 MP4 真实案例，已匿名化，
-  "7-Zip `#` 模式可开"）：
-  ① EOCD 之后拖 18 KB 伪装数据，且文件末尾补一个 `size=8` 假 mdat 原子头——专门对付
-  "EOCD 必须精确到 EOF"的尾部回扫类检测（libarchive 整文件直开也拒收）；
-  ② zip 起点前有 76 字节诱饵（首见 `PK\x03\x04` 偏移 ≠ 真实基址）；
-  ③ **zip64 影子值**——该档真值在 EOCD64+定位器，经典 EOCD 的 cdOffset/cdSize/条目数
-  全是错的（写着 1 条目/90B，实际 4762 条目），EOCD 数学基址偏 76 字节。
-  修复三层：EOCD 校验放宽（允许尾部伪装，区间 = [基址, EOCD 末尾)）；区间结果必须
-  **自证**（算出的 CD 位置读 4 字节验 `PK\x01\x02`，不匹配即影子值 → 不信任）；
-  不可信时回退**魔数锚点窗口**（首见 PK → 到 EOF），libarchive 自依 EOCD64 真值定位、
-  且对窗口尾部残余数据有容忍（实测 [魔数, EOF) 与 [魔数, EOCD末尾) 均可解）。
-  另踩一坑：EOCD 的 cdSize/cdOffset 是小端字段，与 MP4 atom 大端相反——已分设 be32/le32。
-  样本病理已固化为语料（stego_disguise / stego_disguise_pw / stego_zip64_shadow）。
-- **【实施记录】嵌套容器免 spool 窗口直读**（nested-window-direct-read 分支）：父为
-  seekable 视图支撑且条目为 stored 时，子容器直接在父区间上随机访问，免全量 spool 往返。
-  机制：CbCtx 记录条目数据相位的视图访问（seek/read 双记——read-ahead 缓冲命中时 read
-  回调不触发）；regionOf 从首读位置回溯 512KB 定位本地头（PK\x03\x04+method==0+未加密+
-  区间精确覆盖，zip 条目区间互不重叠保证唯一）；detect 后 walk 侧对容器条目 peek 1MiB
-  促发底层读再取区间（peek 不消费零副作用）。任何失败（非 stored/加密/推导误判）自动回退
-  spool 原路径——子打开失败即回退，安全性由兜底保证。
-  边界实证：stored 父条目命中（300MB 嵌套 0.14s 免搬运）；deflate 父条目语义上无连续区间
-  （澳洲女足 11GB 案例外层为 deflate 存储≈不可压缩数据）→ 正确回退 spool，行为与修复后
-  基线一致。语料 nested_zip_stored（>2MiB 内层越过 256KB read-ahead 缓冲）覆盖命中路径。
-  嵌套链 region 可链式套窗口（RegionView : SeekView : RegionSource）。
-- **【实施记录】spool 溢出 4GiB DWORD 截断修复**（案例 M：11.23GiB 隐写 MP4
-  真实案例，本地语料库，已匿名化）：SpoolBuffer::flushToTemp 整段落盘时
-  `static_cast<DWORD>(ram_.size())`——RAM 环自适应至 8GiB 后首次触发（恰为
-  2×4GiB，截断成 0），WriteFile 以长度 0 调用返回
-  TRUE/写入 0 字节，落入 `wrote==0` 分支且 GetLastError()==0，报错文本竟为
-  "写临时文件失败: 操作成功完成 (Win32 0)"。M0 起潜伏（旧固定 64MiB 环从未越过
-  4GiB；另一 MP4 案例 2.5GB 亦侥幸）。修复：分块 ≤16MiB 落盘；全仓扫 DWORD 截断
-  无同类。真实验证：解出 9.32GiB 双视频 exit 0（540s，含 8GB spool 往返）。
-- **【实施记录】输出路径超 MAX_PATH + spool 临时文件残留**（案例 L：15GB 隐写
-  MP4 真实案例——尾部伪装 + zip64 影子 EOCD → 隐写 zip（单条目 15GB 嵌套 zip，
-  emoji+深中文路径）→ 内层 zip（32 条目 13.84GiB）；本地语料库，已匿名化，2026-10-01）：
-  病灶①：最终路径 251 字符 + `.nxpart-<pid>-<tick>` 后缀≈267 > 260，
-  Sink::writeOne 的 CreateFileW/MoveFileExW/DeleteFileW 裸路径调用——超 260 的
-  裸路径报 ERROR_PATH_NOT_FOUND(3)（非"路径过长"，最易误诊），目录因
-  ensure_dir_recursive 内部加 \?\ 前缀全部建成、仅文件失败。修复：三处统一
-  win_long_path()（与目录创建同规范）。合成复现：337 字符路径 zip 报同错；
-  语料 long_path（rel 271 字符，8×28 目录 + 40 文件名）回归。
-  病灶②（附带）：成功运行后输出目录残留 14.86GB nx-{GUID}.tmp——退出转储证实
-  spool 对象存活（LaSeqReader+SpoolSeekView 两强引用随 zip 读取器整体泄漏；
-  小规模同构合成无法复现，触发面未完全定位）且强杀进程时 dtor 必然不执行。
-  修复：溢出临时文件加 FILE_FLAG_DELETE_ON_CLOSE——句柄一关内核即删（独占句柄
-  = 唯一持有者，spool 读经同一句柄无冲突），清理与对象生命周期解耦；同场景
-  验证残留 0。读取器泄漏本体留待后续（影响仅内存壳，ram_ 溢出后已清空）。
-- **【实施记录】solid 7z 批量抽取（O(N²) 修复）**（案例 XJ：2.61GB 隐写 MP4
-  真实案例，本地语料库，已匿名化）：文件=MP4（尾部假 mdat + zip64 影子
-  EOCD + 76B 诱饵，7-Zip 22.01 完全打不开）→ 隐写 zip（deflate 标记的不可压缩
-  2.27GB 单条目 exe）→ 7z SFX（**Solid=+**，Delta+LZMA2:26+BCJ2+7zAES，3692 文件
-  2.7GB，Ren'Py 游戏目录树）。病灶：szcom 逐条目单独 `arc_->Extract(&idx,1,…)` ——
-  solid 块无独立寻址点，7z.dll 每次从头解码到目标位置，O(N×C/2)≈TB 级解码量；
-  实测 10 分钟 322 文件且速率递减（0.63→0.30 文件/s），外推 8~12 小时。
-  修复（pull 模型保持不变）：`materializeBatch(start)` 一次 `Extract` 携带
-  [start,…) 一批连续数据条目（字节预算=spoolRam/2 钳 [64MiB,1GiB]，首条目必入批，
-  条目数上限 4096），`ExtractCb` 批化——GetStream 按 index 分发到各条目独立
-  SpoolBuffer，SetOperationResult 按 lastIdx 归属逐条目结果；全批成功逐条 finish 入
-  cache_，批失败丢弃整批、仅单条重试被请求条目（坏点隔离，其后条目触发从自身开始的
-  新批天然跳过坏点，keepGoing 语义与逐条目时代一致）。附带修复并发隐患：Sink 写出
-  线程池并发 EntrySource::read → readEntry 对 `arc_->Extract`/`cache_`/
-  InStreamImpl::pos_ 的无锁竞争（7z.dll IInArchive 单线程约定）——`mx_` 整体串行。
-  理论：批预算 B 下重解码量 ≈ C²/2B（本例 B=1GiB → ~5GB，7z.dll 多线程解码 ~30s）。
-  验证：新语料 7z_solid_many（600 文件×64KB，-ms=1g+AES）0.54s（逐条目时代分钟级，
-  run_tests 加 <60s 时间断言防回退）；真实文件 38s/3747 文件/2.53GiB exit 0，
-  与 7z CLI 单遍全解对比共同条目哈希零差异（多出的 66 文件=.save（Ren'Py 存档=zip）
-  按设计递归展开；7z CLI 的 1 条 Warning 即同批矛盾路径）。fuzz 60s 回归无异常。
-- **【实施记录】extract-into 同名冲突修复**（案例 Z：zip 直开真实案例，已匿名化）：默认前缀
-  曾=完整文件名 → 输出目录与输入 zip 同名，`ensure_dir_recursive` 把 ALREADY_EXISTS
-  误判成功（未验证是目录），到子条目目录创建才失败（错误仅在 stderr："创建目录失败"），
-  表现为 GUI 解压 0 文件退出 1。修复两层：默认前缀改为去扩展名 stem（WinRAR 惯例，
-  设计上避开撞名）；ensure_dir_recursive 对 ALREADY_EXISTS 验证 FILE_ATTRIBUTE_DIRECTORY。
-  gui_smoke 用例 1 改为直接采用默认前缀（此前所有用例都覆盖了默认值，恰好漏掉该路径）。
-  **无扩展名残余场景**（案例 X：1.85GiB 无扩展名 7z 嵌 7z 真实案例，内层加密，
-  本地语料库，已匿名化）：
-  文件名无小数点 → stem 回退=完整文件名 → 撞名仍发生；且创建失败在 main 提前 return 1，
-  绕过完成弹窗，GUI 右键场景下用户完全看不到失败原因。补丁：失败按成因分类
-  （`CompareStringOrdinal` 判撞输入文件/GetFileAttributes 判同名文件占位/其他含
-  Win32 错误文本）+ GUI 交互流（extract-into/-stego 已弹过前缀窗、Explorer/`--gui` 启动）
-  弹 `MessageBox` 给出换前缀指引；纯终端场景维持 stderr 不弹。gui_smoke 增用例 9
-  （无扩展名输入 + 默认前缀 → 断言弹窗文案与 exit 1）。
-- **【实施记录】性能四项（v1 后续）**：①zlib→zlib-ng[compat]（自建 overlay feature；inflate/CRC SIMD）；②spool RAM 自适应（空闲物理内存 50%，64MiB–8GiB）+ 溢出临时目录默认=输出目录（同盘零跨盘 I/O）；③libarchive nx-batch-ctr.patch：WinZip AES 每 16B单块 EVP（实测 ~60MB/s；OpenSSL 本体 AES-NI 10.8GB/s——瓶颈在调用粒度）→ 64KiB 批量 CTR，AES 2GiB 33.6s→2.8s 内容校验一致（首版两教训：批量 EVP 前须 EncryptInit_ex 重置、批后预生成状态跨批跳块——终版无预生成）；④bench：A -34%（反超 bsdtar）/ B -47%（恢复快于手工两遍）/ C -9%。补丁曾按上游风格提交 PR libarchive/libarchive#3443（overlay 与 PR 文本完全一致；3.8.7 与 master 该区域一字不差）——上游暂无 review 带宽已礼貌关闭，overlay 补丁持续生效，后续可重开或重提。
-  PR 已含上游风格测试（aes128/256_multiblock：块边界尺寸 + 多批次 + 7B 流式/seek 读回逐字节校验；
-  破坏性对照证实其能抓住跨批跳块类 bug；全量 866 用例无本补丁引入的失败，
-  唯一失败的 test_archive_read_support_twice 在 pristine master 同样失败）。
-- **【实施记录】文件名编码三层根因**（案例 N：本地 zip 真实案例，已匿名化）：
-  ① libarchive 字符转换依赖进程 locale——C locale 下非 ASCII 名直接返回 NULL pathname，
-  `setlocale(LC_ALL, ".UTF8")` 为主修复；② 本地头与中央目录文件名可不一致（本例本地头 EUC-JP、
-  中央目录 UTF-8），流式读头必错——zip 已改中央目录模式（SeekView 免 spool 直读）；
-  ③ `zip:hdrcharset` 候选须 iconv 名（CP932 非 932），码表探测按整包择一。
-- **【实施记录】Fuzz 安全护城河**（自用定位下安全优先）：目标=全管线端到端——
-  `src/fuzz_main.cpp` 每迭代写临时文件后走真实 `run_input`（detect/stego/容器引擎/密码链/
-  Walker 递归/Sink 消毒），覆盖面=生产路径本身。MSVC libFuzzer+ASan（独立构建目录
-  `build-fuzz/`、CMake `NX_FUZZ`；管线源与 nx 共用列表但禁 /GL），vcpkg 依赖非插桩——
-  本仓代码带覆盖率/内存检测，依赖库硬崩溃仍被捕获。单迭代成本有界：深度 3 / 输出 2MiB /
-  压缩比 50 / spool RAM 1MiB（促发溢出分支）；`stegoMode`/`noRoot` 由输入尺寸奇偶派生
-  （libFuzzer 依赖确定性执行）；输出目录 4 槽轮换先清后用；进程内 `log_set_quiet` 静音
-  （含 walker 层级列表的 printf，原来绕过 log 体系）。踩坑两枚：MSVC ASan 链的是
-  **动态运行时 DLL**（`clang_rt.asan_dynamic-x86_64.dll`，post-build 复制到 exe 旁，否则
-  非 VS 环境启动报 0xC0000141）；walker `layer_note` 直写 printf 绕过 quiet。首跑实测
-  （5 分钟）：22,947 次 / 76 exec/s / 0 崩溃 / RSS 457MB，自动字典习得 CP936/CP932、
-  各格式魔数、`ftyp` 等深层特征——码表探测与 stego atom 步进路径确被打到。
-- **【实施记录】GUI 弹窗输入补齐**（自用体验）：① Win32 EDIT 原生不处理 Ctrl+A——
-  子类化编辑框（`WM_CHAR` 0x01 → `EM_SETSEL 0,-1`），密码/前缀两弹窗共用；
-  ② 弹窗自解压工作线程创建，常拿不到前台焦点——补 `WM_ACTIVATE`（非 WA_INACTIVE 即
-  `SetFocus` 输入框），用户点活窗口后焦点直落输入框。窗口消息自动化不受影响
-  （gui_smoke 8/8 照旧）。
-
----
-
-## 11. 里程碑
-
-| 阶段 | 内容 | 出口标准 | 状态 |
-|---|---|---|---|
-| M0（~2 周，C++20） | 工程骨架（vcpkg+静态 CRT）、ByteSource/有界队列/线程池、libarchive 引擎接入、嵌套 Walker、`.001` 拼接、密码：候选列表 + 交互 | 属性测试通过；3 层嵌套零中间文件；两层异密码用例通过 | ✅ 完成 |
-| M1（+2 周） | zip 双模式回退、7z.dll（分卷+AES+头加密）、SpoolStore、全部分片类型（含 `.z01+.zip`、条目级分片组）、密码缓存/LRU | 对抗用例全绿（含密码专项） | ✅ 完成（unRAR 略过，7z.dll 已覆盖） |
-| M2（+2 周） | 并发/背压调优、安全完备、`--tree/--report`、基准报告 | 基准不劣于 bsdtar 管道，峰值磁盘 0 中间 | ✅ 完成（链式快于手工 33-34%；附带发现 bsdtar 管道在 Windows 原生管道下解流式 zip 静默丢条目） |
-| M3（正式发布） | unRAR 可选插件、`nxcore.dll` C ABI 导出、安装器/右键菜单、可选 WPF 壳 | 分发物 + 全量测试矩阵 | ✅ 完成（便携打包/右键级联/GUI 密码/默认日志；nxcore.dll 与 WPF 未做，非必需） |
-| 后续迭代 | GUI 进度指示、MP4 隐写识别 | — | ✅ 均已完成（GUI 进度窗+真百分比、extract-stego 隐写解压，见 §10 实施记录） |
-| v1 后续 | 性能四项（zlib-ng/spool 自适应/批量 CTR/LTO）、嵌套免 spool 直读、真实案例稳定性修复 | — | ✅ 完成（AES 12×、bench B 反超手工、stored 嵌套免搬运；见 §10 实施记录） |
-| 现代化重构（2026-10-02/03） | 缺陷登记簿 D1-D8、领域类型化、纯核心/效果壳、所有权 DAG（weak_ptr+KeepAlive/EntryToken/res 圈禁）、验证体系（双 TLA+ 模型 / AST 闭包检查器 + F\* / clang-tidy 基线 / fuzz 哨兵 / 合成发布门） | 全量回归全绿 | ✅ 批次 0-6 全部完成（55/55 + 9/9；交付清单见 DEVELOP「重构记录」，纪律见 AGENTS） |
 
 ---
 
@@ -518,4 +370,4 @@ MSVC /analyze 排雷（`build-analyze.cmd`，低噪子集）为非门辅助，�
 - unblob（嵌套提取先行者）：[github.com/onekey-sec/unblob](https://github.com/onekey-sec/unblob)、[unblob.org](https://unblob.org/)
 - Rust 流式 zip（佐证本地头流式可行性）：[zip crate ZipStreamReader](https://strawlab.org/strand-braid-api-docs/latest/zip/unstable/stream/struct.ZipStreamReader.html)、[stream-unzip crate](https://lib.rs/crates/stream-unzip)
 - PKZIP 分片顺序（.zip 为最后一卷）：[WinZip KB](https://kb.winzip.com/en/130798)、[Super User 讨论](https://superuser.com/questions/15935/how-do-i-reassemble-a-zip-file-that-has-been-emailed-in-multiple-parts)、[合并命令参考](https://askubuntu.com/questions/31298/how-to-extract-and-join-files-xxx-zip-xxx-z01-and-xxx-z02)
-- 本仓库实测数据：见上一轮对话（nested_bench 实验，数据已清理，方法可复现）
+- 本仓库基准数据可由 `python tests/bench.py` 复现（方法即 §9.5）

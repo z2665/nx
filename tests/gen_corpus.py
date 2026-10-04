@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""nx M0 测试语料生成器（设计 §9.1）。
+"""nx 测试语料生成器（设计 §9.1）。
 
 生成 tests/cases/<name>/ 输入文件 + expected.json（输出相对路径 → sha256）。
 输出路径契约（与 walker 实现一致）：
@@ -95,7 +95,7 @@ def case_plain_zip():
 
 
 def case_three_layer():
-    """3 层嵌套：data.tar.gz → inner.zip → 文件（M0 出口标准：零中间文件）"""
+    """3 层嵌套：data.tar.gz → inner.zip → 文件（出口标准：零中间文件）"""
     inner = make_files({"a.txt": "layer3-a\n" * 50,
                         "sub/b.dat": os.urandom(200000)})
     tar_gz = gzip.compress(tar_bytes({"inner.zip": zip_bytes(inner), "loose.txt": b"loose\n"}))
@@ -315,7 +315,7 @@ def case_pw_retry_nested():
 
 
 def case_sibling_pw_cache():
-    """密码缓存键语义（批次 2 / 领域 #2）：不同父容器下的同名分片组——a.tar.gz 与
+    """密码缓存键语义（设计 §6.2 层身份）：不同父容器下的同名分片组——a.tar.gz 与
     b.tar.gz 各含 data.zip.001+（异密码，候选只给 b 的）。修复前缓存键 = 深度+名
     （"第 3 层 data.zip"），a 组耗尽候选把共享游标推过界 → b 组连候选都不试即假性
     PasswordExhausted（实测 0 文件解出）；逻辑路径键（outer/a.tar.gz/data.zip 与
@@ -396,7 +396,7 @@ def case_mixed_filters():
     write_case("mixed_filters", build, expected)
 
 
-# ---------------------------------------------------------------- 隐写（DEVELOP 待办 #1）
+# ---------------------------------------------------------------- 隐写（--stego）
 
 def mp4_atom(typ: bytes, payload: bytes) -> bytes:
     return (8 + len(payload)).to_bytes(4, "big") + typ + payload

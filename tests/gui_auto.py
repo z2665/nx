@@ -127,7 +127,7 @@ class NxDialog:
     def close(self):   # 模拟点 X
         user32.PostMessageW(self.hwnd, WM_CLOSE, 0, 0)
 
-    # ---- 进度窗辅助（待办 #1 冒烟）----
+    # ---- 进度窗辅助----
     def static_texts(self):
         return [_win_text(h) for h in self._children()
                 if _class_name(h).lower() == "static"]

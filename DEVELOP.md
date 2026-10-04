@@ -1,124 +1,115 @@
 # nx 开发指南（DEVELOP）
 
-> 面向用户的说明（功能/安装/用法/已知限制）见 [README.md](README.md)；
-> 本文件面向开发者与贡献者：构建、测试、架构分层与重构记录。
+> 面向开发者与贡献者：构建、源码地图、领域模型、CI 硬门与红线。
+> 面向用户的说明（功能/安装/用法）见 [README.md](README.md)。
+> AI 协作代理请先读 [AGENTS.md](AGENTS.md)（文档阅读顺序与 plan/ 工作目录约定在那里）。
 
-设计文档：[nested-extractor-design.md](nested-extractor-design.md)（v0.3：设计权威 + §4.1 所有权与生命周期 + §9.6 验证体系）。
-工作区纪律：[AGENTS.md](AGENTS.md)（所有权纪律 P1-P6 操作化 + 决策速查）。
-**当前状态：M0–M3 + v1 后续 + 重构批次 0–6（全部）**。55/55 测试（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）+ GUI 冒烟 9/9 + 合成发布门通过。C++23。
+**文档地图**：[nested-extractor-design.md](nested-extractor-design.md) = 设计权威（领域模型/架构/所有权/全部决策）；
+本文件 = 怎么开发；[AGENTS.md](AGENTS.md) = 工作区纪律与红线；`plan/`（本地，gitignored）= 进度与计划。
 
-## 构建（Windows + VS 2026 + vcpkg）
+## 构建
 
 ```cmd
-build.cmd       # 编译 → build\nx.exe（约 5.5 MB 单文件，仅系统 DLL 依赖）
-package.cmd     # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + menupkg + 文档）
+build.cmd            # CMake + Ninja + VS 2026（vcvars64）+ vcpkg → build\nx.exe（约 5.5 MB 单文件，仅系统 DLL 依赖）
+package.cmd          # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + menupkg + 文档；需先 build.cmd）
+build-analyze.cmd    # MSVC /analyze 排雷（低噪子集，非门）
+build-diag.cmd       # 诊断构建：泄漏哨兵 S1-S10 全开（NX_DIAG_LEAKS_MAIN）
 ```
 
-依赖（vcpkg manifest 固定）：libarchive 3.8.7（容器）、**zlib-ng[compat]**/bzip2/liblzma/zstd/lz4（zlib-ng=SSE4/AVX2 inflate + PCLMUL CRC，compat 供三方经 <zlib.h> 链接）。
-`ports-overlay/libarchive`：①上游 CMake 未链 crypto 探测 `PKCS5_PBKDF2_HMAC_SHA1` 导致 WinZip AES stub——强制定义修复；②`nx-batch-ctr.patch`——上游 WinZip AES 每 16 字节一次单块 EVP（实测 ~60MB/s），批量化为每 64KiB 一次（AES 2GiB 实测 33.6s→2.7s，内容校验一致；曾按上游风格提交 PR libarchive#3443，上游暂无 review 带宽已礼貌关闭，overlay 持续生效）。
-`ports-overlay/zlib-ng`：基线端口无 feature，自建 `compat` feature（ZLIB_COMPAT 构建导出标准 ZLIB 配置）。
+注意：`build.cmd` 硬编码了本机代理 `127.0.0.1:10808` 与 `VSROOT`（VS 2026 路径）——换机器需改。
+git-bash 下调用须写 `cmd //c build.cmd`（`/c` 会被 MSYS 路径转换吃掉，导致假成功）。
 
-**7z.dll**（运行时按需加载）：exe 目录 → `C:\Program Files\7-Zip\` → PATH。
-负责 7z 全特性（AES+头加密+分卷）与 RAR 解码；缺失时回退 libarchive（RAR 多卷除外）。
+### 依赖（vcpkg manifest 固定版本）
 
-## 已实现（M0–M3 全量）
+libarchive 3.8.7（容器）+ **zlib-ng[compat]**/bzip2/liblzma/zstd/lz4（过滤器直连），
+triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 
-### M0 — 核心流水线
-- ByteSource 抽象（File/Concat/Queue/Pushback 回看流）
-- 有界队列背压 + 过滤器泵线程（zlib/bzip2/xz/zstd/lz4 直连，多成员串联）
-- libarchive 容器引擎：密码候选迭代、D2 spool+中央目录回退
-- 分片：`.001` 拼接 / `.z01+.zip` 顺序陷阱 / 条目级分组
-- 分层密码链（缓存→上次成功→候选→交互/GUI），SecureStr 安全擦除
-- Sink：路径消毒 / 大小写重名 / `.part` 原子落名 / 深度/总量/磁盘水位/压缩比熔断
+- `ports-overlay/zlib-ng`：基线端口无 feature，自建 `compat`（ZLIB_COMPAT 构建，导出标准 ZLIB 配置供三方经 `<zlib.h>` 链接）。
+- `ports-overlay/libarchive`：①上游 CMake 未链 crypto 探测 `PKCS5_PBKDF2_HMAC_SHA1`，WinZip AES 走了 stub——强制定义修复；②`nx-batch-ctr.patch`：上游 WinZip AES 每 16 字节一次单块 EVP（~60MB/s），批量化为每 64KiB 一次（AES 2GiB 实测 33.6s→2.7s，内容校验一致；曾按上游风格提交 PR libarchive#3443，上游暂无 review 带宽已关闭，overlay 持续生效）；③配套上游风格 round-trip 测试补丁。
 
-### M1 — zip / 7z / rar 全格式
-- `szcom.*`：7z.dll（IInArchive COM）适配层——CreateObject 入口、IInStream（文件/spool 卷窗口）、RAR 多卷卷回调（FS 直读 + spool 窗口）、双通道密码回调（打开/抽取）
-- 7z：AES 内容加密 + 头加密（-mhe）+ `.7z.001` 拼接分卷
-- rar：rar5 / solid / `-hp` 加密 / 新式多卷（.partN.rar）/ 条目级多卷（zip 内嵌分卷）
-- zip：SFX 魔数扫描 + D2 回退；zip 中央目录模式（File/Spool SeekView）+ 码表探测（CP932 等 iconv 格式名）
-- 招牌：zip→7z(密码A)→rar(密码B) 三格式异密码嵌套链
+7z.dll 为**运行时按需加载**（exe 目录 → 7-Zip 安装目录 → PATH），负责 7z 全特性（AES+头加密+原生分卷）与 RAR 解码；缺失回退 libarchive（RAR 多卷除外）。`szcom.cpp` 是其唯一适配层。
 
-### M2 — 并发/背压调优、安全完备、--verify/--report、基准
-- PushbackSource 游标化 + 检测后关闭历史（直通模式）+ `read_direct` 零拷贝链
-- FS 级 7z/rar/zip 根文件免 spool 直读；7z.dll 惰性加载；Sink 写出线程池
-- 压缩比熔断（分母含根尺寸提示，小输入炸弹也能判定）
-- `--verify sha256`（BCrypt）+ `--report r.json`（不含密码）
-- 基准（`python tests/bench.py`）：链式用例 nx 快于手工两遍 33-34%、峰值中间磁盘 0 MiB
+## 源码地图（文件 → 模块 → 职责）
 
-### M3 — 便携分发、右键菜单、GUI 弹窗、默认日志
-- 便携打包 `package.cmd`；右键菜单 `nx menu install|remove`（HKCU ExtendedSubCommandsKey 级联：extract-here `--no-root` / extract-into 前缀弹窗默认=去扩展名 stem / extract-stego）
-- GUI 密码弹窗（内存 DLGTEMPLATE）：无控制台或 `--gui` 时自动，每层一窗，取消→整体中止；Ctrl+A 子类化补齐 + 激活即聚焦
-- GUI 进度窗：独立线程无模式对话框，真百分比 = 根输入消耗比（InputMeter 挂表纪律：根 zip FileSeekView 与 7z.dll 直读挂、探测视图与 spool 卷不挂），取消→exit 2 静默，`.part` 照常清理
-- 双模式 exe（`/SUBSYSTEM:WINDOWS`）：资源管理器启动无黑框，终端/管道行为不变
-- 默认日志 `nx.log`（append，超 5 MiB 截断，密码红线过滤）；Win11 新版菜单 `menupkg/` 雏形未启用
+依赖方向严格单向（DAG），按层列出；**勿跨层直达**（分层图与红线见 AGENTS 架构分层节）。
 
-### 隐写解压（extract-stego / --stego）
-- 检测两条路（`stego.cpp`，仅根文件层）：MP4 atom 步进（非法原子头处即候选起点；mdat size=0 延伸到 EOF）+ EOCD 反向扫描（注释长度精确吃到 EOF；不要求 EOCD 在 EOF——伪装尾按区间排除，**CD 位置须 PK\x01\x02 自证**，不可信则回退魔数锚点窗口由 libarchive 依 EOCD64 真值定位——案例 L 的 zip64 影子场景）
-- 打开：尾接 zip 走 FileSeekView 精确窗口；7z/rar 走 fsBase 窗口交 7z.dll
-- 语义=只解隐写压缩包，根文件本体不落盘；未命中 exit 0 + 提示；EOCD 假阳性由试开失败兜回
-- 8 属性用例 + GUI 冒烟动词端到端
+| 层 | 文件 | 职责 |
+|---|---|---|
+| 基座 | `util.hpp/cpp` | 编码转换、Win32 路径（`\\?\` 长路径/递归建目录）、尺寸解析 |
+| | `outcome.hpp` | 错误分类学（Error/Limit/Password/MissingVolumes/Corrupt/Cancelled）+ `Result` 别名 + 退出码纯推导 |
+| | `diag.hpp/cpp` | 泄漏哨兵 S1-S10（`NX_DIAG_LEAKS`，fuzz 常开；泄漏=abort） |
+| | `log.hpp/cpp` | 日志体系 + 密码红线过滤 + 默认 nx.log（5MiB 截断） |
+| | `namecodec.hpp/cpp` | 条目名码表修复（每读取器粘性） |
+| 领域 | `format.hpp` | 格式枚举 + `kFormatTable` 单一事实源（格式→类属→名称）+ 过滤器后缀剥离 |
+| | `password.hpp/cpp` | SecureStr 安全擦除、LayerId（key=逻辑路径/display=提示）、PasswordProvider 解析链、PromptSink 测试注入 |
+| | `pipes.hpp/cpp` | BoundedQueue（close/abandon 协议，TLA+ 验证）+ ThreadPool |
+| | `volumeset.hpp/cpp` | 分片命名识别（拼接型/zspan/RAR 原生）+ 完整性预检（纯函数可单测） |
+| | `stego.hpp/cpp` | 隐写检测纯核心：MP4 atom 步进 + EOCD 反扫（CD 签名自证） |
+| | `layer.hpp` | LayerCtx 递归上下文（sub/origin/chain/logical/depth/filterChain + 帧工厂） |
+| | `session.hpp` | Options / Stats / HardErrorSlot（会话聚合根 Session 在 walker.hpp，见其头注） |
+| 流 | `bytesource.hpp/cpp` | ByteSource 唯一流抽象（read/read_direct/sizeHint/seekRegion/keepAlive）+ File/Concat/Null/Memory/Shared/Queue 简单源 + RegionSource 契约 + InputMeter |
+| | `pushback.hpp/cpp` | PushbackSource 回看流（peek/rewind/直通三模式）——管线通用适配器 |
+| | `res/` | **资源圈禁区（P2）**：UniqueFile/UniqueRegKey/UniqueModule/TempFile/com_ptr/DeleteGuard（header-only；释放五名单不得出 res/） |
+| 引擎基座 | `container.hpp` | ContainerReader 契约 + EntryToken（迭代身份）+ EngineOptions + VolumeSource（卷数据三态） |
+| | `detect.hpp/cpp` | 内容嗅探（纯核心 `detect_from_bytes` + 流式包装） |
+| | `filter.hpp/cpp` | 五解码器直连泵（多成员串联窥探重启、FilterLimiter 压缩比熔断） |
+| | `spool.hpp/cpp` | SpoolStore：RAM 自适应 → 磁盘溢出（DELETE_ON_CLOSE、≤16MiB 分块、ioM_ 并发） |
+| 视图 | `views.hpp/cpp` | SeekView 三态（File/Spool/Region 可链式套窗口）+ ViewFactory（InputMeter 挂表纪律类型化） |
+| 引擎实现 | `laimp.hpp` | libarchive 内部共享件（错误分类/AccessRecorder/回调）——勿在公共头引用 |
+| | `zipcd.hpp` | zip 文件名码表探测（候选逐一试开择优） |
+| | `laseq.hpp/cpp` | LaSeqReader 顺序读取器（probe/重放队列只存元数据/`regionOf` 区间推导） |
+| | `szcom.hpp/cpp` | 7z.dll COM 适配（IInArchive、多卷回调、双通道密码、materializeBatch solid 批量抽取、cache_ LRU） |
+| | `open.cpp` | **engines 门面实现/组合根**：try_open 探测、密码迭代、spool 兜底、zip 中央目录、R 类 7z.dll 优先与回退 |
+| 编排 | `engines.hpp` | 容器引擎门面（open_container / open_container_volumes / open_zip_file / sevenzip_dll_available） |
+| | `sink.hpp/cpp` | 安全落盘：路径消毒（sanitize 纯函数）、大小写重名登记、`.part` 原子落名、写出线程池、sha256 校验 |
+| | `walker.hpp/cpp` | Walker 递归策略（分片感知/stego 分派/免 spool 快路径）+ Session 聚合根 + resolve_runtime_options |
+| 壳 | `gui.hpp/cpp` | 密码/前缀弹窗（内存 DLGTEMPLATE）、进度窗、完成通知 |
+| | `report.hpp/cpp` | 报告快照/渲染分离（纯函数可单测） |
+| | `menu.hpp/cpp` | HKCU 右键级联菜单装卸 |
+| | `main.cpp` | CLI 入口（双模式 exe：/SUBSYSTEM:WINDOWS + mainCRTStartup） |
+| | `nxshell.cpp` | Win11 新版菜单 IExplorerCommand COM DLL（独立构建目标，稀疏 MSIX 用） |
+| | `fuzz_main.cpp` | libFuzzer 全管线目标（CMake `NX_FUZZ`，禁 /GL） |
 
-### 嵌套容器免 spool 窗口直读
-- 父视图 seekable 且条目 **stored** 时，嵌套 zip/7z/rar 直接在父区间随机访问，免全量 spool 往返（300MB stored 嵌套实测 0.14s；RegionView 可链式套窗口）
-- 机制：数据相位的 read+seek 双记（libarchive 256KB read-ahead 命中时 read 回调不触发）→ 回溯 512KB 定位本地头（PK+stored+未加密+区间精确覆盖）→ 区间直读
-- 安全网：任何失败（deflate 父条目/加密/推导误判/子打开失败）**自动回退 spool 原路径**
+## 领域模型速览（详案见设计文档 §3/§4）
 
-### 性能（v1 后续四项）
-- zlib-ng[compat]（自建 overlay feature）：inflate/CRC SIMD 化
-- spool RAM 自适应：默认空闲物理内存 50%（64MiB–8GiB，`--spool-ram` 覆盖）；溢出临时目录默认=输出目录（同盘零跨盘 I/O，`FILE_FLAG_TEMPORARY`）；临时文件 `DELETE_ON_CLOSE`
-- WinZip AES 批量 CTR（overlay 补丁，AES 路径 ~12×）
-- nx Release LTO（/GL /Gy /Oi + /LTCG）；bench A -34% 反超 bsdtar / B -47% / C -9%
+- **格式三分法驱动一切路由**：`FormatClass` = Filter（单流→单流）/ SeqContainer（tar/cpio/ar，天然流式）/ TailContainer（zip，尾部依赖）/ RandContainer（7z/rar/iso/cab/wim，需 seek）。`classify()` 的结果决定走 FilterStage 还是 ArchiveStage、是否经 SpoolStore。
+- **核心抽象**：ByteSource（唯一流）→ PushbackSource（嗅探/重启的回看适配）→ SpoolStore（R 类 seek 适配）→ ContainerReader+EntryToken（条目迭代契约）→ Walker（递归策略 + LayerCtx 帧语义）→ Sink（安全落盘）。密码按 LayerId（逻辑路径键）每层独立解析。
+- **嵌套容器免 spool 直读**：父视图 seekable 且条目 stored 时，子容器直接在父区间随机访问（RegionView 可链式套窗口）；任何失败自动回退 spool 原路径——**回退语义是硬边界**。
+- **隐写检测**（仅根 FS 层，需 seek）：MP4 atom 步进（非法头即候选起点；7z/rar 尾部无结束标记只能经此发现）+ EOCD 反向扫描（CD 位置须 `PK\x01\x02` 自证——zip64 影子值场景）；假阳性由试开失败兜回未命中。
+- **InputMeter 挂表纪律**：根输入直读视图挂表（进度分母/压缩比分母），码表探测视图与 spool 卷不挂（避免虚增）——经 ViewFactory 命名方法强制。
 
-### 稳定性修复（真实语料案例，已匿名化——结构见 tests/gen_release_corpus.py）
-- **案例 L（15GB 隐写 MP4，三层嵌套加密）**：①输出路径 251 字符 + `.nxpart-` 后缀 >260，裸路径报 ERROR_PATH_NOT_FOUND(3) 而非"路径过长"——Sink 三处统一 `win_long_path()`；②成功运行后 14.86GB `nx-{GUID}.tmp` 残留——对象级泄漏（replayQ_ 环，见重构批次 0 D6）+ 强杀时 dtor 不执行——临时文件改 `FILE_FLAG_DELETE_ON_CLOSE`（句柄一关内核即删）
-- **案例 XJ（隐写 MP4 → 7z SFX solid+AES）**：逐条目单独 `Extract` = 每文件从 solid 块头重解码（O(N²)，外推 8~12h）→ `materializeBatch` 批量抽取（一次 Extract 一批连续索引分发到各条目 spool；预算钳 [64MiB,1GiB]；坏点隔离）。实测 38s/3747 文件，与 7z CLI 哈希零差异；另补 `mx_` 串行化（7z.dll 单线程约定）
-- **案例 M（11.23GiB 隐写 MP4）**：spool 整段落盘 cast DWORD 把 8GiB 截断成 0 → WriteFile 长度 0"成功"——分块 ≤16MiB 落盘
-- **案例 Z/X（extract-into 撞名）**：默认前缀曾=完整文件名撞输入；ALREADY_EXISTS 未验证目录属性。修复：前缀=去扩展名 stem + 属性验证 + 失败按成因分类 + GUI 交互流弹窗告知（案例 X 的无扩展名 stem 回退残余场景）
-- **案例 N（CP932 zip）**：C locale → libarchive NULL pathname（主因）。修复：`setlocale(LC_ALL, ".UTF8")` + 中央目录模式 + iconv 格式码表名 + 空名防御
+## CI 硬门（违例即不可交付）
 
-### Fuzz 安全护城河
-- 目标=全管线端到端（`src/fuzz_main.cpp`）：每迭代真实递归（detect/stego/引擎/密码链/Walker/Sink），覆盖面=生产路径本身；MSVC libFuzzer + ASan（独立构建 build-fuzz/）；泄漏哨兵 S1-S5 常开（泄漏=abort）
-- 限额收紧保证单迭代有界：深度 3 / 输出 2MiB / 压缩比 50 / spool RAM 1MiB（促发磁盘溢出分支）
-- `python tests/fuzz_run.py`（--time/--jobs/--rerun）；种子=tests/cases 全量 + `tests/fuzz-regression/`（git 跟踪）历史崩溃工件回灌——修复后的回归种子持久层
-- 实绩：711 次迭代即抓到开发期 COM 释放顺序 use-after-free（工件已入回归种子）
+`python tests/run_tests.py` 一把梭，**55 用例全绿是合并前提**；缺工具直接 FAIL（决策 D-2：门就是门）。构成：
 
-## 重构记录（批次 0–6，2026-10-02/03 全部完成）
+| 门 | 内容 | 缺工具时 |
+|---|---|---|
+| unit_core | nxunit 325 项断言（纯核心：detect/sanitize/volumeset/namecodec/outcome/report/stego…） | 构建失败即 FAIL |
+| 属性测试 | 50 用例：生成语料端到端解压 ≡ 逐层手工解压（全树哈希对比） | — |
+| ownership_audit | ①圈禁 grep 门（五名单出 res/ 即 FAIL，每次运行先正/负样本自检）；②AST 强闭包检查器（clang-cl ast-dump → F\* 验证 + KaRaMeL 抽取的 closure_check.exe，校准基线见 `--calibrate`） | FAIL |
+| TLA+ 双模型 | `tools/ownership.tla`（legacy 复现 replayQ_ 反例 / weakOnly 反例 / fixed 零违例）+ `tools/boundedqueue.tla`（closeNoWake/abandonNoWake 必违 / fixed 零违例零死锁） | 缺 tla2tools.jar/java 直接 FAIL（`tools/fetch_tla.cmd` 可取） |
+| BoundedQueue 协议门 | abandon 后两侧必不阻塞等协议断言 | — |
+| tidy_check | clang-tidy 四检查零警告（owning-memory/dangling-handle/mt-unsafe/unnecessary-value-param） | FAIL |
+| GUI 冒烟 | 9 用例（窗口消息自动化，含取消中止/半成品清理） | — |
+| context_menu | 真实装卸 HKCU 菜单（现场保存/还原） | — |
 
-逐批交付如下（逐 commit 细节见 git 历史；所有权模型与生命周期状态机 → 设计文档 §4.1，
-验证体系全景 → 设计文档 §9.6，操作化纪律 → AGENTS.md）。
+**发布前另跑**：`python tests/release_gate.py`（合成语料端到端哈希比对，manifest 入库，`--update` 固化基线；语料由 `gen_release_corpus.py` 确定性重建）。
 
-| 批次 | 交付 |
+### 改动 → 必跑矩阵
+
+| 改了什么 | 必跑 |
 |---|---|
-| 0 | 缺陷登记簿 D1-D8 + 泄漏哨兵 S1-S5（fuzz 常开）。含 replayQ_ 自引用环结构性修复（重放队列只存元数据）与过滤器链深度约束（决策 D-1） |
-| 1 | filter RAII 化 + pump_members 模板合并、pullBlock 归一、纯函数抽离（detect/stego/report/exit_code/sanitize/ascii_lower）、领域类型首批（kFormatTable/NameCodec/AccessRecorder/Detection.note）、C++23 + Result 别名、nxunit 单测壳 |
-| 2 | LayerId key/display 拆分——密码缓存键=容器逻辑路径，修复兄弟分片组共享游标 → 假性 PasswordExhausted 真 bug；LayerCtx 收敛散参数 + Walker 类 |
-| 3 | MemorySource 管线免文件系统测试、PromptSink 脚本化密码链（全语义单测）、select_group 三层单测 |
-| 4 | TLA+ 前置验收门（legacy/weakOnly/fixed 三变体）、weak_ptr 条目源 + keepAlive() 令牌（配套）、EntryToken 契约、views 唯一实现 + ViewFactory 挂表纪律类型化、engines 拆五件、szcom cache_ 共享预算 LRU |
-| 5 | res/ 资源圈禁（UniqueHandle 三别名/TempFile/com_ptr/DeleteGuard/gsl::owner，五名单 grep 硬门）；AST 强闭包检查器（clang-cl → F\* 验证 closure_check.exe，校准 2d20794 恰报 LaSeqReader 零误报）；M1 短写修复。三路评审修复：UniqueFile 哨兵 nullptr 化（INVALID_HANDLE_VALUE 非 NTTP 合法常量）、audit fail-loud、fuzz 回归种子真正入库 |
-| 6 | clang-tidy 基线硬门（四检查零警告）、/analyze 排雷零警告、合成发布语料 + release_gate 哈希门（决策 D-4：真实样本不入仓，按结构重建）、AGENTS 所有权纪律节、文档匿名化（案例代号）、BoundedQueue abandon 协议 TLA+ 模型（DeadRelease/ParkedSanity + 双校准反例） |
+| 任何 `src/` 代码 | `build.cmd` + `run_tests.py` 全量 |
+| walker/sink/password/detect 等敏感区 | 先读设计文档 §4.1/§9.6，再改；全量门 + fuzz 短跑 |
+| 所有权/生命周期（esft 类、EntrySource、SpoolStore、队列协议） | 三层验证全过（TLA+ / AST / F\*）+ fuzz 长跑 |
+| `src/res/` 或任何资源接入 | audit 门（run_tests 内）+ `build-diag.cmd` 构建跑加密样本（哨兵必须静默） |
+| 过滤器泵/readEntryDirect/writeOne 等热路径 | bench 对比（`tests/bench.py`）+ fuzz，性能不得回退 |
+| 引擎打开/回退逻辑 | `pw_retry_nested` 语料 + 加密样本 + fuzz（哨兵覆盖弃置路径） |
+| 语料/测试本身 | 对应 gen_corpus 系列 + 受影响用例 |
 
-**仍生效的两条 RAII 化契约教训**：①DeleteGuard 声明序=先关句柄后删文件（反序被 GUI 用例 6 抓住 .part 残留）；②COM 释放顺序——Open 失败后 7z.dll 仍持流引用，`arc.reset()` 必须先于 `mainStream_.reset()`。
+退出码契约（属性测试断言依赖）：`0` 成功｜`1` 部分失败｜`2` 密码｜`3` 超限｜`4` 缺分片｜`64` 用法错误。
+密码交互测试依赖 `NX_PROMPT_TEST=1`；`NX_EXE` 可覆盖被测 exe。
 
-```bash
-python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
-python tests/gen_corpus_m1.py    # M1 语料（zip/7z/rar；需 tests/tools/winrar/Rar.exe + 7z CLI）
-python tests/gen_corpus_m2.py    # M2 语料（压缩比炸弹）
-python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 55/55（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）；NX_EXE 可覆盖被测 exe
-python tests/release_gate.py     # 发布门：合成语料端到端哈希比对；--update 固化基线
-python tests/gen_release_corpus.py  # 发布语料生成（确定性种子，缺则 release_gate 自动重建）
-python tests/fuzz_run.py         # libFuzzer+ASan 全管线 fuzz（哨兵 S1-S5 常开）
-python tests/bench.py            # 基准（3 语料 × 3 方案）
-python tests/gui_smoke.py        # GUI 冒烟 9 用例（窗口消息自动化）
-cmd /c build-analyze.cmd         # MSVC /analyze 排雷（低噪子集，非门；项目源零警告）
-```
+## 修改红线（摘要）
 
-## 已知限制
-
-| # | 问题 | 说明 | 优先级 |
-|---|---|---|---|
-| 1 | 嵌套隐写检测 | 隐写扫描仅根文件层（需 seek）；压缩包内的 MP4 不查（真实场景是右键单个文件） | 低 |
-| 2 | 条目级分片连续到达 | 分片组成员须连续到达，非成员条目到达即封组 | 低 |
-| 3 | RAR4/旧命名卷 | WinRAR 7.x 无法生成 rar4 语料（读取由 7z.dll 覆盖，无测试验证） | 低 |
-| 4 | tar 内符号链接 | v1 降级策略——跳过并告警，不落盘 | 低 |
-| 5 | Win11 新版右键菜单 | menupkg/ 稀疏 MSIX 雏形未启用（经典级联菜单完整可用） | 低 |
+行为硬边界与性能红线、所有权纪律 P1-P6、安全纪律、决策速查（D-1~D-4）、踩坑清单——**全部在 [AGENTS.md](AGENTS.md)**，改代码前对照。一句话版本：不经显式决策不变更回退语义/密码链/熔断/退出码/原子落名；热路径不加间接层；资源只经 res/；密码绝不落日志；进度与计划写 `plan/` 不写仓库。

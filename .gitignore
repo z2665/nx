@@ -43,3 +43,6 @@ tools/proofs/Closure.krml
 tests/release-cases/
 build-analyze/
 tools/boundedqueue_TTrace_*
+
+# plan/ — 进度与计划工作目录（AGENTS 约定：本地不入仓）
+plan/

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""nx M1 测试语料生成器：zip / 7z / rar 三主流格式完整覆盖。
+"""nx 测试语料生成器（M1 组）：zip / 7z / rar 三主流格式完整覆盖。
 
 依赖：tests/tools/winrar/Rar.exe（WinRAR 试用版，仅生成语料用）+ 7z CLI。
-在 gen_corpus.py（M0）之后运行；本脚本也复用其工具函数。
+在 gen_corpus.py 之后运行；本脚本也复用其工具函数。
 """
 import io
 import os
@@ -215,7 +215,7 @@ def zip_bytes(files):
 
 
 def case_triple_chain():
-    """M1 招牌：zip → 7z(密码A) → rar(密码B) → 文件（三格式异密码嵌套链）"""
+    """招牌：zip → 7z(密码A) → rar(密码B) → 文件（三格式异密码嵌套链）"""
     if not rar_available() or not sevenz_available():
         print("[gen] 跳过 triple_chain"); return
     final = make_files({"final/report.txt": "triple chain final layer\n" * 300,

@@ -1,8 +1,17 @@
-# AGENTS.md — nx 工作区须知
+# AGENTS.md — nx 工作区须知（AI 协作代理必读）
 
 `nx`：Windows 专属的流式嵌套压缩包解压器（C++23，单 exe `build\nx.exe`）。
-权威设计文档：[nested-extractor-design.md](nested-extractor-design.md)（改 walker/sink/password/detect 等敏感区域前必读；§4.1 所有权与生命周期、§9.6 验证体系）。
-进度与已知问题以 [DEVELOP.md](DEVELOP.md) 为准（当前 M0–M3 + v1 后续全量 + 重构批次 0-6，55/55 测试通过；C++23；[README.md](README.md) 为面向用户的说明）。重构已完成，路线图文件已退役——纪律正文即本文件「所有权纪律」节。
+
+## 必读文档与工作目录（会话开始先做）
+
+按序阅读，再动手：
+
+1. **[nested-extractor-design.md](nested-extractor-design.md)** — 权威设计文档。改 walker/sink/password/detect 等敏感区域前必读；§4.1 所有权与生命周期、§9.6 验证体系。
+2. **[DEVELOP.md](DEVELOP.md)** — 开发指南：构建、源码地图（文件→模块→职责）、领域模型速览、CI 硬门清单与红线。
+3. **`plan/`** — **所有进度与计划的唯一落点**（本地文件夹，已 gitignore，不入仓）：
+   - 会话开始先读该文件夹，了解当前进度、未竟事项与既定计划；
+   - 工作中产生的进度记录、计划、任务清单一律写回该文件夹（一事一文件，建议 `YYYY-MM-DD-主题.md`），**不写进仓库文档**——仓库文档只描述"系统是什么、怎么开发"，不描述"开发到哪了"；
+   - [README.md](README.md) 面向最终用户（功能/安装/用法），与开发无关。
 
 ## 构建与打包
 
@@ -13,20 +22,19 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 
 - vcpkg manifest 固定依赖：libarchive 3.8.7 + zlib-ng[compat]/bzip2/liblzma/zstd/lz4，triplet `x64-windows-static`。
 - 必须的 overlay 有两个：`ports-overlay/zlib-ng`（基线端口无 feature，自建 compat）与
-  `ports-overlay/libarchive`（crypto 探测修复 + `nx-batch-ctr.patch` WinZip AES 批量化 +
-  `nx-batch-ctr-test.patch` 上游 round-trip 测试）。
+  `ports-overlay/libarchive`（crypto 探测修复 + `nx-batch-ctr.patch` WinZip AES 批量化 + 上游 round-trip 测试；补丁背景见 DEVELOP 依赖节）。
 - `build.cmd` 硬编码了本机代理 `127.0.0.1:10808` 与 `VSROOT=C:\Program Files\Microsoft Visual Studio\18\Community`——换机器需改。
 - 7z.dll 运行时按需加载（exe 目录 → Program Files → PATH），负责 7z 全特性与 RAR；缺失回退 libarchive。
 - spool RAM 默认 0=自动（空闲物理内存 50%，64MiB–8GiB，`--spool-ram` 覆盖）；溢出临时目录默认=输出目录（同盘零跨盘 I/O）。
 
-## 测试
+## 测试（硬门，违例即不可交付）
 
 ```bash
 python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 测试 55/55（unit_core 325 项 + 所有权双门 + BoundedQueue 协议门 + clang-tidy 基线门 + 50 属性）；NX_EXE 环境变量可覆盖被测 exe 路径
-python tests/release_gate.py     # 发布门：合成语料（真实案例结构重建，D-4 隐私纪律——真实样本/密码不入仓）端到端哈希比对；--update 固化基线
+python tests/run_tests.py        # 硬门：55 用例全绿（构成与门的语义见 DEVELOP「CI 硬门」）；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/release_gate.py     # 发布门：合成语料端到端哈希比对；--update 固化基线
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
 cmd /c build-analyze.cmd         # MSVC /analyze 排雷（低噪子集，非门；项目源零警告）
@@ -47,17 +55,17 @@ VolumeSet(分片) → ByteSource(唯一流抽象) → Detector(嗅探)
   → Walker(递归+Limiter+PasswordProvider) → Sink(安全落盘)
 ```
 
-- `src/res/` 是**资源圈禁区（P2，批次 5）**：Win32 句柄/COM/临时文件的 RAII 唯一来源
+- `src/res/` 是**资源圈禁区（P2）**：Win32 句柄/COM/临时文件的 RAII 唯一来源
   （UniqueFile/UniqueRegKey/UniqueModule/TempFile/com_ptr/DeleteGuard，header-only）。
   口径=五名单：`CloseHandle/DeleteFileW/RegCloseKey/FreeLibrary/->Release()` 不得出现在
   res/ 之外——`tests/audit_ownership.py` 的 grep 圈禁门是硬门（每次运行先跑正/负样本
   自检），新代码违例直接 FAIL。名单外资源（fclose/LocalFree/CoTaskMemFree/
-  archive_read_free）暂不圈禁，批次 6 评估归属。文件句柄接入一律走
+  archive_read_free）显式豁免。文件句柄接入一律走
   `res::adopt_file(CreateFileW(...))`（INVALID_HANDLE_VALUE 归一——哨兵是 nullptr）。
 
 - `ByteSource` 是唯一流抽象；R 类（需 seek 的）容器经 `SpoolStore`（RAM 环形自适应 → 磁盘溢出），
   **stored 嵌套条目例外**——可经 `RegionSource` 区间直读免 spool（见下）。
-- 引擎分工：libarchive=容器；zlib-ng/bzip2/lzma/zstd/lz4=过滤器直连；`szcom.cpp`=7z.dll COM 适配（IInArchive、多卷回调、双通道密码）。
+- 引擎分工：libarchive=容器；zlib-ng/bzip2/lzma/zstd/lz4=过滤器直连；`szcom.cpp`=7z.dll COM 适配（IInArchive、多卷回调、双通道密码）。容器打开统一走 engines.hpp 门面（open.cpp 组合根），勿直达 szcom/laseq。
 - 嵌套免 spool 直读：`RegionSource`（bytesource.hpp）= 父支撑中连续区间；`ByteSource::seekRegion()`
   经 SharedView/PushbackSource 转发；推导失败/deflate 父条目/子打开失败一律自动回退 spool——改这些类时保持回退语义。
 - 线程模型：`std::jthread` + `stop_token`，级间固定容量有界队列背压；不引入协程。
@@ -110,8 +118,8 @@ AST 检查器管代码现状、F\* 证明（`tools/proofs/`）管检查器算法
 - **esft 类不得把 `shared_from_this()` 交给"将被自己持有的结构"**——LaSeqReader 的
   replayQ_ 自引用环（失败尝试的读取器永不析构 → spool/视图连带泄漏，15GB 临时文件残留
   案例根因）。防护三重：重放队列只存元数据（ReplayRecord）、try_open 失败出口哨兵 S3
-  （src/diag.hpp，fuzz 常开）、批次 5 的 AST 强闭包检查器。
-- `setlocale(LC_ALL, ".UTF8")` 是关键修复——C locale 下 libarchive 返回 NULL pathname（D:\…\2.zip 案例）。
+  （src/diag.hpp，fuzz 常开）、AST 强闭包检查器。
+- `setlocale(LC_ALL, ".UTF8")` 是关键修复——C locale 下 libarchive 返回 NULL pathname。
 - zip 文件名解码走中央目录模式（File/Spool SeekView）；码表候选名须为 iconv 格式（如 `CP932`）；
   EOCD 的 cdSize/cdOffset 是**小端**（MP4 atom 是大端）；zip64 影子值须经 CD 签名自证。
 - 右键级联用 HKCU `ExtendedSubCommandsKey`；CommandStore 方案仅 HKLM 受支持（已回退）。
@@ -121,7 +129,7 @@ AST 检查器管代码现状、F\* 证明（`tools/proofs/`）管检查器算法
 - `EngineOptions.meter`（根 InputMeter）是进度百分比与压缩比分母的公共数据源：
   根层直读视图（FileSeekView/FileSeekInput）挂、码表探测视图与 spool 卷不挂——动这些类时保持该纪律。
 - **WriteFile/ReadFile 长度参数是 DWORD**：spool 8GiB 整段落盘 cast 截断成 0 曾报
-  "写临时文件失败: 操作成功完成 (Win32 0)"（11.23GiB 案例）——大块 I/O 一律分块（≤16MiB）。
+  "写临时文件失败: 操作成功完成 (Win32 0)"——大块 I/O 一律分块（≤16MiB）。
 - **libarchive read-ahead 缓冲（256KB）命中时 read 回调不触发**（小文件整包缓存）——
   依赖回调观察输入位置的逻辑须 seek+read 双记 + 主动促发读（嵌套直读的区间推导即此）。
 - `ensure_dir_recursive` 对 ERROR_ALREADY_EXISTS 必须验证 FILE_ATTRIBUTE_DIRECTORY

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""clang-tidy 基线门（批次 6，roadmap §7.3 推荐集）：零警告基线，新增即 FAIL。
+"""clang-tidy 基线门：零警告基线，新增即 FAIL。
 
 用法：python tests/tidy_check.py [--jobs N]     # 默认并行 min(8, cpu 数)
 依赖：VS "C++ Clang tools for Windows" 组件的 clang-tidy（无需 vcvars——
@@ -59,7 +59,7 @@ def main() -> int:
                     default=min(8, os.cpu_count() or 1))
     args = ap.parse_args()
 
-    print(f"[tidy] {len(TUS)} TU · clang-tidy 基线（roadmap §7.3 四检查）· jobs={args.jobs}")
+    print(f"[tidy] {len(TUS)} TU · clang-tidy 基线（四检查）· jobs={args.jobs}")
     total = 0
     with ThreadPoolExecutor(max_workers=args.jobs) as ex:
         for tu, hits in sorted(ex.map(run_tu, TUS)):
