@@ -33,6 +33,11 @@ jobs:
       - name: 检出
         uses: actions/checkout@v4
 
+      - name: Python 3.14（语料确定性：zipfile 所链 zlib 的 deflate 流随版本漂移）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
       - name: vcpkg 二进制缓存
         uses: actions/cache@v4
         with:

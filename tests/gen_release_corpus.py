@@ -73,7 +73,10 @@ def _eocd_shadow_wrap(prefix: bytes, z: bytes, rng: random.Random) -> bytes:
 
 def _deflate_marked(entries: dict) -> bytes:
     """deflate 标记但内容不可压缩（zip-in-zip 字节）——真实案例的"不可压缩数据
-    仍标 deflate"形态：嵌套档案无区间，必走 spool 往返"""
+    仍标 deflate"形态：嵌套档案无区间，必走 spool 往返。
+    注意：deflate 流随 python 所链 zlib 版本漂移（3.12 与 3.14 块型不同），其中
+    3.12 块型会触发 nx 管线解码 bug（plan/ 登记项）——CI 必须钉 Python 3.14，
+    与 manifest 冻结基准的生成环境一致"""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
         for name, data in entries.items():
