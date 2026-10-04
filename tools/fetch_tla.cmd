@@ -14,6 +14,8 @@ if errorlevel 1 (
   echo [tla] 下载失败：请手动下载 tla2tools.jar 放入 tools\
   exit /b 1
 )
-java -jar "%~dp0tla2tools.jar" -h >nul 2>&1 || (echo [tla] jar 校验失败 & exit /b 1)
+rem 有效性交给 run_tests 的 TLA 门（跑真模型）——TLC -h 以非零码退出，不能用作校验
+java -version >nul 2>&1 || (echo [tla] 缺 java（TLC 运行时） & exit /b 1)
+for %%F in ("%~dp0tla2tools.jar") do if %%~zF LSS 1048576 (echo [tla] jar 异常（小于 1MB） & exit /b 1)
 echo [tla] 就绪
 endlocal

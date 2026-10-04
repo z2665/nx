@@ -80,8 +80,11 @@ jobs:
           curl -sS -L -o tools/tla2tools.jar `
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
           if ($LASTEXITCODE -ne 0) { throw 'tla2tools 下载失败' }
-          java -jar tools/tla2tools.jar -h *> $null
-          if ($LASTEXITCODE -ne 0) { throw 'tla2tools 校验失败' }
+          # 有效性交给 run_tests 的 TLA 门（跑真模型）；此处仅 JVM 与文件体检
+          #（TLC -h 以非零码退出，不能用作校验）
+          java -version
+          if ($LASTEXITCODE -ne 0) { throw 'java 不可用' }
+          if ((Get-Item tools/tla2tools.jar).Length -lt 1MB) { throw 'tla2tools.jar 异常（<1MB）' }
 
       - name: 配置 + 构建（MSVC/Ninja/静态 CRT）
         shell: cmd
