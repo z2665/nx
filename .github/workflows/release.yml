@@ -136,6 +136,13 @@ jobs:
         shell: cmd
         run: python tests\release_gate.py || exit /b 1
 
+      - name: 门失败现场回收（本地复现二分用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-failure-cases
+          path: tests/release-cases/
+
       - name: 组装便携包 dist\nx
         shell: pwsh
         run: |
