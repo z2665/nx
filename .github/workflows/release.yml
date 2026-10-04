@@ -1,0 +1,130 @@
+# release.yml — tag 触发的便携版发布构建
+#
+# 触发：推送 v* 标签（或手动 workflow_dispatch 试跑，不发布仅出 artifact）。
+# 产物：nx-<tag>-windows-x64.zip（便携包：nx.exe + nxshell.dll + menupkg + 文档）
+#       附到 GitHub Release。
+#
+# 环境说明：
+# - CI 上不复现本地完整门体系（TLA+/F*/clang-tidy/WinRAR 语料缺工具链，那是本地
+#   开发纪律——门就是门）；CI 门 = nxunit 325 项纯核心断言 + ci_smoke 端到端冒烟。
+# - vcpkg 用独立克隆（版本由 vcpkg.json 钉死 + builtin-baseline；overlay 端口由
+#   vcpkg-configuration.json 声明），二进制缓存加速后续构建。
+# - MSVC 经 vswhere 定位 vcvars64（windows-latest 自带 VS；C++23 需 17.13+）。
+# - 7z.dll：runner 装有 7-Zip 时随包携带（可选组件，缺失自动回退 libarchive）。
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-bincache
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: vcpkg 二进制缓存
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-bin-${{ hashFiles('vcpkg.json', 'ports-overlay/**') }}
+          restore-keys: vcpkg-bin-
+
+      - name: 引导 vcpkg（独立克隆）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkg = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone https://github.com/microsoft/vcpkg.git $vcpkg
+          if ($LASTEXITCODE -ne 0) { throw 'git clone vcpkg 失败' }
+          & (Join-Path $vcpkg 'bootstrap-vcpkg.bat') -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'bootstrap-vcpkg 失败' }
+          "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: 配置 + 构建 + 测试（MSVC/Ninja/静态 CRT）
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH exit /b 1
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
+            "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
+            "-DVCPKG_INSTALL_OPTIONS=--overlay-ports=%GITHUB_WORKSPACE%/ports-overlay" || exit /b 1
+          cmake --build build || exit /b 1
+          build\nxunit.exe || exit /b 1
+          python tests\ci_smoke.py build\nx.exe || exit /b 1
+
+      - name: 组装便携包 dist\nx
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'dist/nx'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item build/nx.exe $out
+          Copy-Item build/nxshell.dll $out
+          Copy-Item menupkg (Join-Path $out 'menupkg') -Recurse
+          Copy-Item README.md $out
+          Copy-Item LICENSE $out
+          Copy-Item LICENSE-distro.txt (Join-Path $out 'LICENSE.txt')
+          # 7z.dll 可选：runner 装有 7-Zip 则随包（缺失回退 libarchive，主体功能不受影响）
+          if (Test-Path 'C:\Program Files\7-Zip\7z.dll') {
+            Copy-Item 'C:\Program Files\7-Zip\7z.dll' $out
+            Write-Host '[dist] 7z.dll 已随包'
+          } else {
+            Write-Host '[dist] WARN: runner 无 7-Zip，7z.dll 不随包（可选组件）'
+          }
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: 打 zip + 生成发布说明
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = if ($env:GITHUB_EVENT_NAME -eq 'push') { $env:GITHUB_REF_NAME }
+                  else { $env:GITHUB_SHA.Substring(0, 7) }
+          $zip = "nx-$name-windows-x64.zip"
+          Compress-Archive -Path dist/nx/* -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          "ZIP_PATH=$zip" >> $env:GITHUB_ENV
+          $notes = @'
+          nx __NAME__ 便携版（Windows x64）
+
+          ## 内容
+          - nx.exe —— 单文件解压器（MIT 许可，详见包内 LICENSE 与 LICENSE.txt）
+          - nxshell.dll + menupkg/ —— Win11 新版右键菜单扩展（经典级联菜单无需它们：nx menu install）
+          - 7z.dll —— 可选；本包若未包含：放一个 7z.dll 到 nx.exe 同目录即可启用 7z 全特性与 RAR。缺失时自动回退内置引擎（RAR 原生多卷除外）
+
+          ## 使用
+          解压到任意目录。右键菜单：在 nx.exe 所在目录运行 nx menu install（当前用户，免管理员）。
+          命令行示例：nx extract data.zip.001 -O out\ （嵌套/加密/分片全自动；nx --help 看全部选项）。
+
+          SHA-256: __SHA256__
+          '@
+          $notes.Replace('__NAME__', $name).Replace('__SHA256__', $hash) |
+            Set-Content -Encoding UTF8 release-notes.md
+
+      - name: 上传构建产物（含手动试跑）
+        uses: actions/upload-artifact@v4
+        with:
+          name: nx-windows-x64
+          path: nx-*-windows-x64.zip
+
+      - name: 创建 GitHub Release（仅 tag）
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME $env:ZIP_PATH `
+            --title "nx $env:GITHUB_REF_NAME" --notes-file release-notes.md

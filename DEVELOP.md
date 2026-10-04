@@ -95,6 +95,14 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 
 **发布前另跑**：`python tests/release_gate.py`（合成语料端到端哈希比对，manifest 入库，`--update` 固化基线；语料由 `gen_release_corpus.py` 确定性重建）。
 
+### CI（GitHub Actions）
+
+`.github/workflows/release.yml`：**推送 `v*` 标签触发**，产出 `nx-<tag>-windows-x64.zip` 便携包并创建 GitHub Release（手动 `workflow_dispatch` 可试跑，只出 artifact 不发布）。要点：
+
+- runner 上不复制本地完整门体系（TLA+/F\*/clang-tidy/WinRAR 语料缺工具链——那是本地开发纪律）；**CI 门 = nxunit 325 项 + `tests/ci_smoke.py` 端到端冒烟**（纯 stdlib：嵌套 zip / tar.gz 过滤器链 / 分片拼接 / 退出码契约）。
+- vcpkg 独立克隆 + manifest（版本与 builtin-baseline 由 `vcpkg.json` 钉死）+ 二进制缓存（`actions/cache`，键含 ports-overlay 哈希）；MSVC 经 vswhere 定位，不锁 runner 的 VS 版本（C++23 需 17.13+）。
+- 发一个版本：本地全量门跑绿 → `git tag v0.x.y && git push origin v0.x.y`。
+
 ### 改动 → 必跑矩阵
 
 | 改了什么 | 必跑 |
