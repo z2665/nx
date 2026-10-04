@@ -97,11 +97,12 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 
 ### CI（GitHub Actions）
 
-`.github/workflows/release.yml`：**推送 `v*` 标签触发**，产出 `nx-<tag>-windows-x64.zip` 便携包并创建 GitHub Release（手动 `workflow_dispatch` 可试跑，只出 artifact 不发布）。要点：
+`.github/workflows/release.yml`：**推送 `v*` 标签触发**，在 CI 上跑**与本地相同的门体系**（run_tests 全量 + release_gate）后产出 `nx-<tag>-windows-x64.zip` 并创建 GitHub Release；手动 `workflow_dispatch` 可试跑（只出 artifact 不发布）。要点：
 
-- runner 上不复制本地完整门体系（TLA+/F\*/clang-tidy/WinRAR 语料缺工具链——那是本地开发纪律）；**CI 门 = nxunit 325 项 + `tests/ci_smoke.py` 端到端冒烟**（纯 stdlib：嵌套 zip / tar.gz 过滤器链 / 分片拼接 / 退出码契约）。
-- vcpkg 独立克隆 + manifest（版本与 builtin-baseline 由 `vcpkg.json` 钉死）+ 二进制缓存（`actions/cache`，键含 ports-overlay 哈希）；MSVC 经 vswhere 定位，不锁 runner 的 VS 版本（C++23 需 17.13+）。
-- 发一个版本：本地全量门跑绿 → `git tag v0.x.y && git push origin v0.x.y`。
+- **CI 自装工具链**：Java+`tla2tools.jar`（TLA+ 门）、LLVM（clang-cl/clang-tidy——VS Clang 组件缺席时 choco 兜底；`audit_ownership.py`/`tidy_check.py`/`build_closure_kernel.cmd` 均为可移植发现：`NX_VSROOT` → 本机默认 → vswhere → 独立 LLVM）、闭包内核（`tools/proofs/krml_runtime/` 收编 KaRaMeL 运行时，无需本地 F*）。
+- **已知缺口（唯一）**：WinRAR 专有不入 CI——rar 生成类语料缺席，run_tests 对应用例显式打印"跳过缺失用例"；**这些用例属本地发版前必跑**（`gen_corpus_m1.py` 需 `tests/tools/winrar/Rar.exe`）。
+- 便携包不含 nxshell.dll/menupkg（Win11 新版菜单雏形未启用；在用 = 经典级联菜单）。
+- 发一个版本：本地全量门跑绿（含 WinRAR 语料）→ `git tag v0.x.y && git push origin v0.x.y`。
 
 ### 改动 → 必跑矩阵
 

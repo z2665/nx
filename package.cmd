@@ -1,7 +1,9 @@
 @echo off
-rem package.cmd - M3: bundle all resources into one portable folder (no install needed)
-rem output: dist\nx\  (nx.exe + 7z.dll + README + LICENSE.txt)
+rem package.cmd - bundle resources into one portable folder (no install needed)
+rem output: dist\nx\  (nx.exe + 7z.dll + README + LICENSE)
 rem usage: run build.cmd first; then package.cmd; register menu via dist\nx\nx.exe menu install
+rem 注：nxshell.dll/menupkg（Win11 新版菜单雏形）不打包——在用的是经典级联菜单
+rem     （nx menu install，仅 nx.exe 参与），见 README 已知限制。
 setlocal
 set "OUT=%~dp0dist\nx"
 if not exist "build\nx.exe" (
@@ -21,17 +23,10 @@ if exist "C:\Program Files\7-Zip\7z.dll" (
   echo [package] WARN: 7z.dll not found - 7z/rar fall back to libarchive, rar multivolume unavailable
 )
 
-if not exist "build\nxshell.dll" (
-  echo [package] WARN: build\nxshell.dll missing - Win11 new context menu unavailable
-) else (
-  copy /y "build\nxshell.dll" "%OUT%\nxshell.dll" >nul
-  xcopy /e /i /y "menupkg" "%OUT%\menupkg" >nul
-  echo [package] nxshell.dll + menupkg/ ^(Win11 new context menu^)
-)
-
 copy /y "README.md" "%OUT%\README.md" >nul
+if exist "LICENSE" copy /y "LICENSE" "%OUT%\LICENSE" >nul
 copy /y "LICENSE-distro.txt" "%OUT%\LICENSE.txt" >nul
-echo [package] README.md + LICENSE.txt
+echo [package] README.md + LICENSE + LICENSE.txt
 
 echo.
 echo [package] done: dist\nx\

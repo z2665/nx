@@ -18,8 +18,36 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-VSROOT = os.environ.get("NX_VSROOT", r"C:\Program Files\Microsoft Visual Studio\18\Community")
-TIDY = os.path.join(VSROOT, "VC", "Tools", "Llvm", "x64", "bin", "clang-tidy.exe")
+
+
+def _find_vsroot() -> str:
+    if os.environ.get("NX_VSROOT"):
+        return os.environ["NX_VSROOT"]
+    default = r"C:\Program Files\Microsoft Visual Studio\18\Community"
+    if os.path.isdir(default):
+        return default
+    vswhere = os.path.join(os.environ.get("ProgramFiles(x86)", ""),
+                           "Microsoft Visual Studio", "Installer", "vswhere.exe")
+    if os.path.isfile(vswhere):
+        try:
+            out = subprocess.run([vswhere, "-latest", "-products", "*",
+                                  "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                                  "-property", "installationPath"],
+                                 capture_output=True, text=True, timeout=60)
+            p = out.stdout.strip()
+            if p and os.path.isdir(p):
+                return p
+        except OSError:
+            pass
+    return default
+
+
+VSROOT = _find_vsroot()
+_tidy = os.path.join(VSROOT, "VC", "Tools", "Llvm", "x64", "bin", "clang-tidy.exe")
+if not os.path.isfile(_tidy):
+    _standalone = r"C:\Program Files\LLVM\bin\clang-tidy.exe"
+    _tidy = _standalone if os.path.isfile(_standalone) else _tidy
+TIDY = _tidy
 CONFIG = os.path.join(ROOT, ".clang-tidy")
 INC = os.path.join(ROOT, "build", "vcpkg_installed", "x64-windows-static", "include")
 SRC = os.path.join(ROOT, "src")

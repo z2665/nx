@@ -1,16 +1,14 @@
-# release.yml — tag 触发的便携版发布构建
+# release.yml — tag 触发的发布构建 + 完整验证门
 #
 # 触发：推送 v* 标签（或手动 workflow_dispatch 试跑，不发布仅出 artifact）。
-# 产物：nx-<tag>-windows-x64.zip（便携包：nx.exe + nxshell.dll + menupkg + 文档）
-#       附到 GitHub Release。
+# 产物：nx-<tag>-windows-x64.zip（nx.exe + 7z.dll(视环境) + 文档）→ GitHub Release。
 #
-# 环境说明：
-# - CI 上不复现本地完整门体系（TLA+/F*/clang-tidy/WinRAR 语料缺工具链，那是本地
-#   开发纪律——门就是门）；CI 门 = nxunit 325 项纯核心断言 + ci_smoke 端到端冒烟。
-# - vcpkg 用独立克隆（版本由 vcpkg.json 钉死 + builtin-baseline；overlay 端口由
-#   vcpkg-configuration.json 声明），二进制缓存加速后续构建。
-# - MSVC 经 vswhere 定位 vcvars64（windows-latest 自带 VS；C++23 需 17.13+）。
-# - 7z.dll：runner 装有 7-Zip 时随包携带（可选组件，缺失自动回退 libarchive）。
+# 验证语义：发布前在 CI 上跑**与本地相同的门体系**（run_tests 全量 + release_gate）。
+# CI 安装缺失工具链：Java(TLC) / tla2tools.jar / LLVM(clang-cl+clang-tidy，若 VS
+# 组件缺席) / 闭包内核（仓库自含 krml_runtime 收编，无需本地 F*）。
+# 已知缺口：WinRAR 为专有软件不入 CI——rar 生成类语料缺席，对应用例显式跳过
+#（run_tests 打印"跳过缺失用例"）；这些用例仍属本地发版前必跑。
+# 便携包不含 nxshell.dll/menupkg（Win11 新版菜单雏形未启用，在用的是经典菜单）。
 
 name: release
 
@@ -28,7 +26,7 @@ env:
 jobs:
   build-and-release:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: 检出
         uses: actions/checkout@v4
@@ -39,6 +37,29 @@ jobs:
           path: vcpkg-bincache
           key: vcpkg-bin-${{ hashFiles('vcpkg.json', 'ports-overlay/**') }}
           restore-keys: vcpkg-bin-
+
+      - name: Java（TLA+ TLC 运行时）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: LLVM 兜底（VS Clang 组件缺席时）
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -property installationPath
+          $cands = @(
+            (Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-tidy.exe'),
+            "$env:ProgramFiles\LLVM\bin\clang-tidy.exe"
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          if (-not $cands) {
+            Write-Host '[tools] VS Clang 组件与独立 LLVM 均缺席 → choco install llvm'
+            choco install -y --no-progress llvm
+            if ($LASTEXITCODE -ne 0) { throw 'choco install llvm 失败' }
+          } else {
+            Write-Host "[tools] clang 工具链就绪: $($cands[0])"
+          }
 
       - name: 引导 vcpkg（独立克隆）
         shell: pwsh
@@ -52,7 +73,17 @@ jobs:
           "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
 
-      - name: 配置 + 构建 + 测试（MSVC/Ninja/静态 CRT）
+      - name: TLA+ TLC（tla2tools v1.8.0）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl -sS -L -o tools/tla2tools.jar `
+            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          if ($LASTEXITCODE -ne 0) { throw 'tla2tools 下载失败' }
+          java -jar tools/tla2tools.jar -h *> $null
+          if ($LASTEXITCODE -ne 0) { throw 'tla2tools 校验失败' }
+
+      - name: 配置 + 构建（MSVC/Ninja/静态 CRT）
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
@@ -63,8 +94,27 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=x64-windows-static ^
             "-DVCPKG_INSTALL_OPTIONS=--overlay-ports=%GITHUB_WORKSPACE%/ports-overlay" || exit /b 1
           cmake --build build || exit /b 1
-          build\nxunit.exe || exit /b 1
-          python tests\ci_smoke.py build\nx.exe || exit /b 1
+
+      - name: 闭包内核（仓库自含 KaRaMeL 运行时）
+        shell: cmd
+        run: tools\build_closure_kernel.cmd || exit /b 1
+
+      - name: 生成测试语料
+        shell: cmd
+        run: |
+          python tests\gen_corpus.py || exit /b 1
+          python tests\gen_corpus_fn.py || exit /b 1
+          python tests\gen_corpus_m2.py || exit /b 1
+          python tests\gen_release_corpus.py || exit /b 1
+          rem gen_corpus_m1 需 WinRAR（专有，不入 CI）——rar 用例缺席由 run_tests 显式跳过
+
+      - name: 全量测试门（run_tests：单元+属性+所有权双门+tidy+GUI 冒烟）
+        shell: cmd
+        run: python tests\run_tests.py || exit /b 1
+
+      - name: 发布门（合成语料端到端哈希比对）
+        shell: cmd
+        run: python tests\release_gate.py || exit /b 1
 
       - name: 组装便携包 dist\nx
         shell: pwsh
@@ -73,8 +123,6 @@ jobs:
           $out = 'dist/nx'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item build/nx.exe $out
-          Copy-Item build/nxshell.dll $out
-          Copy-Item menupkg (Join-Path $out 'menupkg') -Recurse
           Copy-Item README.md $out
           Copy-Item LICENSE $out
           Copy-Item LICENSE-distro.txt (Join-Path $out 'LICENSE.txt')
@@ -85,7 +133,7 @@ jobs:
           } else {
             Write-Host '[dist] WARN: runner 无 7-Zip，7z.dll 不随包（可选组件）'
           }
-          Get-ChildItem -Recurse $out | Select-Object FullName, Length | Format-Table -AutoSize
+          Get-ChildItem $out | Select-Object Name, Length | Format-Table -AutoSize
 
       - name: 打 zip + 生成发布说明
         shell: pwsh
@@ -102,11 +150,10 @@ jobs:
 
           ## 内容
           - nx.exe —— 单文件解压器（MIT 许可，详见包内 LICENSE 与 LICENSE.txt）
-          - nxshell.dll + menupkg/ —— Win11 新版右键菜单扩展（经典级联菜单无需它们：nx menu install）
           - 7z.dll —— 可选；本包若未包含：放一个 7z.dll 到 nx.exe 同目录即可启用 7z 全特性与 RAR。缺失时自动回退内置引擎（RAR 原生多卷除外）
 
           ## 使用
-          解压到任意目录。右键菜单：在 nx.exe 所在目录运行 nx menu install（当前用户，免管理员）。
+          解压到任意目录。右键菜单：在 nx.exe 所在目录运行 nx menu install（当前用户，免管理员，经典级联菜单）。
           命令行示例：nx extract data.zip.001 -O out\ （嵌套/加密/分片全自动；nx --help 看全部选项）。
 
           SHA-256: __SHA256__

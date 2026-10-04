@@ -32,8 +32,42 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-VSROOT = r"C:\Program Files\Microsoft Visual Studio\18\Community"
-CLANG = os.path.join(VSROOT, "VC", "Tools", "Llvm", "x64", "bin", "clang-cl.exe")
+
+
+def _find_vsroot() -> str:
+    """工具链发现（可移植，CI 可用）：NX_VSROOT → 本机默认（VS2026）→ vswhere。"""
+    if os.environ.get("NX_VSROOT"):
+        return os.environ["NX_VSROOT"]
+    default = r"C:\Program Files\Microsoft Visual Studio\18\Community"
+    if os.path.isdir(default):
+        return default
+    vswhere = os.path.join(os.environ.get("ProgramFiles(x86)", ""),
+                           "Microsoft Visual Studio", "Installer", "vswhere.exe")
+    if os.path.isfile(vswhere):
+        try:
+            out = subprocess.run([vswhere, "-latest", "-products", "*",
+                                  "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                                  "-property", "installationPath"],
+                                 capture_output=True, text=True, timeout=60)
+            p = out.stdout.strip()
+            if p and os.path.isdir(p):
+                return p
+        except OSError:
+            pass
+    return default
+
+
+def _find_tool(name: str) -> str:
+    """VS Clang 组件优先，独立 LLVM 兜底（choco install llvm 的布局）。"""
+    for cand in (os.path.join(VSROOT, "VC", "Tools", "Llvm", "x64", "bin", name),
+                 os.path.join(r"C:\Program Files\LLVM\bin", name)):
+        if os.path.isfile(cand):
+            return cand
+    return ""  # 调用方报缺件 FAIL（门就是门）
+
+
+VSROOT = _find_vsroot()
+CLANG = _find_tool("clang-cl.exe")
 KERNEL = os.path.join(ROOT, "tools", "proofs", "closure_check.exe")
 CALIBRATE_REF = "2d20794"
 
