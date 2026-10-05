@@ -6,8 +6,8 @@
 # 验证语义：发布前在 CI 上跑**与本地相同的门体系**（run_tests 全量 + release_gate）。
 # CI 安装缺失工具链：Java(TLC) / tla2tools.jar / LLVM(clang-cl+clang-tidy，若 VS
 # 组件缺席) / 闭包内核（仓库自含 krml_runtime 收编，无需本地 F*）。
-# 已知缺口：WinRAR 为专有软件不入 CI——rar 生成类语料缺席，对应用例显式跳过
-#（run_tests 打印"跳过缺失用例"）；这些用例仍属本地发版前必跑。
+# 已知缺口：rar4/旧命名卷无语料生成渠道（WinRAR 7.x 已不支持 -ma4，README 已知
+# 限制 #3）。rar 族用例经 LFS 冻结语料（tests/cases-rar）在 CI 全量运行，零跳过。
 # 便携包不含 nxshell.dll/menupkg（Win11 新版菜单雏形未启用，在用的是经典菜单）。
 
 name: release
@@ -122,9 +122,6 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # runner 自带 7-Zip 26.x：其 AES zip 产物结构（extra 字段布局）与 manifest
-          # 冻结时的 22.01 不同——语料生成与 7z.dll 运行时统一钉回 22.01（本地基准）。
-          # 7-Zip 26 AES zip 经 nx 读取失败另案登记（见 plan/）。
           $installer = Join-Path $env:RUNNER_TEMP '7z2201-x64.exe'
           curl -sS -L -o $installer https://www.7-zip.org/a/7z2201-x64.exe
           if ($LASTEXITCODE -ne 0) { throw '7z2201 下载失败' }
