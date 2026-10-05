@@ -1,4 +1,4 @@
-// diag.cpp：泄漏哨兵实现（S1-S10；NX_DIAG_LEAKS 时才有实体）
+// diag.cpp：泄漏哨兵实现（S1-S5；NX_DIAG_LEAKS 时才有实体）
 #include "diag.hpp"
 
 #ifdef NX_DIAG_LEAKS

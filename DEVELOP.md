@@ -13,7 +13,7 @@
 build.cmd            # CMake + Ninja + VS 2026（vcvars64）+ vcpkg → build\nx.exe（约 5.5 MB 单文件，仅系统 DLL 依赖）
 package.cmd          # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + menupkg + 文档；需先 build.cmd）
 build-analyze.cmd    # MSVC /analyze 排雷（低噪子集，非门）
-build-diag.cmd       # 诊断构建：泄漏哨兵 S1-S10 全开（NX_DIAG_LEAKS_MAIN）
+build-diag.cmd       # 诊断构建：泄漏哨兵 S1-S5 全开（NX_DIAG_LEAKS_MAIN）
 ```
 
 注意：`build.cmd` 硬编码了本机代理 `127.0.0.1:10808` 与 `VSROOT`（VS 2026 路径）——换机器需改。
@@ -37,7 +37,7 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 |---|---|---|
 | 基座 | `util.hpp/cpp` | 编码转换、Win32 路径（`\\?\` 长路径/递归建目录）、尺寸解析 |
 | | `outcome.hpp` | 错误分类学（Error/Limit/Password/MissingVolumes/Corrupt/Cancelled）+ `Result` 别名 + 退出码纯推导 |
-| | `diag.hpp/cpp` | 泄漏哨兵 S1-S10（`NX_DIAG_LEAKS`，fuzz 常开；泄漏=abort） |
+| | `diag.hpp/cpp` | 泄漏哨兵 S1-S5（`NX_DIAG_LEAKS`，fuzz 常开；泄漏=abort） |
 | | `log.hpp/cpp` | 日志体系 + 密码红线过滤 + 默认 nx.log（5MiB 截断） |
 | | `namecodec.hpp/cpp` | 条目名码表修复（每读取器粘性） |
 | 领域 | `format.hpp` | 格式枚举 + `kFormatTable` 单一事实源（格式→类属→名称）+ 过滤器后缀剥离 |

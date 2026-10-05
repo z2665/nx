@@ -199,8 +199,9 @@ struct Entry {
 | BoundedQueue | open/closed → dead（终态） | dead 时两侧必不阻塞（TLA+ DeadRelease 已证） |
 
 借用纪律断言化（四条）：Sink 析构前必 waitAll；QueueSource 先亡于队列；Session/Sink
-成员声明序显式化；COM 释放契约（S8 哨兵）。运行时哨兵见 `src/diag.hpp`（S1-S10，
-`NX_DIAG_LEAKS`，fuzz 常开；诊断构建 `build-diag.cmd`）。
+成员声明序显式化；COM 释放顺序契约（szcom tryOpen 的 P6 注释契约——`arc.reset()`
+先于 `mainStream_.reset()`，无运行时哨兵，改动释放序时人工对照）。运行时哨兵见
+`src/diag.hpp`（S1-S5，`NX_DIAG_LEAKS`，fuzz 常开；诊断构建 `build-diag.cmd`）。
 
 ---
 
