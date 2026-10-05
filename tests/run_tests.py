@@ -562,10 +562,19 @@ def main():
 
     # GUI 冒烟（独立进程跑，窗口消息自动化）
     r = add("gui_smoke")
-    g = subprocess.run([sys.executable, os.path.join(HERE, "gui_smoke.py")],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       timeout=180)
-    r.check(g.returncode == 0, "GUI 冒烟失败: " + (g.stdout or "")[-500:])
+    # 外层 420s：脚本自产 ~2.6GB 语料 + 各用例自适应等待，慢盘需要余量；
+    # 失败注记带 stdout+stderr 尾巴（原仅 stdout，异常栈历来不可见）
+    try:
+        g = subprocess.run([sys.executable, os.path.join(HERE, "gui_smoke.py")],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=420)
+    except subprocess.TimeoutExpired as e:
+        g = None
+        r.check(False, f"GUI 冒烟脚本整体超时: {(e.stdout or b'')!r:.400}")
+    if g is not None:
+        r.check(g.returncode == 0,
+                "GUI 冒烟失败: "
+                + ((g.stdout or "") + " | [stderr] " + (g.stderr or ""))[-700:])
 
     # 所有权 AST 强闭包审计（硬门）：esft 类的成员强闭包含自身 = 类型级
     # 自引用环。链路 = clang-cl ast-dump → 边表（shared_ptr→派生展开）→ F* 验证

@@ -60,7 +60,9 @@ class NxDialog:
         self.pid = r.value
 
     @staticmethod
-    def wait_for(pid, title_contains="", timeout=8.0, interval=0.15):
+    def wait_for(pid, title_contains="", timeout=20.0, interval=0.15):
+        # 默认 20s：窗口出现纯属环境等待（进程冷启动/杀软扫描/共享 runner 负载），
+        # 放宽无副作用——原 8s 在 CI 偶发 TimeoutError 砍死调用方
         t0 = time.time()
         while time.time() - t0 < timeout:
             for h in _list_windows():
