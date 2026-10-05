@@ -92,24 +92,20 @@ jobs:
           "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
 
-      - name: TLA+ TLC（tla2tools v1.8.0）
+      - name: TLA+ TLC（仓库冻结 jar，LFS 检出）
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # 供应链钉扎（评审 架构 m-5）：SHA256 校验——发布流水线里的工具二进制
-          # 不设防 = 被篡改的 TLC 可伪造验证结论。哈希基准取自本地已验证工件
-          $jarHash = 'ED EE 93 33 00 68 FB 7B EE 0B C9 DC 2B C9 28 F5 91 8A 76 35 B5 EE 4D A5 6D BB 48 55 6B 7A FA 6A 2'
-          curl -sS -L -o tools/tla2tools.jar `
-            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
-          if ($LASTEXITCODE -ne 0) { throw 'tla2tools 下载失败' }
-          $actual = (Get-FileHash tools/tla2tools.jar -Algorithm SHA256).Hash
-          if ($actual -ne $jarHash.Replace(' ', '')) { throw "tla2tools.jar 哈希不符: $actual" }
-          Write-Host "[tools] tla2tools.jar SHA256 校验通过"
-          # 有效性交给 run_tests 的 TLA 门（跑真模型）；此处仅 JVM 与文件体检
+          # 供应链钉扎（评审 架构 m-5）：tla2tools v1.8.0 的 release asset 是
+          # 上游持续覆盖的活动靶（哈希校验首日即拦到与本地不同的 nightly）——
+          # 已验证 jar 经 LFS 冻结入仓（tools/tla2tools.jar，见 .gitattributes），
+          # CI 零下载、工具链确定性由 git 内容寻址兜底
+          if (-not (Test-Path tools/tla2tools.jar)) { throw 'checkout 未含 tla2tools.jar（LFS 检出失败？）' }
+          if ((Get-Item tools/tla2tools.jar).Length -lt 1MB) { throw 'tla2tools.jar 异常（<1MB，疑 LFS 指针未展开）' }
+          # 有效性交给 run_tests 的 TLA 门（跑真模型）；此处仅 JVM 体检
           #（TLC -h 以非零码退出，不能用作校验）
           java -version
           if ($LASTEXITCODE -ne 0) { throw 'java 不可用' }
-          if ((Get-Item tools/tla2tools.jar).Length -lt 1MB) { throw 'tla2tools.jar 异常（<1MB）' }
 
       - name: 配置 + 构建（MSVC/Ninja/静态 CRT）
         shell: cmd

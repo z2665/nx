@@ -3,3 +3,6 @@
 tests/cases-rar/** filter=lfs diff=lfs merge=lfs -text
 tests/cases-rar/**/expected.json -filter -diff -merge
 tests/cases-rar/SHA256SUMS -filter -diff -merge
+# TLC 运行时冻结（v1.8.0 release asset 是上游持续覆盖的活动靶，曾见2026-10-01 nightly；
+# 冻结本地已验证 jar，CI 免下载，工具链确定性）
+tools/tla2tools.jar filter=lfs diff=lfs merge=lfs -text
