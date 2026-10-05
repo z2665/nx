@@ -116,6 +116,13 @@ def run_extract_and_compare(r, case, input_file, extra_args, expect_code,
 
 # ---------------------------------------------------------------- 用例配置
 
+# D-2 门就是门（评审 M4）：缺语料/缺工具不得以缩水的用例数"全绿"——
+# 缺失在此显式登记，末尾 gate_completeness 统一 FAIL；期望用例数断言
+# 防 add() 漂移（增删用例须同步此数与 DEVELOP/AGENTS 文档口径）
+MISSING_CORPUS = []
+EXPECTED_CASES = 63   # 占位：以本轮全量实跑为准回填
+
+
 def main():
     if not os.path.exists(NX_EXE):
         print(f"[run] 找不到 {NX_EXE}，先构建")
@@ -136,7 +143,9 @@ def main():
                            encoding="utf-8", errors="replace", timeout=120)
         r.check(p.returncode == 0, "nxunit 失败:\n" + (p.stdout or "")[-800:])
     else:
-        print("[run] 跳过 nxunit（未构建）")
+        r = add("unit_core")
+        r.check(False, "缺 build\nxunit.exe——先构建 nxunit 目标（build.cmd 全量或 "
+                       "cmake --build build --target nxunit）；单测缺席不允许静默缩水（D-2）")
 
     # 所有权模型门（TLA+/TLC，设计语义唯一权威形态）：
     # legacy 必违 NoLeak、weakOnly 必违 AsyncNoUseAfterDead、fixed 必须全过。
@@ -218,7 +227,8 @@ def main():
     ]:
         d = os.path.join(CASES, case)
         if not os.path.isdir(d):
-            print(f"[run] 跳过缺失用例 {case}")
+            print(f"[run] 语料缺失 {case}")
+            MISSING_CORPUS.append(case)
             continue
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), args, want)
@@ -231,7 +241,8 @@ def main():
                         ("rar_solid", "solid.rar")]:
         d = os.path.join(CASES, case)
         if not os.path.isdir(d):
-            print(f"[run] 跳过缺失用例 {case}_la")
+            print(f"[run] 语料缺失 {case}_la")
+            MISSING_CORPUS.append(case + "_la")
             continue
         r = add(case + "_la")
         run_extract_and_compare(r, case, find_input(d, entry), [], 0,
@@ -261,7 +272,8 @@ def main():
     ]:
         d = os.path.join(CASES, case)
         if not os.path.isdir(d):
-            print(f"[run] 跳过缺失用例 {case}")
+            print(f"[run] 语料缺失 {case}")
+            MISSING_CORPUS.append(case)
             continue
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), [], 0)
@@ -281,7 +293,8 @@ def main():
     ]:
         d = os.path.join(CASES, case)
         if not os.path.isdir(d):
-            print(f"[run] 跳过缺失用例 {case}")
+            print(f"[run] 语料缺失 {case}")
+            MISSING_CORPUS.append(case)
             continue
         r = add(case)
         run_extract_and_compare(r, case, find_input(d, entry), args, want)
@@ -615,6 +628,15 @@ def main():
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=1800)
     r.check(p.returncode == 0, "clang-tidy 基线失败:\n" + (p.stdout or "")[-800:])
+
+    # D-2 收口（评审 M4）：完整性门——语料齐备 + 用例总数与登记一致，
+    # 任何静默缩水（缺语料/缺工具被 continue 掉）在此显式 FAIL
+    r = add("gate_completeness")
+    r.check(not MISSING_CORPUS,
+            f"缺语料用例: {MISSING_CORPUS[:8]}——跑 gen_corpus 系列补齐后重试")
+    r.check(len(results) == EXPECTED_CASES,
+            f"用例总数 {len(results)} ≠ 登记的 {EXPECTED_CASES}——增删用例须同步 "
+            "EXPECTED_CASES 与文档口径")
 
     # 汇总
     print()
