@@ -80,12 +80,12 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 
 ## CI 硬门（违例即不可交付）
 
-`python tests/run_tests.py` 一把梭，**55 用例全绿是合并前提**；缺工具直接 FAIL（决策 D-2：门就是门）。构成：
+`python tests/run_tests.py` 一把梭，**63 用例全绿是合并前提**；缺工具直接 FAIL（决策 D-2：门就是门）。构成：
 
 | 门 | 内容 | 缺工具时 |
 |---|---|---|
 | unit_core | nxunit 325 项断言（纯核心：detect/sanitize/volumeset/namecodec/outcome/report/stego…） | 构建失败即 FAIL |
-| 属性测试 | 50 用例：生成语料端到端解压 ≡ 逐层手工解压（全树哈希对比） | — |
+| 属性测试 | 44 用例：生成语料端到端解压 ≡ 逐层手工解压（全树哈希对比） | — |
 | ownership_audit | ①圈禁 grep 门（五名单出 res/ 即 FAIL，每次运行先正/负样本自检）；②AST 强闭包检查器（clang-cl ast-dump → F\* 验证 + KaRaMeL 抽取的 closure_check.exe，校准基线见 `--calibrate`） | FAIL |
 | TLA+ 双模型 | `tools/ownership.tla`（legacy 复现 replayQ_ 反例 / weakOnly 反例 / fixed 零违例）+ `tools/boundedqueue.tla`（closeNoWake/abandonNoWake 必违 / fixed 零违例零死锁） | 缺 tla2tools.jar/java 直接 FAIL（`tools/fetch_tla.cmd` 可取） |
 | BoundedQueue 协议门 | abandon 后两侧必不阻塞等协议断言 | — |

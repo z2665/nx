@@ -30,18 +30,19 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 ## 测试（硬门，违例即不可交付）
 
 ```bash
-python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 1 组；tests/cases、tests/work 均在 .gitignore）
+python tests/gen_corpus.py       # 基础语料（含隐写 9 组 + 嵌套直读 2 组；tests/cases、tests/work 均在 .gitignore）
 python tests/gen_corpus_m1.py    # 需 tests/tools/winrar/Rar.exe + 7z CLI（无 WinRAR 时 rar 用例由 LFS 冻结语料 tests/cases-rar/ 补入——freeze_rar_corpus.py 产物）
 python tests/freeze_rar_corpus.py # 重冻结 rar 语料到 LFS 目录（需先本地生成；--force 覆盖）
 python tests/gen_corpus_fn.py    # 文件名编码语料（CP932/GBK）
-python tests/run_tests.py        # 硬门：55 用例全绿（构成与门的语义见 DEVELOP「CI 硬门」）；NX_EXE 环境变量可覆盖被测 exe 路径
+python tests/gen_corpus_m2.py    # 限额语料（ratio bomb；CI 亦跑，勿漏）
+python tests/run_tests.py        # 硬门：63 用例全绿（构成与门的语义见 DEVELOP「CI 硬门」；缺语料/缺工具一律 FAIL 不缩水）；NX_EXE 环境变量可覆盖被测 exe 路径
 python tests/release_gate.py     # 发布门：合成语料端到端哈希比对；--update 固化基线
 python tests/fuzz_run.py        # libFuzzer+ASan 全管线 fuzz（独立构建 build-fuzz/，gitignore；泄漏哨兵 S1-S5 常开）
 python tests/bench.py            # 基准；python tests/gui_smoke.py  # GUI 冒烟 9 用例
 cmd /c build-analyze.cmd         # MSVC /analyze 排雷（低噪子集，非门；项目源零警告）
 ```
 
-- 退出码契约（测试断言依赖）：`0` 成功｜`1` 部分失败｜`2` 密码｜`3` 超限｜`4` 缺分片。
+- 退出码契约（测试断言依赖）：`0` 成功｜`1` 部分失败｜`2` 密码｜`3` 超限｜`4` 缺分片｜`64` 用法错误。
 - 密码交互测试依赖环境变量 `NX_PROMPT_TEST=1`。
 - context_menu 用例会真实装卸 HKCU 菜单——已做现场保存/还原（测试后用原 exe 重装），不会再吃掉用户菜单。
 - fuzz 目标（`src/fuzz_main.cpp` + CMake `NX_FUZZ`）复用全部管线源但**不能开 /GL**（与 sanitizer
