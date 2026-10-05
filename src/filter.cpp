@@ -176,7 +176,10 @@ private:
 struct ZstdDec {
     ZSTD_DStream* d;
     ZstdDec() : d(ZSTD_createDStream()) {
-        if (!d || ZSTD_initDStream(d) != 0) throw Error("zstd 初始化失败");
+        // ZSTD_initDStream 成功返回推荐输入缓冲大小（正值），失败返回负错误码
+        // ——判据是 ZSTD_isError（原「!= 0」把成功当失败，zstd 解码从未工作过，
+        // 被零语料覆盖隐藏；bare_zstd 用例抓出）
+        if (!d || ZSTD_isError(ZSTD_initDStream(d))) throw Error("zstd 初始化失败");
     }
     ~ZstdDec() {
         if (d) ZSTD_freeDStream(d);
