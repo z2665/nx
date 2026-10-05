@@ -114,6 +114,7 @@ void test_sanitize_segment() {
     CHECK_EQ(sanitize_segment(".."), std::string("__"));
     CHECK_EQ(sanitize_segment("tail. "), std::string("tail"));       // 尾部点/空格
     CHECK_EQ(sanitize_segment("..."), std::string("_"));             // 全剥空 → 占位
+    CHECK_EQ(sanitize_segment("a\\b"), std::string("a_b"));          // 段内反斜杠（C1 纵深防御）
 }
 
 // ---- match_split_name：分片命名识别（§3.3）----
@@ -312,6 +313,12 @@ void test_sanitize_rel() {
     CHECK_EQ(sanitize_rel("//x//y"), std::string("x/y"));
     CHECK_EQ(sanitize_rel(""), std::string("_"));                 // 全空回退
     CHECK_EQ(sanitize_rel("d./t.. .txt"), std::string("d/t.. .txt"));  // 非整段 .. 不改写
+    // C1（红队）：混合/反斜杠分隔符穿越——'\' 与 '/' 同为段边界，
+    // 穿越段进段级中和，段内残留 '\' 替换 '_'
+    CHECK_EQ(sanitize_rel("a/b\\..\\..\\..\\esc.txt"), std::string("a/b/__/__/__/esc.txt"));
+    CHECK_EQ(sanitize_rel("..\\..\\bs.txt"), std::string("__/__/bs.txt"));
+    CHECK_EQ(sanitize_rel("x\\y.txt"), std::string("x/y.txt"));     // 反斜杠分隔的合法名 → 目录语义
+    CHECK_EQ(sanitize_rel("dir\\\\file"), std::string("dir/file")); // 连续分隔符空段跳过
 }
 
 // ---- LayerCtx / 层身份派生----

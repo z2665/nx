@@ -17,10 +17,12 @@ import lzma
 import os
 import random
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
 import zipfile
+import zlib
 
 SEVEN_ZIP = r"C:\Program Files\7-Zip\7z.exe"
 CASES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases")
@@ -205,6 +207,61 @@ def case_zip_slip():
                {"slip.zip/ok.txt": sha256(b"ok\n"),
                 "slip.zip/__/__/evil.txt": sha256(b"evil\n"),
                 "slip.zip/dir/__/dotdot.txt": sha256(b"dd\n")})
+
+
+def raw_zip(entries):
+    """手搓最小 zip：条目名按**原始字节**写入（含 0x5C 反斜杠），绕开 python
+    zipfile 在 Windows 的 os.sep 替换——混合分隔符穿越语料的唯一构造手段
+    （红队 C1：该形态曾击穿只按 '/' 分割的消毒器，从输出根逃逸）"""
+    out = io.BytesIO()
+    central = io.BytesIO()
+    for name, data in entries:
+        nb = name if isinstance(name, bytes) else name.encode("utf-8")
+        crc = zlib.crc32(data) & 0xFFFFFFFF
+        off = out.tell()
+        out.write(struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 0, 0, 0, 0x4701,
+                              crc, len(data), len(data), len(nb), 0))
+        out.write(nb)
+        out.write(data)
+        central.write(struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0, 0, 0, 0x4701,
+                                  crc, len(data), len(data), len(nb), 0, 0, 0, 0,
+                                  0x20, off))
+        central.write(nb)
+    cd = central.getvalue()
+    eocd = struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(entries), len(entries),
+                       len(cd), out.tell(), 0)
+    return out.getvalue() + cd + eocd
+
+
+def case_mixed_sep_zip():
+    """对抗：混合分隔符穿越 zip（红队 C1 回归）——'\\' 与 '/' 同为段边界，
+    穿越段进段级中和（.. → __）。手搓原始字节（python zipfile 在 Windows
+    会把 0x5C 换成 '/'，库造不出该形态）"""
+    def build(d):
+        with open(os.path.join(d, "mixed.zip"), "wb") as f:
+            f.write(raw_zip([
+                (b"a/b\\..\\..\\..\\..\\ESC.txt", b"escaped\n"),
+                (b"..\\..\\bs.txt", b"bs\n"),
+                (b"dir\\\\file.txt", b"dbl\n"),
+                (b"ok.txt", b"ok\n"),
+            ]))
+    write_case("mixed_sep_zip", build,
+               {"mixed.zip/a/b/__/__/__/__/ESC.txt": sha256(b"escaped\n"),
+                "mixed.zip/__/__/bs.txt": sha256(b"bs\n"),
+                "mixed.zip/dir/file.txt": sha256(b"dbl\n"),
+                "mixed.zip/ok.txt": sha256(b"ok\n")})
+
+
+def case_mixed_sep_tar():
+    """对抗：混合分隔符穿越 tar（红队 C1 回归）——tar reader 无分隔符规范化，
+    反斜杠穿越段直达公共落盘层；tarfile 忠实保留 0x5C，可直接库造"""
+    def build(d):
+        with open(os.path.join(d, "mixed.tar"), "wb") as f:
+            f.write(tar_bytes({"a/b\\..\\..\\TESC.txt": b"tar-escaped\n",
+                               "ok_t.txt": b"ok\n"}))
+    write_case("mixed_sep_tar", build,
+               {"mixed.tar/a/b/__/__/TESC.txt": sha256(b"tar-escaped\n"),
+                "mixed.tar/ok_t.txt": sha256(b"ok\n")})
 
 
 def case_long_path():
@@ -635,6 +692,8 @@ ALL = [
     case_two_passwords,
     case_7z_nested,
     case_zip_slip,
+    case_mixed_sep_zip,
+    case_mixed_sep_tar,
     case_long_path,
     case_bad_crc,
     case_depth_bomb,

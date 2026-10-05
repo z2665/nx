@@ -87,6 +87,10 @@ std::string sanitize_segment(const std::string& seg0) {
         if (c < 0x20 || c == 0x7F) out += '_';
         else if (c == ':') out += '_';           // ADS 冒号（D6）
         else if (c == '"' || c == '<' || c == '>' || c == '|' || c == '?' || c == '*') out += '_';
+        else if (c == '\\') out += '_';          // 段内反斜杠纵深防御——正常路径
+                                                 // 分隔符已被 sanitize_rel 拆分，
+                                                 // 残留者按非法字符替换（红队 C1：
+                                                 // 混合分隔符曾以此逃逸输出根）
         else out += static_cast<char>(c);
     }
     s = out;
@@ -128,7 +132,10 @@ std::string sanitize_rel(const std::string& rel) {
     std::string sanitized;
     size_t start = 0;
     for (;;) {
-        size_t j = rel.find('/', start);
+        // 双分隔符分割：'\' 与 '/' 同为段边界——混合名（a/b\..\..\x）里的
+        // 反斜杠穿越段同样进入段级中和（".."→"__"），不得只按 '/' 拆分后
+        // 把段内 '\' 原样保留给 join_rel/GetFullPathNameW（C1 zip-slip 根因）
+        size_t j = rel.find_first_of("/\\", start);
         std::string seg = (j == std::string::npos) ? rel.substr(start) : rel.substr(start, j - start);
         if (!seg.empty()) {
             if (!sanitized.empty()) sanitized += '/';
