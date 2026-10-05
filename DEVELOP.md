@@ -11,7 +11,7 @@
 
 ```cmd
 build.cmd            # CMake + Ninja + VS 2026（vcvars64）+ vcpkg → build\nx.exe（约 5.5 MB 单文件，仅系统 DLL 依赖）
-package.cmd          # 便携打包 → dist\nx\（nx.exe + nxshell.dll + 7z.dll + menupkg + 文档；需先 build.cmd）
+package.cmd          # 便携打包 → dist\nx\（nx.exe + 7z.dll(可选) + 文档；需先 build.cmd）
 build-analyze.cmd    # MSVC /analyze 排雷（低噪子集，非门）
 build-diag.cmd       # 诊断构建：泄漏哨兵 S1-S5 全开（NX_DIAG_LEAKS_MAIN）
 ```
@@ -32,6 +32,8 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 ## 源码地图（文件 → 模块 → 职责）
 
 依赖方向严格单向（DAG），按层列出；**勿跨层直达**（分层图与红线见 AGENTS 架构分层节）。
+登记例外：`gui.hpp` 的进度/取消/密码弹窗为横切面，允许领域/编排层调用其自由
+函数（未显示时廉价 no-op，单二进制形态下零间接层；未来 GUI 壳拆分时需引入通知端口）。
 
 | 层 | 文件 | 职责 |
 |---|---|---|

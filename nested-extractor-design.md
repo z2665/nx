@@ -207,14 +207,14 @@ struct Entry {
 
 ## 5. 关键设计决策
 
-- **D1 内容检测优先于扩展名**：扩展名只用于分片排序和无 magic 格式（brotli）旁证。检测 = magic 表 + 轻量结构校验（tar 校验和、zip 本地头字段合法性、SFX 前缀内偏移扫描上限 64 MiB）。
+- **D1 内容检测优先于扩展名**：扩展名只用于分片排序和无 magic 格式（brotli）旁证。检测 = magic 表 + 轻量结构校验（tar 校验和、zip 本地头字段合法性、SFX 前缀内偏移扫描上限 4 MiB）。
 - **D2 zip 双模式**：默认本地头流式；触发 SFX 前缀 / 流式读头失败 / 加密条目（走中央目录验证更稳）时自动回退 spool + 中央目录模式，对用户透明。
 - **D3 分片在 ByteSource 层解决**（除原生 RAR 卷外），ConcatSource 虚拟拼接不落盘；条目级分片组复用同一套规则；RAR 原生卷走 7z.dll/unRAR 适配器。
 - **D4 并发模型**：每条链的每个 FilterStage 一个线程，级间有界缓冲背压；容器条目间**顺序读**（本地头流式的本质约束），Sink 写出用线程池（默认 `min(8, cores/2)`）；互不共享底层流的不同分支整链并行。
 - **D5 性能预算意识**：stored 条目零拷贝直通；缓冲 1 MiB 起步；线程池化避免每条目建线程；实测表明两级都快时管道开销会吃掉收益，压低这项开销是硬指标。
 - **D6 安全（默认开）**：深度上限 10（决策 D-1，2026-10-02：原 8；容器嵌套深度与每容器段内过滤器链长共用此限——过滤器链无上界曾是 DoS 面，4MiB 嵌套 gzip 可栈溢出）；累计输出上限 512 GiB；**spool 磁盘溢出总量同限**（决策 2026-10-05，红队 M6：R 类嵌套的中间字节不进输出侧预算、溢出相位曾无上界——204KB 输入实测可推 200MB spool；RAM 相位仍由 `--spool-ram` 自界，溢出每次写后查总量 + 水位复查，余量 < 待写+64MiB 即熔断，避免 WriteFile 中途 disk-full 的原始错误）；单条目压缩比 >1000 告警/熔断；路径消毒（`..`、绝对路径、**两种分隔符（`/` 与 `\` 同为段边界——混合分隔符穿越曾击穿只按 `/` 分割的消毒器，2026-10-05 红队 C1）**、Windows 保留名 CON/NUL/COM1…、ADS 冒号、尾部点/空格、大小写不敏感重名）；符号链接默认降级；CRC 失败 `--keep-going` 隔离；先写 `.part` 临时名再原子 rename。
 - **D7 加密与分层密码**：详见 §6——每层独立解析密码，支持"层 A 与层 B 密码不同"，密码不落日志。
-- **D8 可观测性**：`--tree` 干跑嵌套结构树；`--progress` 树形进度 + 各级吞吐；`--report json` 输出层级/格式/耗时/校验结果（**不含任何密码信息**）。
+- **D8 可观测性**：`--tree` 干跑嵌套结构树；`--progress` 树形进度 + 各级吞吐（CLI 形态搁置，当前为 GUI 进度窗）；`--report json` 输出层级/格式/耗时/校验结果（**不含任何密码信息**）。
 - **D9 隐写解压（extract-stego / --stego，显式动词）**：只解根文件内藏的压缩包，根文件本体不落盘；未命中 exit 0 + 提示，默认解压行为零变化。检测两条路（仅根 FS 层——流式 detect 无法跳过 GB 级 mdat，需 seek）：① MP4 atom 步进——逐原子头小读、按 size 跳越，非法头处即候选起点（size=1 走 64 位扩展长度，size=0 延伸到 EOF；7z/rar 尾部无结束标记只能经此发现）；② EOCD 反向扫描——末窗口回扫 `PK\x05\x06`，不要求精确到 EOF（允许尾部伪装），区间结果须 CD 签名 `PK\x01\x02` 自证，不可信（zip64 影子值）则回退魔数锚点窗口由 libarchive 依 EOCD64 真值定位。打开：尾接 zip 走 FileSeekView 精确窗口；7z/rar 走 fsBase 窗口交 7z.dll；EOCD 假阳性由试开失败兜回未命中。
 - **D10 嵌套容器免 spool 窗口直读**：父视图 seekable 且条目 **stored** 时，嵌套 zip/7z/rar 直接在父区间随机访问（RegionView 可链式套窗口），免全量 spool 往返。机制：数据相位的 read+seek 双记（libarchive 256KB read-ahead 缓冲命中时 read 回调不触发，seek 是唯一信号）→ 从首读位置回溯 512KiB 定位本地头 → **本地头自证**：魔数 + 未加密 + method==0 之外，还须 `csize==usize==条目尺寸`——压缩流/相邻结构里偶合出现的 stored 头（典型：嵌套 zip 自己的 stored 目录条目原样出现在外层 deflate 的 stored 块中）在此排除，曾因缺自证推出错位区间致子打开中途损坏、且触发随流字节巧合漂移 → 区间直读。安全网：任何失败（deflate 父条目/加密/推导误判/子打开失败）**自动回退 spool 原路径**——回退语义是硬边界（AGENTS 行为红线）。
 
@@ -244,7 +244,8 @@ struct Entry {
 2. 上次成功密码     —— 全局 LRU（人们常对多层的压缩包复用同一密码，先试它最省）
 3. 候选列表顺序尝试 —— -p/--password（可重复）与 --password-file（每行一个）
                        依次注入引擎，凭 6.1 的错误判定区分"密码错"与"数据坏"
-4. 交互询问        —— 仅 TTY；提示必须带层身份：
+4. 交互询问        —— TTY 控制台（回显关闭 ReadConsole 关 ECHO，Ctrl+C 安全）或
+                     GUI 密码弹窗（--gui / 资源管理器启动形态，gui.hpp）；提示必须带层身份：
                        "第 2 层 inner.7z (AES-256) 的密码："
                        回显关闭（ReadConsole 关 ECHO），Ctrl+C 安全退出
 5. 全部失败        —— 该分支标记失败并继续其余分支（--keep-going 语义默认对密码生效）
@@ -268,7 +269,7 @@ struct Entry {
 
 - 密码存放于 `std::unique_ptr<std::byte[]>` 固定容量缓冲，用完 `SecureZeroMemory`；**禁止** `std::string`（堆上残留、SSO 不可控）；
 - 不写日志、不进 `--report`、不出现在进程命令行回显以外的任何地方；命令行传密码本身可被同机进程窥见（Win32 进程可读他进程命令行），文档明示风险并推荐 `--password-file` 或交互输入；
-- 错误密码不做延时惩罚（这是解压工具不是登录系统），但在 report 中记录"该层试探 N 次"便于审计；
+- 错误密码不做延时惩罚（这是解压工具不是登录系统），report 以 passwordPrompts 字段记录该层询问次数（候选试探次数不落 report）便于审计；
 - `--password-file` 权限建议仅当前用户可读（创建时即设）。
 
 ---
@@ -313,12 +314,14 @@ nx extract outer.zip -O out/ --depth 3          # 限制递归深度
 nx tree  outer.tar.gz                           # 只看嵌套结构，不落盘
 nx extract x.7z.001 -p pw1 -p pw2 \
           --password-file pws.txt --no-prompt   # 脚本场景：仅候选列表
-nx extract x.zip --max-bytes 100G --jobs 8 --keep-going
+nx extract x.zip --max-bytes 100G --keep-going
 nx extract x.zip --verify sha256 --report r.json
 nx extract x.zip --spool-ram 256M --temp-dir D:\fast\
 ```
 
-退出码区分：成功 / 部分失败 / 密码缺失或耗尽 / 超限熔断 / 缺分片。输出目录镜像逻辑嵌套树（外层名为顶层目录，过滤器层合成目录），`--flatten` 拍平。
+退出码区分：成功 / 部分失败 / 密码缺失或耗尽 / 超限熔断 / 缺分片。输出目录镜像逻辑嵌套树（外层名为顶层目录，过滤器层合成目录）。搁置未实现：`--jobs`（写出线程池已
+自动取 min(8, cores/2)）、`--flatten`；`--progress` 当前进度为 GUI 进度窗形态，
+CLI 旗标待补。
 
 ---
 
@@ -371,4 +374,4 @@ MSVC /analyze 排雷（`build-analyze.cmd`，低噪子集）为非门辅助，�
 - unblob（嵌套提取先行者）：[github.com/onekey-sec/unblob](https://github.com/onekey-sec/unblob)、[unblob.org](https://unblob.org/)
 - Rust 流式 zip（佐证本地头流式可行性）：[zip crate ZipStreamReader](https://strawlab.org/strand-braid-api-docs/latest/zip/unstable/stream/struct.ZipStreamReader.html)、[stream-unzip crate](https://lib.rs/crates/stream-unzip)
 - PKZIP 分片顺序（.zip 为最后一卷）：[WinZip KB](https://kb.winzip.com/en/130798)、[Super User 讨论](https://superuser.com/questions/15935/how-do-i-reassemble-a-zip-file-that-has-been-emailed-in-multiple-parts)、[合并命令参考](https://askubuntu.com/questions/31298/how-to-extract-and-join-files-xxx-zip-xxx-z01-and-xxx-z02)
-- 本仓库基准数据可由 `python tests/bench.py` 复现（方法即 §9.5）
+- 本仓库基准数据可由 `python tests/bench.py` 复现（方法即 §9 第 5 点）

@@ -24,7 +24,7 @@ package.cmd       # 便携打包 → dist\nx\（需先 build.cmd；可选复制 
 - 必须的 overlay 有两个：`ports-overlay/zlib-ng`（基线端口无 feature，自建 compat）与
   `ports-overlay/libarchive`（crypto 探测修复 + `nx-batch-ctr.patch` WinZip AES 批量化 + 上游 round-trip 测试；补丁背景见 DEVELOP 依赖节）。
 - `build.cmd` 硬编码了本机代理 `127.0.0.1:10808` 与 `VSROOT=C:\Program Files\Microsoft Visual Studio\18\Community`——换机器需改。
-- 7z.dll 运行时按需加载（exe 目录 → Program Files → PATH），负责 7z 全特性与 RAR；缺失回退 libarchive。
+- 7z.dll 运行时按需加载（exe 目录 → 系统目录/PATH → Program Files → Program Files (x86)，见 szcom try_load），负责 7z 全特性与 RAR；缺失回退 libarchive。
 - spool RAM 默认 0=自动（空闲物理内存 50%，64MiB–8GiB，`--spool-ram` 覆盖）；溢出临时目录默认=输出目录（同盘零跨盘 I/O）。
 
 ## 测试（硬门，违例即不可交付）
