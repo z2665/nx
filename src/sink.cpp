@@ -100,7 +100,13 @@ std::string sanitize_segment(const std::string& seg0) {
     while (!s.empty() && (s.back() == '.' || s.back() == ' ')) s.pop_back();
     if (s.empty()) s = "_";
     if (is_reserved_name(s)) s = "_" + s;
-    if (s.size() > 200) s = s.substr(0, 200);
+    if (s.size() > 200) {
+        s = s.substr(0, 200);
+        // 截断可再生产生尾部点/空格（红队 m3：Windows 落盘时自动剥除会致
+        // 落点名与登记名不一致）——同规则复查；全剥空回退占位名
+        while (!s.empty() && (s.back() == '.' || s.back() == ' ')) s.pop_back();
+        if (s.empty()) s = "_";
+    }
     return s;
 }
 

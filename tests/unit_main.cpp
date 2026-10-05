@@ -115,6 +115,12 @@ void test_sanitize_segment() {
     CHECK_EQ(sanitize_segment("tail. "), std::string("tail"));       // 尾部点/空格
     CHECK_EQ(sanitize_segment("..."), std::string("_"));             // 全剥空 → 占位
     CHECK_EQ(sanitize_segment("a\\b"), std::string("a_b"));          // 段内反斜杠（C1 纵深防御）
+    // 截断后再复查（红队 m3）：尾部点/空格不随 200 截断落盘（Windows 会静默
+    // 剥除致落点名与登记名不一致）；全剥空回退占位
+    CHECK_EQ(sanitize_segment(std::string(250, 'a')), std::string(200, 'a'));
+    CHECK_EQ(sanitize_segment(std::string(199, 'x') + std::string(51, '.')),
+             std::string(199, 'x'));
+    CHECK_EQ(sanitize_segment(std::string(250, '.')), std::string("_"));
 }
 
 // ---- match_split_name：分片命名识别（§3.3）----
