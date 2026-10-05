@@ -64,6 +64,9 @@ jobs:
           ) | Where-Object { $_ -and (Test-Path $_) }
           if (-not $cands) {
             Write-Host '[tools] VS Clang 组件与独立 LLVM 均缺席 → choco install llvm'
+            # 有意不钉版本（评审 架构 s-4）：choco 源会下架旧版，钉死反致流水线
+            # 随时间腐化；此为兜底路径（VS 自带 clang 优先），版本漂移由 tidy/audit
+            # 门的输出可见性兜住。对照：tla2tools 走 GitHub 永久 release URL，可钉
             choco install -y --no-progress llvm
             if ($LASTEXITCODE -ne 0) { throw 'choco install llvm 失败' }
           } else {
@@ -93,9 +96,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # 供应链钉扎（评审 架构 m-5）：SHA256 校验——发布流水线里的工具二进制
+          # 不设防 = 被篡改的 TLC 可伪造验证结论。哈希基准取自本地已验证工件
+          $jarHash = 'ED EE 93 33 00 68 FB 7B EE 0B C9 DC 2B C9 28 F5 91 8A 76 35 B5 EE 4D A5 6D BB 48 55 6B 7A FA 6A 2'
           curl -sS -L -o tools/tla2tools.jar `
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
           if ($LASTEXITCODE -ne 0) { throw 'tla2tools 下载失败' }
+          $actual = (Get-FileHash tools/tla2tools.jar -Algorithm SHA256).Hash
+          if ($actual -ne $jarHash.Replace(' ', '')) { throw "tla2tools.jar 哈希不符: $actual" }
+          Write-Host "[tools] tla2tools.jar SHA256 校验通过"
           # 有效性交给 run_tests 的 TLA 门（跑真模型）；此处仅 JVM 与文件体检
           #（TLC -h 以非零码退出，不能用作校验）
           java -version
