@@ -467,6 +467,32 @@ def case_bare_gz():
     write_case("bare_gz", build, {"plain.txt": sha256(content)})
 
 
+def case_bare_zstd():
+    """裸 zstd 过滤器根（评审 spec m5：zstd 此前仅有引擎能力无端到端语料；
+    python 3.14 起标准库 compression.zstd 可造——lz4/.Z 无标准库渠道，仍缺席）"""
+    from compression import zstd
+    content = b"just a zstandard file\n" * 500
+    def build(d):
+        with open(os.path.join(d, "plain.txt.zst"), "wb") as f:
+            f.write(zstd.compress(content))
+    write_case("bare_zstd", build, {"plain.txt": sha256(content)})
+
+
+def case_dup_many():
+    """海量同名条目（红队 m1 锚）：重名编号 2..N 连续且内容一一对应——
+    dedupe 游标推进的编号序与线性重试逐一同构（曾 O(N²)：5000 条 13.2s）"""
+    n = 1500
+    payload = b"duplicate name payload\n"
+    expected = {"dup.txt": sha256(payload)}
+    for i in range(2, n + 1):
+        expected[f"dup ({i}).txt"] = sha256(payload)
+    def build(d):
+        with zipfile.ZipFile(os.path.join(d, "dupmany.zip"), "w", zipfile.ZIP_STORED) as zf:
+            for _ in range(n):
+                zf.writestr("dup.txt", payload)
+    write_case("dup_many", build, expected)
+
+
 
 def case_zspan():
     """PKZIP spanning：data.z01 + data.zip（顺序陷阱 §3.3，拼接后逻辑名 data.zip）"""
@@ -750,6 +776,8 @@ ALL = [
     case_sibling_pw_cache,
     case_missing_volume,
     case_bare_gz,
+    case_bare_zstd,
+    case_dup_many,
     case_zspan,
     case_mixed_filters,
     case_stego_mp4_zip,

@@ -74,6 +74,6 @@ nx.exe 静态链接 libarchive（BSD）、zlib（Zlib）、bzip2（BSD）、libl
 
 ## 文档
 
-- **开发者**：[DEVELOP.md](DEVELOP.md) —— 构建（VS 2026 + vcpkg）、测试体系（63 项门 + fuzz + TLA+/F\* 验证）、架构分层、重构记录
+- **开发者**：[DEVELOP.md](DEVELOP.md) —— 构建（VS 2026 + vcpkg）、测试体系（65 项门 + fuzz + TLA+/F\* 验证）、架构分层、重构记录
 - **设计文档**：[nested-extractor-design.md](nested-extractor-design.md) —— 领域模型、架构、所有权与生命周期、全部关键决策
 - **AI 协作代理**：[AGENTS.md](AGENTS.md) —— 工作区纪律（所有权纪律 P1-P6、安全红线、决策速查、踩坑记录），自动化代理修改本仓库前必读

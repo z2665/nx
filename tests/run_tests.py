@@ -120,7 +120,7 @@ def run_extract_and_compare(r, case, input_file, extra_args, expect_code,
 # 缺失在此显式登记，末尾 gate_completeness 统一 FAIL；期望用例数断言
 # 防 add() 漂移（增删用例须同步此数与 DEVELOP/AGENTS 文档口径）
 MISSING_CORPUS = []
-EXPECTED_CASES = 63   # 占位：以本轮全量实跑为准回填
+EXPECTED_CASES = 65   # 占位：以本轮全量实跑为准回填
 
 
 def main():
@@ -267,6 +267,8 @@ def main():
         ("empty_entries", "empty.zip"),
         ("long_path", "longpath.zip"),
         ("bare_gz", "plain.txt.gz"),
+        ("bare_zstd", "plain.txt.zst"),
+        ("dup_many", "dupmany.zip"),
         ("zspan", "data.zip"),
         ("mixed_filters", "mixed.tar.bz2"),
     ]:

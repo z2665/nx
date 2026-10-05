@@ -80,7 +80,7 @@ triplet `x64-windows-static`，`/MT` 静态 CRT。两个必须的 overlay：
 
 ## CI 硬门（违例即不可交付）
 
-`python tests/run_tests.py` 一把梭，**63 用例全绿是合并前提**；缺工具直接 FAIL（决策 D-2：门就是门）。构成：
+`python tests/run_tests.py` 一把梭，**65 用例全绿是合并前提**；缺工具直接 FAIL（决策 D-2：门就是门）。构成：
 
 | 门 | 内容 | 缺工具时 |
 |---|---|---|
