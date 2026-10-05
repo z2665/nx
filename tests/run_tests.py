@@ -405,6 +405,26 @@ def main():
                                    "--no-prompt"])
         r.check(code == 0, f"默认 ratio 下退出码 {code}（期望 0）")
 
+    # spool 磁盘溢出总量熔断（M6，红队）：zip-in-zip 中间字节不进输出侧预算，
+    # 溢出相位曾无上界。三段：① --max-bytes 1MiB + 强制溢出（--spool-ram
+    # 64KiB）→ exit 3；② 仅强制溢出 → 放行且树吻合；③ 诱饵内层（子打开必败、
+    # 零输出）修复前 spool 全量落盘后报损坏 exit 1，修复后溢出即熔断 exit 3
+    d = os.path.join(CASES, "spool_cap")
+    if os.path.isdir(d):
+        r = add("spool_cap")
+        out = fresh_out("spool_cap")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "spoolbomb.zip"), "-O", out,
+                                       "--max-bytes", "1MiB", "--spool-ram", "64KiB",
+                                       "--no-prompt"])
+        r.check(code == 3, f"--max-bytes 1MiB 退出码 {code}（期望 3）: {stderr.strip()[:150]}")
+        run_extract_and_compare(r, "spool_cap", find_input(d, "spoolbomb.zip"),
+                                ["--spool-ram", "64KiB"], 0)
+        out = fresh_out("spool_cap_decoy")
+        code, _o, stderr, _t = run_nx(["extract", find_input(d, "spooldiskbomb.zip"), "-O", out,
+                                       "--max-bytes", "1MiB", "--spool-ram", "64KiB",
+                                       "--no-prompt"])
+        r.check(code == 3, f"诱饵内层溢出熔断退出码 {code}（期望 3）: {stderr.strip()[:150]}")
+
     # --verify sha256 + --report（D8）：哈希与 ground truth 对比、报告结构断言
     d = os.path.join(CASES, "plain_zip")
     if os.path.isdir(d):

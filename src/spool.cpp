@@ -5,8 +5,8 @@
 
 namespace nx {
 
-SpoolBuffer::SpoolBuffer(size_t ramCap, const std::wstring& tempDir)
-    : ramCap_(ramCap ? ramCap : (64 << 20)), tempDir_(tempDir) {
+SpoolBuffer::SpoolBuffer(size_t ramCap, const std::wstring& tempDir, uint64_t diskCap)
+    : ramCap_(ramCap ? ramCap : (64 << 20)), diskCap_(diskCap), tempDir_(tempDir) {
     diag::track_spool(this);   // S1 哨兵：活性登记
 }
 
@@ -15,8 +15,34 @@ SpoolBuffer::~SpoolBuffer() {
     // 溢出卷 tmp_ 析构自动关句柄（DELETE_ON_CLOSE：内核即删）
 }
 
+// 溢出目录水位（D6"解压中周期复查"的 spool 落点）：余量 < 待写 + 64MiB 即
+// 熔断——把 WriteFile 中途 disk-full 的原始错误换成可读的 LimitError（exit 3）。
+// 查询失败（目录不可解析等）跳过本次检查（与 sink 的水位语义一致）。
+void SpoolBuffer::checkDiskWater(uint64_t pending) {
+    if (waterDir_.empty()) {
+        if (!tempDir_.empty()) {
+            waterDir_ = tempDir_;
+        } else {
+            wchar_t buf[MAX_PATH];
+            UINT n = GetTempPathW(MAX_PATH, buf);
+            if (n == 0 || n >= MAX_PATH) return;   // 解析失败：跳过检查
+            waterDir_.assign(buf, n);
+        }
+    }
+    ULARGE_INTEGER fb{};
+    if (GetDiskFreeSpaceExW(waterDir_.c_str(), &fb, nullptr, nullptr) &&
+        fb.QuadPart < pending + (64ull << 20))
+        throw LimitError("磁盘空间不足（spool 溢出写中止，剩余 " +
+                         format_size(fb.QuadPart) + "）");
+}
+
 void SpoolBuffer::flushToTemp() {
     if (overflowed_) return;
+    // 转换点先过两道闸（M6）：RAM 全量即将整段落盘
+    if (total_ > diskCap_)
+        throw LimitError("spool 磁盘溢出超过上限 " + format_size(diskCap_) +
+                         "（--max-bytes 可调）");
+    checkDiskWater(ram_.size());
     // 唯一临时文件工厂（res/，P2 圈禁）：FILE_FLAG_DELETE_ON_CLOSE——句柄一关
     // （正常析构/异常退出/进程被杀）OS 即删；独占句柄天然满足"唯一持有者"；
     // spool 读经同一句柄（不按路径重开），无冲突。
@@ -64,6 +90,13 @@ void SpoolBuffer::append(std::span<const byte> p) {
         off += wrote;
     }
     total_ += p.size();
+    // M6：溢出总量熔断 + 水位周期复查（每次溢出写都查——块粒度下开销可忽略，
+    // GetDiskFreeSpaceExW 仅元数据查询）。上限只约溢出相位：RAM 相位由 ramCap
+    // 自界（--spool-ram），磁盘才是无上界的那个
+    if (total_ > diskCap_)
+        throw LimitError("spool 磁盘溢出超过上限 " + format_size(diskCap_) +
+                         "（--max-bytes 可调）");
+    checkDiskWater(p.size());
 }
 
 void SpoolBuffer::finish() {

@@ -6,6 +6,9 @@
 //   分块 ≤16MiB（8GiB 环整段 cast DWORD 截断成 0 的教训，案例 M）
 // · RAM 上限 ramCap 由调用方注入（自动策略：空闲物理内存 50%，64MiB–8GiB，
 //   装配单点 = walker.cpp resolve_runtime_options）
+// · 磁盘溢出总量熔断 diskCap（=会话 maxBytes）+ 水位周期复查（余量<64MiB 即
+//   LimitError，红队 M6：溢出路径曾无上界——zip-in-zip 的中间字节不进任何
+//   预算，204KB 输入实测可推 200MB spool）
 // · ioM_ 串行化句柄访问——read_at 支持多线程并发（SeekView 契约，views.hpp）
 #pragma once
 #include "bytesource.hpp"
@@ -17,8 +20,11 @@ namespace nx {
 
 class SpoolBuffer : public std::enable_shared_from_this<SpoolBuffer> {
 public:
-    // ramCap：RAM 驻留上限；tempDir：溢出目录（空 = 系统临时目录）
-    SpoolBuffer(size_t ramCap, const std::wstring& tempDir);
+    // ramCap：RAM 驻留上限；tempDir：溢出目录（空 = 系统临时目录）；
+    // diskCap：磁盘溢出总量上限（UINT64_MAX = 不限）——仅约束溢出相位，
+    // RAM 相位由 ramCap 自界
+    SpoolBuffer(size_t ramCap, const std::wstring& tempDir,
+                uint64_t diskCap = UINT64_MAX);
     ~SpoolBuffer();
 
     SpoolBuffer(const SpoolBuffer&) = delete;
@@ -58,9 +64,11 @@ public:
 
 private:
     void flushToTemp();
+    void checkDiskWater(uint64_t pending);   // 溢出目录水位（D6 周期复查）
     size_t readAt(uint64_t pos, std::span<byte> buf);
 
     size_t ramCap_;
+    uint64_t diskCap_;
     std::wstring tempDir_;
     std::vector<byte> ram_;
     res::TempFile tmp_;   // P2 圈禁：溢出卷唯一工厂（DELETE_ON_CLOSE）
@@ -68,6 +76,7 @@ private:
     bool overflowed_ = false;
     bool finished_ = false;
     std::mutex ioM_;                // 串行化文件句柄访问
+    std::wstring waterDir_;         // 水位检查目录（惰性解析一次）
 };
 
 } // namespace nx

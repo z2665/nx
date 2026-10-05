@@ -44,6 +44,8 @@ struct EngineOptions {
     size_t spoolRam = 64 << 20;
     std::wstring tempDir;
     InputMeter* meter = nullptr;   // 根输入计量（进度窗分母/分子；根层直读视图挂，spool 卷不挂）
+    uint64_t spoolDiskCap = UINT64_MAX;   // spool 磁盘溢出总量熔断（装配=会话 maxBytes；
+                                          // 红队 M6：溢出路径曾无上限无水位，R 类嵌套可低成本写满磁盘）
 };
 
 // 一个卷的数据来源（三选一）：文件系统路径 / spool 窗口（条目级多卷）/

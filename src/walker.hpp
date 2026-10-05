@@ -25,6 +25,7 @@ public:
         e.spoolRam = opt.spoolRam;
         e.tempDir = tempDir;
         e.meter = &meter;
+        e.spoolDiskCap = opt.maxBytes;   // M6：spool 溢出总量与累计输出同限
         return e;
     }
 };

@@ -172,7 +172,7 @@ void iterate_container(Session& s, const std::shared_ptr<ContainerReader>& reade
                 ps.zspan = m->zspan;
                 ps.native = m->nativeRar || m->nativeOldRar;
                 ps.canonical = ps.native ? m->key + ".rar" : m->key;
-                ps.spool = std::make_shared<SpoolBuffer>(s.opt.spoolRam, s.tempDir);
+                ps.spool = std::make_shared<SpoolBuffer>(s.opt.spoolRam, s.tempDir, s.opt.maxBytes);
             }
             PendingSet& ps = pending.back();
             // 新式 partN 与旧式 rNN 混在同 key（异常命名）：以先到者为准
@@ -191,7 +191,7 @@ void iterate_container(Session& s, const std::shared_ptr<ContainerReader>& reade
                 ps.key = base;
                 ps.native = true;
                 ps.canonical = base + ".rar";
-                ps.spool = std::make_shared<SpoolBuffer>(s.opt.spoolRam, s.tempDir);
+                ps.spool = std::make_shared<SpoolBuffer>(s.opt.spoolRam, s.tempDir, s.opt.maxBytes);
                 bufferMember(s, ps, 1, e);
                 continue;
             }

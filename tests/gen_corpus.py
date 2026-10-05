@@ -279,6 +279,37 @@ def case_empty_entries():
                {"empty.zip/placeholder.bin": sha256(b"")})
 
 
+def case_spool_cap():
+    """spool 磁盘溢出总量熔断（红队 M6 回归）：zip-in-zip 的中间字节不进任何
+    输出侧预算，溢出路径曾无上界无水位。两个输入共享一套断言（run_tests）：
+    spoolbomb.zip：外层 deflate 载荷=不可压缩内层 zip（必走 spool 全量往返）
+      ① --max-bytes 1MiB + --spool-ram 64KiB → 溢出相位超限 exit 3
+      ② 仅 --spool-ram 64KiB → 默认上限放行且树吻合（熔断不误伤正常溢出）
+    spooldiskbomb.zip：内层 stored 诱饵条目（zip 头+全零，外层把 2MiB 压到
+    KB 级，子打开必败、最终零输出）——修复前 spool 全量落盘后才报损坏
+    exit 1，修复后溢出即熔断 exit 3（差异即回归点）"""
+    inner = {"big.bin": random.Random(20261005).randbytes(2 << 20)}
+    ib = zip_bytes(inner)
+    decoy = b"PK\x03\x04" + bytes(2 << 20)   # zip 头 + 全零：可被外层压缩的假子档
+    dbuf = io.BytesIO()
+    with zipfile.ZipFile(dbuf, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("broken.zip", decoy)
+    decoy_inner = dbuf.getvalue()
+    def build(d):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("archive.zip", ib)
+        with open(os.path.join(d, "spoolbomb.zip"), "wb") as f:
+            f.write(buf.getvalue())
+        buf2 = io.BytesIO()
+        with zipfile.ZipFile(buf2, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("archive.zip", decoy_inner)
+        with open(os.path.join(d, "spooldiskbomb.zip"), "wb") as f:
+            f.write(buf2.getvalue())
+    write_case("spool_cap", build,
+               {f"spoolbomb.zip/archive.zip/{k}": v for k, v in tree_hash(inner).items()})
+
+
 def case_long_path():
     """超长输出路径（MAX_PATH）：rel 271 字符 → 测试机输出根下最终路径 >320，
     叠加 .nxpart- 临时名后缀稳超 260。Sink 的 CreateFileW/MoveFileExW 必须经
@@ -710,6 +741,7 @@ ALL = [
     case_mixed_sep_zip,
     case_mixed_sep_tar,
     case_empty_entries,
+    case_spool_cap,
     case_long_path,
     case_bad_crc,
     case_depth_bomb,

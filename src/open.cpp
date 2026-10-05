@@ -110,7 +110,7 @@ OpenOutcome try_open(Format fmt,
 }
 
 std::shared_ptr<SpoolBuffer> spool_all(PushbackSource& src, const EngineOptions& opt) {
-    auto s = std::make_shared<SpoolBuffer>(opt.spoolRam, opt.tempDir);
+    auto s = std::make_shared<SpoolBuffer>(opt.spoolRam, opt.tempDir, opt.spoolDiskCap);
     std::vector<byte> buf(256 << 10);
     for (;;) {
         size_t n = src.read(buf);
