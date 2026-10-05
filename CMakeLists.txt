@@ -5,9 +5,6 @@ set(CMAKE_CXX_STANDARD 23)   # 批次 1：C++20→23（std::expected/Result 别�
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-# 版本头生成到构建目录（随构建产物，不入仓）
-configure_file(src/version.hpp.in ${CMAKE_BINARY_DIR}/version.hpp @ONLY)
-
 if(MSVC)
   add_compile_options(/utf-8 /W4 /permissive-)
   add_compile_definitions(_WIN32_WINNT=0x0A00 NOMINMAX WIN32_LEAN_AND_MEAN CRT_SECURE_NO_WARNINGS)
@@ -86,7 +83,10 @@ if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
   target_link_options(nx PRIVATE /LTCG)
 endif()
 
-target_include_directories(nx PRIVATE src ${CMAKE_BINARY_DIR})
+target_include_directories(nx PRIVATE src)
+# 版本经编译期宏注入（源=project VERSION）——不用生成头：clang-tidy/audit 等
+# 旁路工具链自建编译参数，生成头的构建目录 include 会漏（main.cpp 兜底宏兜住）
+target_compile_definitions(nx PRIVATE NX_VERSION="${PROJECT_VERSION}")
 target_link_libraries(nx PRIVATE
   LibArchive::LibArchive
   ZLIB::ZLIB

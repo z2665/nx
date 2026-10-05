@@ -483,9 +483,9 @@ def case_dup_many():
     dedupe 游标推进的编号序与线性重试逐一同构（曾 O(N²)：5000 条 13.2s）"""
     n = 1500
     payload = b"duplicate name payload\n"
-    expected = {"dup.txt": sha256(payload)}
+    expected = {"dupmany.zip/dup.txt": sha256(payload)}
     for i in range(2, n + 1):
-        expected[f"dup ({i}).txt"] = sha256(payload)
+        expected[f"dupmany.zip/dup ({i}).txt"] = sha256(payload)
     def build(d):
         with zipfile.ZipFile(os.path.join(d, "dupmany.zip"), "w", zipfile.ZIP_STORED) as zf:
             for _ in range(n):

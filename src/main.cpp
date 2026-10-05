@@ -4,7 +4,11 @@
 // 双模式 exe（/SUBSYSTEM:WINDOWS）：资源管理器右键启动不闪黑框；
 // 从终端/管道启动时继承句柄，控制台与管道输出行为与常规 CLI 完全一致。
 #include "walker.hpp"
-#include "version.hpp"   // 构建期生成（CMake project VERSION 唯一源）
+// 版本宏由 CMake 注入（源=project VERSION，勿在源码改版本）；
+// clang-tidy/audit 等旁路工具链无此定义，兜底值仅为可编译
+#ifndef NX_VERSION
+#define NX_VERSION "dev"
+#endif
 #include "password.hpp"
 #include "menu.hpp"
 #include "gui.hpp"
@@ -158,7 +162,7 @@ int main() {
     std::string cmd = args[1];
     if (cmd == "--help" || cmd == "-h" || cmd == "help") { usage(); return 0; }
     if (cmd == "--version" || cmd == "-v") {
-        log_out("nx %s\n", nx::kVersion);
+        log_out("nx %s\n", NX_VERSION);
         return 0;
     }
 
