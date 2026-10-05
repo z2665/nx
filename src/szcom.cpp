@@ -129,9 +129,13 @@ std::wstring try_load(const std::wstring& path) {
 bool dll_available() {
     // 测试钩子（默认关闭）：NX_NO_7ZDLL=1 强制视为不可用——覆盖 libarchive 的
     // 7z/rar 回退路径（该路径仅在 7z.dll 缺失/打开失败时自然触发，套件外无法
-    // 强制到达）。只影响探测结果，不改变任何回退语义本身
-    // NOLINT：进程内从不并发修改环境（无 setenv/putenv），CRT getenv 只读安全
+    // 强制到达）。只影响探测结果，不改变任何回退语义本身。
+    // C4996 按源头抑制（项目源零警告纪律）：本进程从不并发修改环境（无
+    // setenv/putenv），CRT getenv 只读安全——concurrency 层面由 tidy NOLINT 覆盖
+#pragma warning(push)
+#pragma warning(disable : 4996)
     if (std::getenv("NX_NO_7ZDLL")) return false;   // NOLINT(concurrency-mt-unsafe)
+#pragma warning(pop)
     if (g_dll) return true;
     if (!g_error.empty()) return false;
     std::wstring r = try_load(L"7z.dll");   // 默认搜索：exe 目录、PATH
@@ -627,7 +631,7 @@ SevenZipReader::SevenZipReader(Format fmt, std::map<std::wstring, VolumeSource> 
         }
         if (probe != UINT32_MAX) {
             try {
-                auto spool = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
+                auto spool = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir, opt_.spoolDiskCap);
                 extractOne(probe, spool.get());
                 auto& slot = cache_[probe];
                 slot.spool = std::move(spool);
@@ -826,7 +830,7 @@ void SevenZipReader::materializeBatch(uint32_t start) {
         if (items_[i].isDir) continue;
         uint64_t sz = items_[i].size == UINT64_MAX ? 0 : items_[i].size;
         if (!idxs.empty() && bytes + sz > budget) break;   // 首条目必入批（单个可超预算）
-        auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
+        auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir, opt_.spoolDiskCap);
         idxs.push_back(i);
         targets.emplace(i, sp.get());
         hold.push_back(std::move(sp));
@@ -859,7 +863,7 @@ void SevenZipReader::materializeBatch(uint32_t start) {
     // 仅单条重试被请求条目（失败按原语义抛），其后条目触发从自身开始的
     // 新批（不含坏点），keepGoing 语义与逐条目时代一致
     if (!items_[start].isDir) {
-        auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir);
+        auto sp = std::make_shared<SpoolBuffer>(opt_.spoolRam, opt_.tempDir, opt_.spoolDiskCap);
         extractOne(start, sp.get());
         uint64_t sz = items_[start].size == UINT64_MAX ? sp->size() : items_[start].size;
         evictForBudget(sz, batchBudget());
