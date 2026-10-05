@@ -4,6 +4,7 @@
 // 双模式 exe（/SUBSYSTEM:WINDOWS）：资源管理器右键启动不闪黑框；
 // 从终端/管道启动时继承句柄，控制台与管道输出行为与常规 CLI 完全一致。
 #include "walker.hpp"
+#include "version.hpp"   // 构建期生成（CMake project VERSION 唯一源）
 #include "password.hpp"
 #include "menu.hpp"
 #include "gui.hpp"
@@ -28,9 +29,10 @@ namespace {
 
 void usage() {
     log_out(
-        "nx - 流式嵌套压缩包解压工具 (M3)\n"
+        "nx - 流式嵌套压缩包解压工具\n"
         "\n"
         "用法:\n"
+        "  nx --version                       # 版本号（发版对齐 CMake project VERSION）\n"
         "  nx extract <输入...> -O <输出目录> [选项]\n"
         "  nx extract-here <输入...>          # 解压到各输入所在目录（不建根目录层）\n"
         "  nx extract-into <输入>             # GUI 询问前缀目录（默认=压缩文件名）\n"
@@ -155,6 +157,10 @@ int main() {
     if (argc < 2) { usage(); return 64; }
     std::string cmd = args[1];
     if (cmd == "--help" || cmd == "-h" || cmd == "help") { usage(); return 0; }
+    if (cmd == "--version" || cmd == "-v") {
+        log_out("nx %s\n", nx::kVersion);
+        return 0;
+    }
 
     // ---- 右键菜单管理----
     if (cmd == "menu") {

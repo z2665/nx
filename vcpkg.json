@@ -1,13 +1,15 @@
 {
   "name": "nx",
-  "version": "0.1.0-m0",
-  "description": "nx - streaming nested archive extractor (M0)",
+  "version": "0.1.0",
+  "description": "nx - streaming nested archive extractor",
   "builtin-baseline": "e03dc9b29710050cd1018bc5674688108658d327",
   "dependencies": [
     "libarchive",
     {
       "name": "zlib-ng",
-      "features": ["compat"]
+      "features": [
+        "compat"
+      ]
     },
     "bzip2",
     "liblzma",

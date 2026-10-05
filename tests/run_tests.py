@@ -387,6 +387,9 @@ def main():
         code, _o, _e, _t = run_nx(["extract", find_input(d, "plain.zip"), "-O",
                                    os.path.join(WORK, "arg_validation_out")] + bad)
         r.check(code == 64, f"{' '.join(bad)} 退出码 {code}（期望 64）")
+    # --version：exit 0 且带版本号（发版对齐锚——版本源=CMake project VERSION）
+    code, out, _e, _t = run_nx(["--version"])
+    r.check(code == 0 and "nx 0." in out, f"--version 退出码 {code}/输出 {out[:30]!r}")
 
     # 缺分片：退出码 4
     d = os.path.join(CASES, "missing_volume")

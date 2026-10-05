@@ -1,0 +1,6 @@
+// version.hpp.in —— 构建期由 CMake 生成到 build/version.hpp（唯一版本源 =
+// CMakeLists 的 project VERSION；发版改一处）。勿手改生成物
+#pragma once
+namespace nx {
+inline constexpr const char* kVersion = "@nx_VERSION@";
+}

@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(nx LANGUAGES CXX)
+project(nx VERSION 0.1.0 LANGUAGES CXX)   # 唯一版本源：--version/发版对齐改这里
 
 set(CMAKE_CXX_STANDARD 23)   # 批次 1：C++20→23（std::expected/Result 别名承接；ABI 无影响）
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+# 版本头生成到构建目录（随构建产物，不入仓）
+configure_file(src/version.hpp.in ${CMAKE_BINARY_DIR}/version.hpp @ONLY)
 
 if(MSVC)
   add_compile_options(/utf-8 /W4 /permissive-)
@@ -83,7 +86,7 @@ if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
   target_link_options(nx PRIVATE /LTCG)
 endif()
 
-target_include_directories(nx PRIVATE src)
+target_include_directories(nx PRIVATE src ${CMAKE_BINARY_DIR})
 target_link_libraries(nx PRIVATE
   LibArchive::LibArchive
   ZLIB::ZLIB
