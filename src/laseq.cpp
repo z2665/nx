@@ -63,8 +63,15 @@ bool LaSeqReader::next(ContainerEntry& out) {
 }
 
 bool LaSeqReader::nextInternal(ContainerEntry& out) {
+    // drained（设计 §4.1 状态机）：EOF 后不再触碰 libarchive——zip reader 的
+    // eof 态结构上二次 next_header 报 FATAL INTERNAL ERROR。全空/纯目录容器
+    // 的 probe 轮即会耗尽迭代（无数据条目可停留），主迭代随后必踩此路径
+    if (eofHit_) return false;
     int r = archive_read_next_header2(a_, e_.get());
-    if (r == ARCHIVE_EOF) return false;
+    if (r == ARCHIVE_EOF) {
+        eofHit_ = true;
+        return false;
+    }
     if (r != ARCHIVE_OK && r != ARCHIVE_WARN) {
         FailKind fk = classify_msg(archive_error_string(a_));
         std::string m = archive_error_string(a_) ? archive_error_string(a_) : "读取头失败";

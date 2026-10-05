@@ -253,6 +253,7 @@ def main():
         ("zip_slip", "slip.zip"),
         ("mixed_sep_zip", "mixed.zip"),
         ("mixed_sep_tar", "mixed.tar"),
+        ("empty_entries", "empty.zip"),
         ("long_path", "longpath.zip"),
         ("bare_gz", "plain.txt.gz"),
         ("zspan", "data.zip"),

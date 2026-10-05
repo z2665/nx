@@ -264,6 +264,21 @@ def case_mixed_sep_tar():
                 "mixed.tar/ok_t.txt": sha256(b"ok\n")})
 
 
+def case_empty_entries():
+    """全空条目容器（红队 M5 回归）：probe 轮耗尽迭代到 EOF 后，主迭代
+    不得在 libarchive eof 态上二次 next_header（曾报 INTERNAL ERROR 且
+    exit 1——合法空 zip 被判部分失败）"""
+    def build(d):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("sub/", b"")
+            zf.writestr("placeholder.bin", b"")
+        with open(os.path.join(d, "empty.zip"), "wb") as f:
+            f.write(buf.getvalue())
+    write_case("empty_entries", build,
+               {"empty.zip/placeholder.bin": sha256(b"")})
+
+
 def case_long_path():
     """超长输出路径（MAX_PATH）：rel 271 字符 → 测试机输出根下最终路径 >320，
     叠加 .nxpart- 临时名后缀稳超 260。Sink 的 CreateFileW/MoveFileExW 必须经
@@ -694,6 +709,7 @@ ALL = [
     case_zip_slip,
     case_mixed_sep_zip,
     case_mixed_sep_tar,
+    case_empty_entries,
     case_long_path,
     case_bad_crc,
     case_depth_bomb,

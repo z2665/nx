@@ -185,6 +185,7 @@ private:
     uint64_t entryPos_ = 0;      // 已拉入 leftover 的条目内偏移
     std::vector<uint64_t> sizes_;
     bool dataPhase_ = false;     // 当前条目已开始数据读取（激活视图访问记录）
+    bool eofHit_ = false;        // drained：libarchive 已返 EOF，后续 next 恒 EOF
 };
 
 // 条目源：对读取器只持弱引用（所有权模型 fixed 变体——父方向强边消除，
