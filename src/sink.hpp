@@ -6,6 +6,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <unordered_map>
 
 namespace nx {
 
@@ -56,6 +57,9 @@ private:
     bool waited_ = false;                // S5：waitAll 已调用（INV-SINK 析构前置）
     std::mutex m_;                       // 重名登记/校验列表（firstHardError 的锁在 HardErrorSlot 内）
     std::set<std::string> usedLower_;    // 大小写不敏感重名登记
+    // 重名候选号游标（红队 m1：原「从 2 线性重试」对 N 同名条目 O(N²)——
+    // 5000 条实测 13.2s。登记永不撤销 → 游标单调前进即正确）
+    std::unordered_map<std::string, int> nextDedupe_;
     std::vector<VerifiedFile> verified_;
 };
 

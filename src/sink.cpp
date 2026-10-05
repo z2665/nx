@@ -160,17 +160,23 @@ std::string Sink::dedupe(const std::string& rel) {
     std::lock_guard<std::mutex> lk(m_);
     std::string low = ascii_lower(r);
     if (usedLower_.insert(low).second) return r;   // 首用
-    // 在最后扩展名前插入 " (n)"
+    // 在最后扩展名前插入 " (n)"——候选号游标按「目录+基本名+扩展名」记忆，
+    // 摊还 O(1)（红队 m1：原从 2 线性重试，N 同名条目 O(N²)，5000 条 13.2s；
+    // 登记从不撤销，游标单调前进即与线性重试逐一同构）
     size_t slash = r.find_last_of('/');
     std::string dir = slash == std::string::npos ? "" : r.substr(0, slash + 1);
     std::string name = slash == std::string::npos ? r : r.substr(slash + 1);
     size_t dot = name.find_last_of('.');
     std::string base = (dot == std::string::npos || dot == 0) ? name : name.substr(0, dot);
     std::string ext = (dot == std::string::npos || dot == 0) ? "" : name.substr(dot);
-    for (int n = 2;; ++n) {
-        std::string cand = dir + base + " (" + std::to_string(n) + ")" + ext;
-        if (usedLower_.insert(ascii_lower(cand)).second) return cand;
-    }
+    int& n = nextDedupe_[ascii_lower(dir) + "\x01" + ascii_lower(base) + "\x01" +
+                         ascii_lower(ext)];
+    if (n < 1) n = 1;   // 候选号从 2 起（与旧线性重试的命名序一致）
+    std::string cand;
+    do {
+        cand = dir + base + " (" + std::to_string(++n) + ")" + ext;
+    } while (!usedLower_.insert(ascii_lower(cand)).second);
+    return cand;
 }
 
 void Sink::emitDir(const std::string& rel, int displayDepth) {
