@@ -52,12 +52,21 @@ void handle_branch_error(Session& s, const std::string& where) {
     } catch (CorruptError& e) {
         s.stats.sawCorrupt = true;
         s.stats.corrupt.fetch_add(1);
-        log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
-        if (!s.opt.keepGoing) throw;
+        if (s.opt.keepGoing) {
+            log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
+        } else {
+            // 上抛路径不在本地打印——异常将直达 main 的顶层 catch，那里统一
+            // 打一次（原实现两处各打一遍，红队 m2：同错误日志成对出现）。
+            // 条目上下文并入消息随异常上行，main 打出的行内容不变
+            throw CorruptError(where + "：" + e.what());
+        }
+    } catch (Cancelled&) {
+        throw;   // 用户取消：不打印不包装——Cancelled 派生自 Error，须先于
+                 // 下方分支接住（包装成裸 Error 会吞掉 main 侧的静默退出语义）
     } catch (Error& e) {
         s.stats.branchesFailed.fetch_add(1);
-        log_err("[nx] ✗ %s：%s\n", where.c_str(), e.what());
-        throw;   // 硬错误（I/O 等）一律中止
+        // 同 CorruptError 上抛分支：上下文并入消息，main 打一次
+        throw Error(where + "：" + e.what());   // 硬错误（I/O 等）一律中止
     }
 }
 
